@@ -85,7 +85,8 @@ class Handler(BaseHTTPRequestHandler):
             # what exhausts the hub.
             state["requests"] += 1
             return self._reply(200, media_probe(
-                int(request.get("camera", 0)), int(request.get("seconds", 5))))
+                int(request.get("camera", 0)), int(request.get("seconds", 5)),
+                request.get("save")))
 
         unsafe = [name for name in probe.methods_in(request)
                   if not probe.is_safe(name)]
@@ -122,23 +123,29 @@ def install_key_exchange_spy() -> None:
     """
     from pytapo.media_stream import crypto
 
-    original = crypto.AESHelper.from_keyexchange_and_password
+    # Unwrap to the plain function so cls is threaded through. Capturing the
+    # bound classmethod would pin cls to AESHelper and silently defeat any
+    # subclass the integration installs.
+    original = crypto.AESHelper.from_keyexchange_and_password.__func__
 
-    def spy(key_exchange, *args, **kwargs):
+    def spy(cls, key_exchange, *args, **kwargs):
         raw = (key_exchange.decode(errors="replace")
                if isinstance(key_exchange, bytes) else str(key_exchange))
         state["kx"] = {
             "length": len(raw),
             "space_parts": len(raw.split(" ")),
             "has_nonce": "nonce" in raw,
+            "empty_nonce": 'nonce=""' in raw.replace(" ", ""),
+            "helper": cls.__name__,
             "structure": re.sub(r'([^",= ]{7,})', lambda m: m.group(1)[:6] + "…", raw),
         }
-        return original(key_exchange, *args, **kwargs)
+        return original(cls, key_exchange, *args, **kwargs)
 
-    crypto.AESHelper.from_keyexchange_and_password = staticmethod(spy)
+    crypto.AESHelper.from_keyexchange_and_password = classmethod(spy)
 
 
-def media_probe(camera_index: int, seconds: int) -> dict:
+def media_probe(camera_index: int, seconds: int,
+                save: str | None = None) -> dict:
     """Replay a known-good download over the session's existing login."""
     client = state["client"]
     state["kx"] = None
@@ -155,10 +162,17 @@ def media_probe(camera_index: int, seconds: int) -> dict:
 
     async def pull():
         received = 0
-        async for chunk in client.iter_recording(camera, start, start + seconds):
-            received += len(chunk)
-            if received > 200_000:
-                break
+        handle = open(save, "wb") if save else None
+        try:
+            async for chunk in client.iter_recording(camera, start, start + seconds):
+                received += len(chunk)
+                if handle:
+                    handle.write(chunk)
+                if received > 200_000:
+                    break
+        finally:
+            if handle:
+                handle.close()
         return received
 
     result = {"clip": start, "video_type": clip.get("video_type")}
@@ -215,6 +229,7 @@ def main() -> int:
                         help="replay a known-good download over the "
                              "running session")
     parser.add_argument("--camera", type=int, default=0)
+    parser.add_argument("--save", help="write the media test stream here")
     parser.add_argument("--health", action="store_true")
     parser.add_argument("--stop", action="store_true")
     args = parser.parse_args()
@@ -223,8 +238,8 @@ def main() -> int:
         print(call(args.port, "/", args.send))
         return 0
     if args.media:
-        print(call(args.port, "/media",
-                   json.dumps({"camera": args.camera})))
+        print(call(args.port, "/media", json.dumps(
+            {"camera": args.camera, "save": args.save})))
         return 0
     if args.health:
         print(call(args.port, "/health"))

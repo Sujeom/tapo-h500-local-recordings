@@ -20,16 +20,33 @@ class _StubSession:
         return None
 
 
+class _StubAESHelper:
+    """Mimics pytapo's guard: any falsy nonce is rejected outright."""
+
+    seen = None
+
+    def __init__(self, username, nonce, cloud_password, super_secret_key,
+                 encryptionMethod):
+        if not nonce:
+            raise ValueError("Nonce is missing from key exchange")
+        _StubAESHelper.seen = nonce
+
+
 def _install_stubs():
     pytapo = types.ModuleType("pytapo")
     pytapo.Tapo = type("Tapo", (), {})
     media_stream = types.ModuleType("pytapo.media_stream")
     session = types.ModuleType("pytapo.media_stream.session")
     session.HttpMediaSession = _StubSession
+    crypto = types.ModuleType("pytapo.media_stream.crypto")
+    crypto.AESHelper = _StubAESHelper
+    media_stream.session = session
+    media_stream.crypto = crypto
     sys.modules.update({
         "pytapo": pytapo,
         "pytapo.media_stream": media_stream,
         "pytapo.media_stream.session": session,
+        "pytapo.media_stream.crypto": crypto,
     })
     package = types.ModuleType("tapo_h500")
     package.__path__ = [str(COMPONENT)]
@@ -137,6 +154,36 @@ class ApiTest(unittest.TestCase):
         self.assertIsNone(client.detections(CAMERA, 0, 10))
         self.assertIsNone(client.detections(CAMERA, 0, 10))
         self.assertEqual(Hub.calls, 1)
+
+
+class EmptyNonceTest(unittest.TestCase):
+    """The H500 reports media encryption on, then sends nonce="".
+
+    pytapo rejects any falsy nonce, which broke every download. An empty nonce
+    is still usable — the hub derives the same key from it — so it has to reach
+    the key derivation intact rather than being rejected or substituted.
+    """
+
+    def test_empty_nonce_is_truthy_but_still_empty(self):
+        nonce = api._EmptyNonce()
+        self.assertTrue(nonce)
+        self.assertEqual(nonce, b"")
+        self.assertEqual(len(nonce), 0)
+        # Key derivation must see an empty nonce, not a placeholder.
+        self.assertEqual(nonce + b":" + b"PWD", b":PWD")
+
+    def test_empty_nonce_survives_the_guard(self):
+        api.H500AESHelper("admin", b"", "cloud", "", object())
+        self.assertEqual(_StubAESHelper.seen, b"")
+        self.assertTrue(_StubAESHelper.seen)
+
+    def test_real_nonce_is_passed_through_untouched(self):
+        api.H500AESHelper("admin", b"abc123", "cloud", "", object())
+        self.assertEqual(_StubAESHelper.seen, b"abc123")
+
+    def test_session_module_uses_the_patched_helper(self):
+        from pytapo.media_stream import session as patched
+        self.assertIs(patched.AESHelper, api.H500AESHelper)
 
 
 class ClipsTest(unittest.TestCase):

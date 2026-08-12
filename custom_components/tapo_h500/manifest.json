@@ -5,8 +5,8 @@
   "codeowners": [],
   "config_flow": true,
   "dependencies": ["ffmpeg", "frontend", "http", "media_source"],
-  "documentation": "https://github.com/sujeo/tapo-h500-local-recordings",
-  "issue_tracker": "https://github.com/sujeo/tapo-h500-local-recordings/issues",
+  "documentation": "https://github.com/Sujeom/tapo-h500-local-recordings",
+  "issue_tracker": "https://github.com/Sujeom/tapo-h500-local-recordings/issues",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "requirements": ["pytapo==3.4.18"]
