@@ -6,7 +6,7 @@ in once and every later request rides that session. Running one process per
 experiment is what wedges the hub. This keeps a single process alive and lets
 anything on the machine send requests to it.
 
-    tools/h500_session.py --host 192.168.11.5 &        # start it
+    tools/h500_session.py --host 192.168.1.50 &        # start it
     tools/h500_session.py --send '{"method":"get","led":{"name":"config"}}'
     tools/h500_session.py --health
     tools/h500_session.py --stop
