@@ -82,7 +82,27 @@ uploaded to GitHub:
 6. Go to **Settings → Devices & services → Add integration**.
 7. Search for **Tapo H500 Local Recordings**.
 
-For a manual installation, copy `custom_components/tapo_h500` into Home
+### Installing from a self-hosted GitLab or Gitea
+
+HACS accepts **only public GitHub repositories**, so a self-hosted origin cannot
+be added as a custom repository. Install from a clone instead — clone this
+repository on the machine running Home Assistant and run:
+
+```
+./tools/install-to-ha.sh /config
+```
+
+Pass whichever directory holds `configuration.yaml`. Updating is the same
+command after a pull:
+
+```
+git pull && ./tools/install-to-ha.sh /config
+```
+
+Restart Home Assistant afterwards. The script replaces the component wholesale
+rather than merging, so files removed upstream do not linger.
+
+For a one-off manual installation, copy `custom_components/tapo_h500` into Home
 Assistant's `custom_components` directory and restart.
 
 ## Configuration
