@@ -102,17 +102,26 @@ def classify(mimetype: str, plaintext: bytes) -> tuple[str, object]:
     return "json", message
 
 
-async def probe(client, camera, block: str, timeout: float) -> tuple[str, object]:
+def query_for(camera, block: str, player_id: str, media_type: bool) -> dict:
+    """The verified download query string with only "type" changed."""
+    query = {
+        "deviceId": camera["device_id"],
+        "type": block,
+        "playerId": player_id,
+    }
+    if media_type:
+        query["media_type"] = 0
+    return query
+
+
+async def probe(client, camera, block: str, timeout: float,
+                media_type: bool) -> tuple[str, object]:
     session = api.H500MediaSession(
         ip=client.host, cloud_password=client.cloud_password,
         super_secret_key=client._super_secret_key,
         encryptionMethod=client._encryption_method, port=8800,
         username=client.username, window_size=25,
-        query_params={
-            "deviceId": camera["device_id"],
-            "type": block,
-            "playerId": client.player_id,
-        },
+        query_params=query_for(camera, block, client.player_id, media_type),
     )
     payload = build_payload(block, camera, client.player_id, client._client_id)
     async with session:
@@ -176,6 +185,10 @@ def self_test() -> None:
     payload = build_payload("live", {"device_id": "c", "mac": "m"}, "p", 1)
     assert payload["params"]["live"]["dev_id"] == "c"
     assert payload["params"]["live"]["channels"] == [0]
+    query = query_for({"device_id": "c"}, "live", "p", True)
+    assert query == {"deviceId": "c", "type": "live", "playerId": "p",
+                     "media_type": 0}
+    assert "media_type" not in query_for({"device_id": "c"}, "live", "p", False)
     scrubbed = scrub({"parent_device_id": "802D536CBBE02CCC", "alias": "Side Door",
                       "nested": [{"mac": "186945AABBCC"}], "ai_enhance": 30})
     assert scrubbed["parent_device_id"] == "802D53…"
@@ -194,6 +207,8 @@ def main() -> int:
     parser.add_argument("--only", choices=CANDIDATES,
                         help="probe a single verb instead of all of them")
     parser.add_argument("--timeout", type=float, default=10.0)
+    parser.add_argument("--no-media-type", action="store_true",
+                        help="drop media_type=0 from the query string")
     parser.add_argument("--raw", action="store_true",
                         help="print device IDs and MACs unredacted")
     parser.add_argument("--self-test", action="store_true")
@@ -222,19 +237,30 @@ def main() -> int:
             return 0
 
         print("\nProbing live verbs. This wakes the camera.")
+        media_type = not args.no_media_type
         for block in ([args.only] if args.only else CANDIDATES):
+            print(f"  query {query_for(camera, block, '…', media_type)}")
             try:
-                verdict, detail = asyncio.run(
-                    probe(client, camera, block, args.timeout))
+                # The whole attempt is bounded, not just the read: a stalled
+                # handshake would otherwise hang the run before later verbs.
+                verdict, detail = asyncio.run(asyncio.wait_for(
+                    probe(client, camera, block, args.timeout, media_type),
+                    args.timeout * 3))
             except Exception as err:
-                verdict, detail = "exception", f"{type(err).__name__}: {err}"
-            print(f"  type={block:<8} {verdict:<9} {detail}")
+                verdict = "exception"
+                detail = f"{type(err).__name__}: {err}"
+                partial = getattr(err, "partial", None)
+                if partial:
+                    detail += f"\n    bytes={partial!r}\n    hex={partial.hex()}"
+            print(f"  type={block:<8} {verdict:<9} {detail}\n")
             if verdict == "video":
-                print(f"\nLive video from type={block}. "
+                print(f"Live video from type={block}. "
                       f"Payload block '{block}' is the verb.")
                 return 0
-        print("\nNo candidate returned video. Send the error codes above; a "
-              "parameter complaint means that verb is right.")
+            # Let the hub reap the session before the next attempt.
+            asyncio.run(asyncio.sleep(2))
+        print("No candidate returned video. Send the bytes and error codes "
+              "above; a parameter complaint means that verb is right.")
     finally:
         client.close()
     return 1
