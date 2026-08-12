@@ -36,9 +36,13 @@ is deliberately not attempted here.
 than sniffing the Tapo app. Phase A is free and may already answer it:
 
 ```
-python3 tools/probe_live.py --host 192.168.1.50 --camera 1
-python3 tools/probe_live.py --host 192.168.1.50 --camera 1 --probe
+python3 -m venv .venv && .venv/bin/pip install pytapo==3.4.18
+.venv/bin/python tools/probe_live.py --host 192.168.1.50 --camera 1
+.venv/bin/python tools/probe_live.py --host 192.168.1.50 --camera 1 --probe
 ```
+
+It needs `pytapo` for transport and crypto, and a machine that can reach the
+H500 on the LAN. Only `--self-test` runs without it.
 
 `--probe` opens real media sessions, which wakes a battery doorbell, so it runs
 one verb at a time and stops at the first that returns video. Passwords come
