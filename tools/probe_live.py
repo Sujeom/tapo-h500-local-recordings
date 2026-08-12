@@ -168,6 +168,72 @@ def child_discovery(client, camera: dict, raw: bool, calls) -> None:
         print(json.dumps(result if raw else scrub(result), indent=4))
 
 
+# -40106 means the hub has no such method. Any other outcome means it does, so
+# the control channel is an oracle for which method names exist.
+ABSENT = ("-40106", "UNSUPPORTED_METHOD")
+# Control-channel calls are cheap; --pause is for media attempts, not these.
+METHOD_PAUSE = 0.2
+
+# Never send anything that could act. pytapo's inventory contains formatSdCard,
+# setReboot, deletePreset and play_alarm; called blind with empty params some
+# of those would do exactly what they say.
+MUTATING = re.compile(
+    r"^(set|del|add|modify|format|reboot|play|reverse|manual|motor|cruise|"
+    r"test|clear|reset|remove|start|stop|scan)", re.IGNORECASE)
+NEVER_SEND = frozenset({
+    "device_reboot", "rebootDevice", "set_led_off", "setReboot", "formatSdCard",
+})
+
+# Read-shaped names from pytapo's inventory that touch battery, media, channels
+# or ring state, plus names the app plausibly uses that pytapo has never needed.
+KNOWN_METHODS = (
+    "getWakeUpConfig", "getBatteryStatus", "getBatteryPowerSave",
+    "getBatteryOperatingMode", "getBatteryOperatingModeParam",
+    "getChargingMode", "getPowerMode", "getBatteryCapability",
+    "getAllChnInfo", "getMediaEncrypt", "getVideoCapability",
+    "getVideoQualities", "getRingStatus", "getLastAlarmInfo", "getHubStorage",
+    "getSdCardStatus", "getUserID", "getChimeCtrlList", "get_pair_list",
+    "getDeviceIpAddress", "getAlertEventType", "getClipsConfig",
+    "getRecordPlan", "getCircularRecordingConfig", "getDeviceInfo",
+    "get_device_info", "searchVideoOfDay", "searchDetectionList",
+)
+GUESSED_METHODS = (
+    "preWakeUp", "preVod", "preLive", "preDownload", "prePlayback",
+    "wakeUp", "wakeUpDevice", "getPreviewInfo", "getPreviewStatus",
+    "getLiveStreamInfo", "getStreamInfo", "getStreamUrl", "getVodInfo",
+    "getChannelInfo", "getGeneralDeviceStatus", "getGeneralDeviceInfo",
+    "getGeneralDeviceCapability", "getGeneralDeviceComponentList",
+    "getComponentList", "getAppComponentList",
+)
+
+
+def is_safe(method: str) -> bool:
+    return method not in NEVER_SEND and not MUTATING.match(method)
+
+
+def probe_methods(client, methods, pause: float) -> list[str]:
+    """Which method names does the hub admit to having?"""
+    present = []
+    for method in methods:
+        if not is_safe(method):
+            print(f"  {method:<34} skipped (could mutate)")
+            continue
+        try:
+            client._hub.executeFunction(method, {})
+            outcome, note = "PRESENT", "accepted empty params"
+        except Exception as err:
+            text = str(err)
+            if any(marker in text for marker in ABSENT):
+                outcome, note = "absent", ""
+            else:
+                outcome, note = "PRESENT", text[:120]
+        print(f"  {method:<34} {outcome:<8} {note}")
+        if outcome == "PRESENT":
+            present.append(method)
+        time.sleep(pause)
+    return present
+
+
 def tcp_alive(host: str, timeout: float = 3.0) -> bool:
     """Is the media listener accepting connections at all?"""
     with socket.socket() as sock:
@@ -278,6 +344,14 @@ def self_test() -> None:
     assert query == {"deviceId": "c", "type": "live", "playerId": "p",
                      "media_type": 0}
     assert "media_type" not in query_for({"device_id": "c"}, "live", "p", False)
+    for dangerous in ("formatSdCard", "setReboot", "deletePreset", "play_alarm",
+                      "device_reboot", "rebootDevice", "set_led_off",
+                      "motorMove", "startScanHub", "setPrivacyMode"):
+        assert not is_safe(dangerous), dangerous
+    for harmless in ("getWakeUpConfig", "preWakeUp", "preVod", "searchVideoOfDay",
+                     "get_pair_list", "getAllChnInfo"):
+        assert is_safe(harmless), harmless
+    assert all(is_safe(name) for name in KNOWN_METHODS + GUESSED_METHODS)
     scrubbed = scrub({"parent_device_id": "802D536CBBE02CCC", "alias": "Side Door",
                       "nested": [{"mac": "186945AABBCC"}], "ai_enhance": 30})
     assert scrubbed["parent_device_id"] == "802D53…"
@@ -309,6 +383,9 @@ def main() -> int:
                         help="send one named method to the camera")
     parser.add_argument("--child-params", default="{}",
                         help="JSON params for --child-method")
+    parser.add_argument("--methods", action="store_true",
+                        help="ask the hub which method names exist; read-shaped "
+                             "names only, control channel only")
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--pause", type=float, default=5.0,
                         help="seconds between attempts")
@@ -354,6 +431,15 @@ def main() -> int:
             return 0 if recovered else 1
 
         camera = survey(client, args.camera, args.raw)
+
+        if args.methods:
+            print("\nMethod-name oracle (-40106 means the hub has no such "
+                  "method; anything else means it does):")
+            present = probe_methods(
+                client, KNOWN_METHODS + GUESSED_METHODS, METHOD_PAUSE)
+            print(f"\n{len(present)} present: {', '.join(present)}")
+            if not args.probe and not args.child and not args.child_method:
+                return 0
 
         if args.child or args.child_method:
             child_discovery(client, camera, args.raw,
