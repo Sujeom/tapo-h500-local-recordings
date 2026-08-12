@@ -351,6 +351,32 @@ def probe_shapes(client, camera: dict, raw: bool) -> None:
         print(f"\n  {label}\n    {text[:900]}")
 
 
+def run_batch(client, path: Path, raw: bool) -> None:
+    """Many requests, one login.
+
+    pytapo's authenticate() is `if not self.stok: refresh`, so a live client
+    logs in once and every later request rides the same session. Running each
+    experiment as its own process is what exhausts the hub.
+    """
+    for number, line in enumerate(path.read_text().splitlines(), start=1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            request = json.loads(line)
+        except json.JSONDecodeError as err:
+            print(f"  line {number}: not JSON ({err})")
+            continue
+        label = request.get("method", "?")
+        try:
+            response = client._hub.performRequest(request)
+            text = json.dumps(response if raw else scrub(response), default=str)
+        except Exception as err:
+            text = f"{type(err).__name__}: {err}"
+        print(f"\n  [{number}] {label}\n    {text[:900]}")
+        time.sleep(METHOD_PAUSE)
+
+
 def tcp_alive(host: str, timeout: float = 3.0) -> bool:
     """Is the media listener accepting connections at all?"""
     with socket.socket() as sock:
@@ -512,6 +538,11 @@ def main() -> int:
                         help="send one named method to the camera")
     parser.add_argument("--child-params", default="{}",
                         help="JSON params for --child-method")
+    parser.add_argument("--batch",
+                        help="file of one JSON request per line, all sent over "
+                             "a single login")
+    parser.add_argument("--debug", action="store_true",
+                        help="print pytapo's protocol log (secrets redacted)")
     parser.add_argument("--components", action="store_true",
                         help="dump the hub's module inventory")
     parser.add_argument("--shapes", action="store_true",
@@ -557,7 +588,7 @@ def main() -> int:
         getpass.getpass("TP-Link cloud password: ") if needs_media else "")
 
     client = load_api().H500Client(
-        args.host, args.username, password, cloud_password)
+        args.host, args.username, password, cloud_password, debug=args.debug)
     client.connect()
     print(f"Connected to {args.host}; client_id={client._client_id}")
     try:
@@ -574,6 +605,13 @@ def main() -> int:
             return 0 if recovered else 1
 
         camera = survey(client, args.camera, args.raw)
+
+        if args.batch:
+            print(f"\nBatch from {args.batch}, one login for all of it:")
+            run_batch(client, Path(args.batch), args.raw)
+            if not (args.probe or args.components or args.shapes
+                    or args.methods or args.child or args.child_method):
+                return 0
 
         if args.components:
             show_components(client)
