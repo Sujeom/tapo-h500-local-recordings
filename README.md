@@ -32,6 +32,20 @@ recording, not live video. The H500's live media session for hub-attached
 battery cameras is not part of the path verified against real hardware, so it
 is deliberately not attempted here.
 
+`tools/probe_live.py` exists to find that missing verb by asking the hub rather
+than sniffing the Tapo app. Phase A is free and may already answer it:
+
+```
+python3 tools/probe_live.py --host 192.168.1.50 --camera 1
+python3 tools/probe_live.py --host 192.168.1.50 --camera 1 --probe
+```
+
+`--probe` opens real media sessions, which wakes a battery doorbell, so it runs
+one verb at a time and stops at the first that returns video. Passwords come
+from `TAPO_PASSWORD`/`TAPO_CLOUD_PASSWORD` or a prompt, never the command line.
+Read the error codes: a "method does not exist" code means the verb is wrong, a
+parameter complaint means the verb is right and only the fields need fitting.
+
 **No per-clip deletion on the hub.** The hub exposes no delete-one-recording
 call — `pytapo` has none, and TP-Link's own documentation says SD/hub footage
 can only be removed by formatting. `tapo_h500.delete_recording` therefore
