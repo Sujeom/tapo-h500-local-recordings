@@ -47,7 +47,8 @@ def build_download_payload(camera, start_time, end_time, player_id, client_id):
 
 
 class H500Client:
-    def __init__(self, host, username, password, cloud_password):
+    def __init__(self, host, username, password, cloud_password, debug=False):
+        self.debug = debug
         self.host = host
         self.username = username
         self.password = password
@@ -67,6 +68,7 @@ class H500Client:
         self._hub = Tapo(
             self.host, self.username, self.password, self.cloud_password,
             playerID=self.player_id, redactConfidentialInformation=True,
+            printDebugInformation=self.debug,
         )
         info = self._hub.basicInfo
         model = str(info.get("device_model", info.get("model", ""))).upper()
