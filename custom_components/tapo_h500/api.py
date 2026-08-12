@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import AsyncIterator
 
+
 from pytapo import Tapo
 from pytapo.media_stream.session import HttpMediaSession
+
+from .clips import flatten_clips
 
 
 class IncompleteRecordingError(Exception):
@@ -43,12 +46,6 @@ def build_download_payload(camera, start_time, end_time, player_id, client_id):
     }
 
 
-def safe_filename(alias, start_time):
-    name = re.sub(r"[^A-Za-z0-9_-]+", "_", alias).strip("_.") or "camera"
-    name = name[:80]
-    return f"{name}_{start_time}.ts"
-
-
 class H500Client:
     def __init__(self, host, username, password, cloud_password):
         self.host = host
@@ -61,6 +58,10 @@ class H500Client:
         self._super_secret_key = ""
         self._encryption_method = None
         self._lock = asyncio.Lock()
+        # Hub control calls run in executor threads from both the coordinator
+        # and service handlers; pytapo's session is not thread safe.
+        self._hub_lock = threading.RLock()
+        self._detection_supported = True
 
     def connect(self):
         self._hub = Tapo(
@@ -87,18 +88,39 @@ class H500Client:
             self._hub = None
 
     def cameras(self):
-        result = self._hub.executeFunction(
-            "getGeneralDeviceList",
-            {"general_camera_manage": {"paired_general_device_list": {}}},
-        )
+        with self._hub_lock:
+            result = self._hub.executeFunction(
+                "getGeneralDeviceList",
+                {"general_camera_manage": {"paired_general_device_list": {}}},
+            )
         return result.get("general_camera_manage", {}).get(
             "paired_general_device_list", [])
 
-    def recordings(self, camera_index=0, start_date=None, end_date=None):
+    def camera_at(self, index):
         cameras = self.cameras()
-        if camera_index < 0 or camera_index >= len(cameras):
-            raise ValueError(f"Camera index must be between 0 and {len(cameras) - 1}")
-        camera = cameras[camera_index]
+        if index < 0 or index >= len(cameras):
+            raise ValueError(
+                f"Camera index must be between 0 and {len(cameras) - 1}")
+        return cameras[index]
+
+    def _search_videos(self, camera, start_time, end_time):
+        """One indexed-clip lookup over an exact UTC window."""
+        with self._hub_lock:
+            clips = self._hub.executeFunction(
+                "searchVideoWithUTC",
+                {"playback": {"search_video_with_utc": {
+                    "channel": 0, "child_device_id": camera["device_id"],
+                    "child_device_mac": camera["mac"],
+                    "start_time": int(start_time),
+                    "end_time": int(end_time),
+                    "start_index": 0, "end_index": 999,
+                    "player_id": self.player_id,
+                }}},
+            )
+        return flatten_clips(clips)
+
+    def recordings(self, camera_index=0, start_date=None, end_date=None):
+        camera = self.camera_at(camera_index)
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
         start_date = start_date or today
         end_date = end_date or today
@@ -109,14 +131,15 @@ class H500Client:
                 raise ValueError(f"{label} must use YYYYMMDD") from err
         if start_date > end_date:
             raise ValueError("start_date must not be after end_date")
-        dates = self._hub.executeFunction(
-            "searchDateWithVideo",
-            {"playback": {"search_year_utility": {
-                "channel": [0], "child_device_id": camera["device_id"],
-                "child_device_mac": camera["mac"], "start_date": start_date,
-                "end_date": end_date,
-            }}},
-        )
+        with self._hub_lock:
+            dates = self._hub.executeFunction(
+                "searchDateWithVideo",
+                {"playback": {"search_year_utility": {
+                    "channel": [0], "child_device_id": camera["device_id"],
+                    "child_device_mac": camera["mac"], "start_date": start_date,
+                    "end_date": end_date,
+                }}},
+            )
         found = []
         for result in dates.get("playback", {}).get("search_results", []):
             for value in result.values():
@@ -124,23 +147,55 @@ class H500Client:
                     continue
                 day = datetime.strptime(value["date"], "%Y%m%d").replace(
                     tzinfo=timezone.utc)
-                clips = self._hub.executeFunction(
-                    "searchVideoWithUTC",
-                    {"playback": {"search_video_with_utc": {
+                for clip in self._search_videos(
+                        camera, day.timestamp(), day.timestamp() + 86399):
+                    clip["date"] = value["date"]
+                    found.append(clip)
+        return camera, found
+
+    def recent(self, camera, start_time, end_time):
+        """Clips indexed in a short window, used by the event poller."""
+        return self._search_videos(camera, start_time, end_time)
+
+    def detections(self, camera, start_time, end_time):
+        """Hub-side detection log, which lands before a clip is indexed.
+
+        ponytail: unverified on H500 firmware. The first rejection disables it
+        for the rest of the session and the poller falls back to the indexed
+        clip list, which is the path verified against real hardware.
+        """
+        if not self._detection_supported:
+            return None
+        try:
+            with self._hub_lock:
+                result = self._hub.executeFunction(
+                    "searchDetectionList",
+                    {"playback": {"search_detection_list": {
                         "channel": 0, "child_device_id": camera["device_id"],
                         "child_device_mac": camera["mac"],
-                        "start_time": int(day.timestamp()),
-                        "end_time": int(day.timestamp()) + 86399,
+                        "start_time": int(start_time),
+                        "end_time": int(end_time),
                         "start_index": 0, "end_index": 999,
-                        "player_id": self.player_id,
                     }}},
                 )
-                for group in clips.get("playback", {}).get(
-                        "search_video_results", []):
-                    for clip in group.values():
-                        clip["date"] = value["date"]
-                        found.append(clip)
-        return camera, found
+        except Exception:
+            self._detection_supported = False
+            return None
+        detections = result.get("playback", {}).get("search_detection_list")
+        if not isinstance(detections, list):
+            self._detection_supported = False
+            return None
+        return detections
+
+    def format_storage(self):
+        """Erase hub storage.
+
+        The hub exposes no per-clip delete, so this is the only hub-side
+        deletion that exists. It destroys every recording on the hub.
+        """
+        with self._hub_lock:
+            return self._hub.executeFunction(
+                "formatSdCard", {"harddisk_manage": {"format_hd": "1"}})
 
     async def iter_recording(self, camera, start_time, end_time) -> AsyncIterator[bytes]:
         async with self._lock:
