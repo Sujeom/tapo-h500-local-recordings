@@ -46,7 +46,14 @@ def hub_label(entry: dict) -> str | None:
 
 
 def event_type(entry: dict) -> str:
-    """Classify one clip or detection as a doorbell press or motion."""
+    """Classify one clip or detection as a doorbell press or motion.
+
+    ponytail: an H500 with TD21 doorbells reports numeric labels — every clip
+    observed came back video_type "2" — and which code means a press is not
+    known, so nothing is classified as a ring yet. The raw label rides along on
+    the event as hub_type; once a real press is seen with a different code, add
+    it here. Until then treat "ring" as unreachable rather than trusted.
+    """
     label = (hub_label(entry) or "").lower()
     if label and any(hint in label for hint in RING_HINTS):
         return EVENT_RING

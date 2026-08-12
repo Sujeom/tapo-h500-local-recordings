@@ -10,7 +10,7 @@ recordings stored on a Tapo H500 HomeBase.
 - Lists indexed H500 recordings for a date range.
 - Polls the hub and raises a Home Assistant **event entity** per camera when a
   doorbell press or motion clip appears.
-- Downloads new recordings automatically, doorbell presses only by default.
+- Downloads new recordings automatically.
 - Converts downloads to MP4 so they play in the browser.
 - Generates a JPEG thumbnail for every downloaded clip.
 - Serves a **camera entity** per doorbell showing the newest event frame.
@@ -105,7 +105,7 @@ recording downloads.
 | Option | Default | Effect |
 | --- | --- | --- |
 | Seconds between activity checks | `20` | How often the hub is polled. |
-| Download new recordings automatically | Doorbell presses only | `Never`, `Doorbell presses only`, or `Every new recording`. |
+| Download new recordings automatically | Every new recording | `Never`, `Doorbell presses only`, or `Every new recording`. See the note below before choosing presses-only. |
 | Convert downloads to MP4 | On | Off keeps the hub's original MPEG-TS. |
 
 ## Entities
@@ -118,6 +118,12 @@ Each paired camera gets a device with two entities:
 
 Cameras are enumerated when the config entry loads. Pair a new camera, then
 reload the integration to pick it up.
+
+**Doorbell presses are not distinguishable yet.** An H500 with TD21 doorbells
+labels every clip `video_type` `"2"`, so nothing classifies as a `ring` and the
+presses-only download mode would match nothing. The raw label is exposed as the
+`hub_type` event attribute; if you see a press arrive with a different code,
+that code is the missing piece.
 
 ### Doorbell automation
 
