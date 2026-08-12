@@ -10,9 +10,38 @@ from typing import AsyncIterator
 
 
 from pytapo import Tapo
+from pytapo.media_stream import session as media_session
+from pytapo.media_stream.crypto import AESHelper
 from pytapo.media_stream.session import HttpMediaSession
 
 from .clips import flatten_clips
+
+
+class _EmptyNonce(bytes):
+    """Empty, but truthy.
+
+    The H500 reports media encryption as on and then sends Key-Exchange with
+    nonce="". pytapo rejects any falsy nonce outright, yet an empty one is not
+    fatal: the key is md5(nonce + b":" + hashed_password) and the IV is
+    md5(username + b":" + nonce), both of which are defined for b"". Carrying
+    the emptiness through as a truthy value keeps pytapo's key derivation
+    intact rather than reimplementing it here.
+    """
+
+    def __bool__(self):
+        return True
+
+
+class H500AESHelper(AESHelper):
+    def __init__(self, username, nonce, cloud_password, super_secret_key,
+                 encryptionMethod):
+        super().__init__(username, nonce or _EmptyNonce(), cloud_password,
+                         super_secret_key, encryptionMethod)
+
+
+# The session module resolves AESHelper by name, so replacing it there is what
+# makes the subclass take effect.
+media_session.AESHelper = H500AESHelper
 
 
 class IncompleteRecordingError(Exception):

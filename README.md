@@ -21,6 +21,13 @@ recordings stored on a Tapo H500 HomeBase.
 - Deletes downloaded copies; can format hub storage (see the warning below).
 - Does **not** call `preWakeUp`, `preVod`, or a TP-Link cloud media endpoint.
 
+On firmware 1.3.20 the hub reports media encryption as on but sends an empty
+`nonce` in its `Key-Exchange` header. `pytapo` rejects any empty nonce, which
+fails every download; the integration allows it through, because the hub
+derives its key from the empty value and the resulting stream decrypts
+correctly. Verified end to end: `ffprobe` reports MPEG-TS with H.264 at
+2304x1296.
+
 The TP-Link cloud-account password is still required by Tapo's **local**
 port-8800 media encryption handshake. It is stored in the Home Assistant config
 entry and is not placed in filenames, service responses, or logs.

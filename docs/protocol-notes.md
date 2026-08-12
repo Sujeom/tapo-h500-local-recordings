@@ -67,6 +67,32 @@ There is **no** `live`, `preview`, or `stream` module. Live view is likely not a
 hub module at all — plausibly camera-direct after a `preWakeUp`, or not exposed
 locally. Unproven either way.
 
+## The empty nonce
+
+On firmware 1.3.20 `getMediaEncrypt` returns `enabled: "on"`, and the
+port-8800 `Key-Exchange` header is:
+
+    cipher="AES_128_CBC" username="admin" padding="PKCS7_16" algorithm="MD5" nonce=""
+
+The nonce is **present but empty**. `pytapo` passes its `if b"nonce" not in
+key_exchange` check and then dies on `if not nonce` one layer down, so every
+download fails with `NonceMissingException`.
+
+Credentials are not the cause. The media session's digest auth hashes the
+*cloud* password (`hashed_password = pwd_digest(cloud_password, ...)`) and that
+exchange returned HTTP 200, so the cloud password is verified correct before
+the nonce is ever read.
+
+An empty nonce is not fatal: the key is `md5(nonce + b":" + hashed_password)`
+and the IV is `md5(username + b":" + nonce)`, both defined for `b""`. Letting
+it through produces a stream that decrypts correctly — confirmed with
+`ffprobe`: MPEG-TS, H.264, 2304x1296. `api.py` carries the empty value into
+key derivation rather than reimplementing pytapo's crypto.
+
+`pytapo` only skips the nonce when `username == b"none"`, which is its signal
+for encryption being off. This hub says `username="admin"` *and* sends no
+nonce, a combination pytapo has no branch for.
+
 ## Waking a camera for live view
 
 The oracle is valid when a `multipleRequest` carries **non-empty** params: a
