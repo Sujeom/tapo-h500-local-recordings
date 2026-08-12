@@ -26,6 +26,7 @@ import getpass
 import importlib
 import json
 import os
+import re
 import sys
 import types
 from pathlib import Path
@@ -129,9 +130,19 @@ async def probe(client, camera, block: str, timeout: float) -> tuple[str, object
                 return verdict, detail
 
 
-def redact(value, keep=6):
-    text = str(value)
-    return text if len(text) <= keep else f"{text[:keep]}…"
+# Device IDs, parent IDs and MACs are all long hex strings. Matching the shape
+# rather than the key name means a field nobody anticipated is still redacted.
+HEX_ID = re.compile(r"^[0-9A-Fa-f]{12,}$")
+
+
+def scrub(value):
+    if isinstance(value, str):
+        return f"{value[:6]}…" if HEX_ID.match(value) else value
+    if isinstance(value, dict):
+        return {key: scrub(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [scrub(item) for item in value]
+    return value
 
 
 def survey(client, index: int, raw: bool) -> dict:
@@ -144,15 +155,12 @@ def survey(client, index: int, raw: bool) -> dict:
     camera = cameras[index]
 
     print(f"\nCamera record for index {index}:")
-    record = camera if raw else {
-        key: (redact(value) if key in ("device_id", "mac", "oem_id") else value)
-        for key, value in camera.items()
-    }
-    print(json.dumps(record, indent=2, sort_keys=True))
+    print(json.dumps(camera if raw else scrub(camera), indent=2, sort_keys=True))
 
     print("\nChild component list (what the hub admits this camera can do):")
     try:
-        print(json.dumps(client._hub.getChildDeviceComponentList(), indent=2))
+        components = client._hub.getChildDeviceComponentList()
+        print(json.dumps(components if raw else scrub(components), indent=2))
     except Exception as err:
         print(f"  unavailable: {err}")
     return camera
@@ -168,6 +176,11 @@ def self_test() -> None:
     payload = build_payload("live", {"device_id": "c", "mac": "m"}, "p", 1)
     assert payload["params"]["live"]["dev_id"] == "c"
     assert payload["params"]["live"]["channels"] == [0]
+    scrubbed = scrub({"parent_device_id": "802D536CBBE02CCC", "alias": "Side Door",
+                      "nested": [{"mac": "186945AABBCC"}], "ai_enhance": 30})
+    assert scrubbed["parent_device_id"] == "802D53…"
+    assert scrubbed["nested"][0]["mac"] == "186945…"
+    assert scrubbed["alias"] == "Side Door" and scrubbed["ai_enhance"] == 30
     print("self-test ok")
 
 
