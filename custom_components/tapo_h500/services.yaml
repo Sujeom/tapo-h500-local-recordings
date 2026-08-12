@@ -1,0 +1,63 @@
+list_recordings:
+  name: List recordings
+  description: List recordings stored locally on the H500.
+  fields:
+    config_entry_id:
+      name: Config entry ID
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    camera_index:
+      name: Camera index
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: box
+    start_date:
+      name: Start date
+      description: YYYYMMDD; defaults to today in UTC.
+      selector:
+        text:
+    end_date:
+      name: End date
+      description: YYYYMMDD; defaults to today in UTC.
+      selector:
+        text:
+
+download_recording:
+  name: Download recording
+  description: Download one indexed recording from the H500 into Home Assistant local media.
+  fields:
+    config_entry_id:
+      name: Config entry ID
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    camera_index:
+      name: Camera index
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: box
+    start_time:
+      name: Start time
+      description: Exact Unix start time returned by List recordings.
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    end_time:
+      name: End time
+      description: Exact Unix end time returned by List recordings.
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box

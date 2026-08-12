@@ -1,93 +1,101 @@
-# Tapo H500 For Home Assistant
+# Tapo H500 Local Recordings for Home Assistant
 
+Experimental HACS custom integration for listing and downloading recordings stored on a Tapo H500 HomeBase.
 
+## What works
 
-## Getting started
+- Connects directly to the H500 on your LAN.
+- Lists paired hub-managed cameras/doorbells.
+- Lists indexed H500 recordings for a date range.
+- Downloads an exact indexed recording into Home Assistant's local media directory.
+- Downloaded clips appear under **Media → Local media → tapo_h500**.
+- Does **not** call `preWakeUp`, `preVod`, or a TP-Link cloud media endpoint.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+The TP-Link cloud-account password is still required by Tapo's **local** port-8800 media encryption handshake. It is stored in the Home Assistant config entry and is not placed in filenames, service responses, or logs.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## Scope and limitations
 
-## Add your files
+This first release deliberately supports only the path verified on an H500 with paired TD21 battery doorbells. It does not provide live view, notifications, event automation, thumbnail browsing, deletion, or MP4 conversion. Downloads are MPEG-TS (`.ts`) with MIME type `video/mp2t`.
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+The protocol is undocumented. Pinning the H500 to a stable LAN address is strongly recommended. Firmware changes may require integration updates.
 
-```
-cd existing_repo
-git remote add origin http://gitlab.trust-1.com/repos/misc/home-assistant/tapo-h500-for-home-assistant.git
-git branch -M main
-git push -uf origin main
-```
+## HACS installation
 
-## Integrate with your tools
+HACS installs integrations from a GitHub repository. After this repository is uploaded to GitHub:
 
-* [Set up project integrations](http://gitlab.trust-1.com/repos/misc/home-assistant/tapo-h500-for-home-assistant/-/settings/integrations)
+1. In HACS, open **Integrations**.
+2. Open the three-dot menu and choose **Custom repositories**.
+3. Enter the GitHub repository URL and choose category **Integration**.
+4. Install **Tapo H500 Local Recordings**.
+5. Restart Home Assistant.
+6. Go to **Settings → Devices & services → Add integration**.
+7. Search for **Tapo H500 Local Recordings**.
 
-## Collaborate with your team
+For a manual installation, copy `custom_components/tapo_h500` into Home Assistant's `custom_components` directory and restart.
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## Configuration
 
-## Test and Deploy
+The config flow asks for:
 
-Use the built-in continuous integration in GitLab.
+- **H500 IP address**
+- **Camera account username** (normally `admin`)
+- **Camera account password**
+- **TP-Link cloud account password** (used only to derive local media encryption keys)
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+The H500 and Home Assistant must be able to reach each other over the LAN. The integration uses HTTPS/control traffic to the hub and TCP port `8800` for recording downloads.
 
 ## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+The integration exposes two response-capable actions under **Developer tools → Actions**.
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+### 1. List recordings
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+Action: `tapo_h500.list_recordings`
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+```yaml
+config_entry_id: YOUR_CONFIG_ENTRY_ID
+camera_index: 1
+start_date: "20260812"
+end_date: "20260812"
+```
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Dates use `YYYYMMDD` in UTC. If dates are omitted, today in UTC is used. The response includes exact `start_time` and `end_time` values. Camera indexes follow the paired-device order reported by the hub and begin at zero.
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+### 2. Download one recording
+
+Action: `tapo_h500.download_recording`
+
+```yaml
+config_entry_id: YOUR_CONFIG_ENTRY_ID
+camera_index: 1
+start_time: 1786553183
+end_time: 1786553198
+```
+
+Always copy the exact time boundaries from `list_recordings`. A successful response includes:
+
+```yaml
+media_content_id: media-source://media_source/local/tapo_h500/Side_Doorbell_1786553183.ts
+path: tapo_h500/Side_Doorbell_1786553183.ts
+bytes: 3398852
+```
+
+Open **Media → Local media → tapo_h500** to play or download the clip.
+
+## Security notes
+
+- This is a local, read-only recording integration; it does not delete clips or modify hub settings.
+- Passwords are kept in the Home Assistant config entry.
+- Device IDs and MAC addresses are not returned by service actions.
+- Do not expose TCP port `8800` to the internet.
+
+## Verification performed
+
+- Unit tests cover the H500 request payload, required `Content-Length: 0` framing override, and safe media filenames.
+- The integration protocol client was tested with stock `pytapo==3.4.18` against a physical H500; `pytapo` supplies transport and crypto while this integration supplies the app-derived H500 request/framing.
+- A bounded TD21 recording download reached the explicit finished notification and returned 3,398,852 bytes.
+- `ffprobe` identified MPEG-TS, H.264 video, and a 15.07-second duration.
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+MIT. The integration depends on the separately distributed MIT-licensed `pytapo` package.
