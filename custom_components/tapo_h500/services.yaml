@@ -1,6 +1,6 @@
 list_recordings:
   name: List recordings
-  description: List recordings stored locally on the H500.
+  description: List recordings stored locally on the H500, marking which are already downloaded.
   fields:
     config_entry_id:
       name: Config entry ID
@@ -61,3 +61,54 @@ download_recording:
         number:
           min: 0
           mode: box
+    convert_to_mp4:
+      name: Convert to MP4
+      description: Overrides the integration option for this download.
+      selector:
+        boolean:
+
+delete_recording:
+  name: Delete downloaded recording
+  description: Remove the downloaded copy and its thumbnail. The hub keeps its own copy.
+  fields:
+    config_entry_id:
+      name: Config entry ID
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    camera_index:
+      name: Camera index
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 15
+          mode: box
+    start_time:
+      name: Start time
+      description: Exact Unix start time of the recording to remove.
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+
+format_hub_storage:
+  name: Erase all hub recordings
+  description: >-
+    Formats the H500's storage. The hub exposes no per-clip delete, so this
+    erases every recording for every paired camera. There is no undo.
+  fields:
+    config_entry_id:
+      name: Config entry ID
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    confirm:
+      name: Confirm
+      description: Must be enabled. Every recording on the hub will be destroyed.
+      required: true
+      selector:
+        boolean:
