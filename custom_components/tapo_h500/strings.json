@@ -17,5 +17,44 @@
       "cannot_connect": "Could not connect or authenticate with the H500.",
       "no_cameras": "The H500 reported no paired cameras."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tapo H500 options",
+        "data": {
+          "poll_interval": "Seconds between activity checks",
+          "auto_download": "Download new recordings automatically",
+          "convert_mp4": "Convert downloads to MP4"
+        },
+        "data_description": {
+          "convert_mp4": "MP4 plays in the browser; turn this off to keep the hub's original MPEG-TS."
+        }
+      }
+    }
+  },
+  "selector": {
+    "auto_download": {
+      "options": {
+        "off": "Never",
+        "rings": "Doorbell presses only",
+        "all": "Every new recording"
+      }
+    }
+  },
+  "entity": {
+    "event": {
+      "activity": {
+        "name": "Activity",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ring": "Doorbell press",
+              "motion": "Motion"
+            }
+          }
+        }
+      }
+    }
   }
 }
