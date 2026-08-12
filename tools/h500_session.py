@@ -22,8 +22,10 @@ forgotten daemon does not sit on a hub session indefinitely.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -37,7 +39,7 @@ import probe_live as probe  # noqa: E402
 
 DEFAULT_PORT = 8765
 state = {"client": None, "requests": 0, "last": 0.0, "allow_writes": False,
-         "started": 0.0, "raw": False}
+         "started": 0.0, "raw": False, "kx": None}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -78,6 +80,13 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(request, dict):
             return self._reply(400, {"error": "request must be an object"})
 
+        if self.path == "/media":
+            # Reuses this session's login instead of spawning another, which is
+            # what exhausts the hub.
+            state["requests"] += 1
+            return self._reply(200, media_probe(
+                int(request.get("camera", 0)), int(request.get("seconds", 5))))
+
         unsafe = [name for name in probe.methods_in(request)
                   if not probe.is_safe(name)]
         if unsafe and not state["allow_writes"]:
@@ -102,6 +111,63 @@ class Handler(BaseHTTPRequestHandler):
                               else probe.scrub(response)})
         except Exception as err:
             self._reply(200, {"error": f"{type(err).__name__}: {err}"})
+
+
+def install_key_exchange_spy() -> None:
+    """Record the shape of the hub's Key-Exchange header.
+
+    NonceMissingException means the header arrived but pytapo's parser found no
+    nonce in it, so the header's format is the evidence. Values are truncated —
+    only the structure matters.
+    """
+    from pytapo.media_stream import crypto
+
+    original = crypto.AESHelper.from_keyexchange_and_password
+
+    def spy(key_exchange, *args, **kwargs):
+        raw = (key_exchange.decode(errors="replace")
+               if isinstance(key_exchange, bytes) else str(key_exchange))
+        state["kx"] = {
+            "length": len(raw),
+            "space_parts": len(raw.split(" ")),
+            "has_nonce": "nonce" in raw,
+            "structure": re.sub(r'([^",= ]{7,})', lambda m: m.group(1)[:6] + "…", raw),
+        }
+        return original(key_exchange, *args, **kwargs)
+
+    crypto.AESHelper.from_keyexchange_and_password = staticmethod(spy)
+
+
+def media_probe(camera_index: int, seconds: int) -> dict:
+    """Replay a known-good download over the session's existing login."""
+    client = state["client"]
+    state["kx"] = None
+    try:
+        camera = client.camera_at(camera_index)
+        now = int(time.time())
+        clips = client.recent(camera, now - 86400, now)
+    except Exception as err:
+        return {"error": f"{type(err).__name__}: {err}"}
+    if not clips:
+        return {"error": "no clip in the last 24h to replay"}
+    clip = clips[-1]
+    start = int(clip["startTime"])
+
+    async def pull():
+        received = 0
+        async for chunk in client.iter_recording(camera, start, start + seconds):
+            received += len(chunk)
+            if received > 200_000:
+                break
+        return received
+
+    result = {"clip": start, "video_type": clip.get("video_type")}
+    try:
+        result["bytes"] = asyncio.run(pull())
+    except Exception as err:
+        result["error"] = f"{type(err).__name__}: {err}"
+    result["key_exchange"] = state.get("kx")
+    return result
 
 
 def call(port: int, path: str, body: str | None = None) -> str:
@@ -145,12 +211,20 @@ def main() -> int:
                         help="do not redact device IDs and MACs in responses")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--send", help="send one JSON request to a running session")
+    parser.add_argument("--media", action="store_true",
+                        help="replay a known-good download over the "
+                             "running session")
+    parser.add_argument("--camera", type=int, default=0)
     parser.add_argument("--health", action="store_true")
     parser.add_argument("--stop", action="store_true")
     args = parser.parse_args()
 
     if args.send is not None:
         print(call(args.port, "/", args.send))
+        return 0
+    if args.media:
+        print(call(args.port, "/media",
+                   json.dumps({"camera": args.camera})))
         return 0
     if args.health:
         print(call(args.port, "/health"))
@@ -171,6 +245,7 @@ def main() -> int:
     state["client"] = probe.load_api().H500Client(
         args.host, args.username, password,
         os.environ.get("TAPO_CLOUD_PASSWORD", ""), debug=args.debug)
+    install_key_exchange_spy()
     state["client"].connect()
     state["started"] = state["last"] = time.monotonic()
 
