@@ -206,7 +206,30 @@ MUTATING = re.compile(
     r"test|clear|reset|remove|start|stop|scan)", re.IGNORECASE)
 NEVER_SEND = frozenset({
     "device_reboot", "rebootDevice", "set_led_off", "setReboot", "formatSdCard",
+    "do",  # Tapo's write verb, the counterpart of "get"
 })
+
+
+def methods_in(request) -> list[str]:
+    """Every method name anywhere in a request, including nested ones.
+
+    A multipleRequest can carry arbitrary sub-methods, so checking only the
+    outer name would let a write through inside a read-shaped envelope.
+    """
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("method"), str):
+                found.append(node["method"])
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(request)
+    return found
 
 # Read-shaped names from pytapo's inventory that touch battery, media, channels
 # or ring state, plus names the app plausibly uses that pytapo has never needed.

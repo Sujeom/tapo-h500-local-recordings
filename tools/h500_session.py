@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Hold one H500 login and serve requests over it.
+
+pytapo's authenticate() is `if not self.stok: refresh`, so a live process logs
+in once and every later request rides that session. Running one process per
+experiment is what wedges the hub. This keeps a single process alive and lets
+anything on the machine send requests to it.
+
+    tools/h500_session.py --host 192.168.11.5 &        # start it
+    tools/h500_session.py --send '{"method":"get","led":{"name":"config"}}'
+    tools/h500_session.py --health
+    tools/h500_session.py --stop
+
+Read-only by default: every method name in a request, including ones nested in
+a multipleRequest, must pass the same filter the probe uses. A long-lived
+session that will run formatSdCard on request is a footgun, so writes need
+--allow-writes and are still refused for the explicitly dangerous names.
+
+Binds to 127.0.0.1 only, and shuts itself down after --idle seconds so a
+forgotten daemon does not sit on a hub session indefinitely.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import probe_live as probe  # noqa: E402
+
+DEFAULT_PORT = 8765
+state = {"client": None, "requests": 0, "last": 0.0, "allow_writes": False,
+         "started": 0.0}
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass  # the access log is noise; the response carries what matters
+
+    def _reply(self, code: int, payload: dict) -> None:
+        body = json.dumps(payload, default=str).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/health":
+            self._reply(200, {
+                "ok": state["client"] is not None,
+                "requests": state["requests"],
+                "uptime_seconds": round(time.monotonic() - state["started"], 1),
+                "idle_seconds": round(time.monotonic() - state["last"], 1),
+                "allow_writes": state["allow_writes"],
+            })
+        elif self.path == "/stop":
+            self._reply(200, {"stopping": True})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+        else:
+            self._reply(404, {"error": "use POST /, GET /health, GET /stop"})
+
+    def do_POST(self):
+        state["last"] = time.monotonic()
+        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            request = json.loads(self.rfile.read(length) or b"{}")
+        except json.JSONDecodeError as err:
+            return self._reply(400, {"error": f"not JSON: {err}"})
+        if not isinstance(request, dict):
+            return self._reply(400, {"error": "request must be an object"})
+
+        unsafe = [name for name in probe.methods_in(request)
+                  if not probe.is_safe(name)]
+        if unsafe and not state["allow_writes"]:
+            return self._reply(403, {
+                "error": "refused: read-only session",
+                "methods": unsafe,
+                "hint": "restart with --allow-writes if you mean it",
+            })
+        if any(name in probe.NEVER_SEND for name in probe.methods_in(request)):
+            return self._reply(403, {
+                "error": "refused: never sent, even with --allow-writes",
+                "methods": [n for n in probe.methods_in(request)
+                            if n in probe.NEVER_SEND],
+            })
+
+        state["requests"] += 1
+        try:
+            response = state["client"]._hub.performRequest(request)
+            self._reply(200, {"response": response})
+        except Exception as err:
+            self._reply(200, {"error": f"{type(err).__name__}: {err}"})
+
+
+def call(port: int, path: str, body: str | None = None) -> str:
+    url = f"http://127.0.0.1:{port}{path}"
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(
+                url, data=body.encode() if body is not None else None,
+                method="POST" if body is not None else "GET"),
+            timeout=60,
+        ) as reply:
+            return reply.read().decode()
+    except urllib.error.HTTPError as err:
+        # Subclass of URLError, so it must be caught first or a refusal's
+        # explanation is thrown away and reported as a missing session.
+        return err.read().decode()
+    except urllib.error.URLError as err:
+        return json.dumps({"error": f"no session on {port}: {err}"})
+
+
+def watchdog(server: HTTPServer, idle: float) -> None:
+    while True:
+        time.sleep(5)
+        if time.monotonic() - state["last"] > idle:
+            print(f"idle for {idle:.0f}s, shutting down", flush=True)
+            server.shutdown()
+            return
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host")
+    parser.add_argument("--username",
+                        default=os.environ.get("TAPO_USERNAME", "admin"))
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--env-file", default=".env")
+    parser.add_argument("--idle", type=float, default=1800,
+                        help="shut down after this many idle seconds")
+    parser.add_argument("--allow-writes", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--send", help="send one JSON request to a running session")
+    parser.add_argument("--health", action="store_true")
+    parser.add_argument("--stop", action="store_true")
+    args = parser.parse_args()
+
+    if args.send is not None:
+        print(call(args.port, "/", args.send))
+        return 0
+    if args.health:
+        print(call(args.port, "/health"))
+        return 0
+    if args.stop:
+        print(call(args.port, "/stop"))
+        return 0
+    if not args.host:
+        parser.error("--host is required to start a session")
+
+    probe.load_env_file(Path(args.env_file))
+    password = os.environ.get("TAPO_PASSWORD")
+    if not password:
+        parser.error("TAPO_PASSWORD not set and no .env entry for it")
+
+    state["allow_writes"] = args.allow_writes
+    state["client"] = probe.load_api().H500Client(
+        args.host, args.username, password,
+        os.environ.get("TAPO_CLOUD_PASSWORD", ""), debug=args.debug)
+    state["client"].connect()
+    state["started"] = state["last"] = time.monotonic()
+
+    server = HTTPServer(("127.0.0.1", args.port), Handler)
+    threading.Thread(target=watchdog, args=(server, args.idle), daemon=True).start()
+    print(f"session up on 127.0.0.1:{args.port} (pid {os.getpid()}), "
+          f"{'writes allowed' if args.allow_writes else 'read-only'}, "
+          f"idle timeout {args.idle:.0f}s", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        state["client"].close()
+        print(f"session closed after {state['requests']} requests", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
