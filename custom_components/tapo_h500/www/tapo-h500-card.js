@@ -208,7 +208,7 @@ class TapoH500Card extends HTMLElement {
     const body = this._error
       ? `<div class="error">${esc(this._error)}</div>`
       : this._recordings === null
-        ? `<div class="muted">Loading recordings…</div>`
+        ? `<div class="muted">Loading recordings...</div>`
         : this._recordings.length === 0
           ? `<div class="muted">No recordings in this period.</div>`
           : this._recordings.map((item) => this._row(item)).join("");

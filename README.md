@@ -207,8 +207,22 @@ The recording downloads on its own; the clip and its thumbnail land under
 
 ## Dashboard card
 
-The card is registered automatically — no Lovelace resource to add. Add a
-manual card:
+The integration registers the card as a dashboard resource on startup, so
+there is normally nothing to add by hand. If a dashboard still reports
+`Custom element doesn't exist: tapo-h500-card`:
+
+1. Confirm the file is served: open `/tapo_h500_static/tapo-h500-card.js` in a
+   browser. If that 404s the integration did not load — check the log.
+2. Hard-refresh the page (Ctrl+Shift+R). A normal reload does not re-read the
+   resource list.
+3. Failing that, add it by hand under **Settings → Dashboards → three-dot menu
+   → Resources**: URL `/tapo_h500_static/tapo-h500-card.js`, type **JavaScript
+   Module**.
+
+Automatic registration needs a storage-mode dashboard. YAML-mode dashboards own
+their own resource list, so add the resource there yourself.
+
+Add a manual card:
 
 ```yaml
 type: custom:tapo-h500-card
