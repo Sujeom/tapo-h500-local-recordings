@@ -226,13 +226,14 @@ Add a manual card:
 
 ```yaml
 type: custom:tapo-h500-card
-camera_index: 1
 days: 2
 ```
 
-`camera_index` is the position in the hub's paired-device list and defaults to
-`0`. `days` defaults to `1`. `entry_id` is optional and only needed if you run
-more than one H500.
+With no `camera_index` the card shows a button per paired camera and remembers
+which one you picked, so one card covers the whole hub. Setting `camera_index`
+pins it to a single camera and hides the picker, which is what you want if you
+prefer one card per doorbell. `days` defaults to `1`. `entry_id` is optional and
+only needed if you run more than one H500.
 
 Each row shows the thumbnail, the local time, the event type and the duration,
 plus **Download** for clips still only on the hub and **Play**/**Delete** for

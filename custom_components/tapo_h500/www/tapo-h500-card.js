@@ -6,8 +6,8 @@
  * response services, so it needs no extra API surface.
  *
  * type: custom:tapo-h500-card
- * camera_index: 0      # position in the hub's paired-device list
  * days: 1              # how many days back to list
+ * camera_index: 0      # optional; omit to get a picker for every paired camera
  * entry_id: abc123     # optional; the first H500 entry is used by default
  */
 
@@ -25,6 +25,10 @@ const STYLE = `
   ha-card { padding: 12px 16px 16px; }
   .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .head h2 { flex: 1; margin: 0; font-size: 1.1rem; font-weight: 500; }
+  .cameras { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+  .cameras button[aria-pressed="true"] {
+    background: var(--primary-color); color: var(--text-primary-color);
+  }
   .muted { color: var(--secondary-text-color); font-size: 0.85rem; }
   button {
     background: none; border: none; cursor: pointer; padding: 4px 8px;
@@ -64,7 +68,12 @@ class TapoH500Card extends HTMLElement {
       this._card.addEventListener("click", (event) => this._onClick(event));
     }
     this._recordings = null;
+    this._cameras = null;
     this._error = null;
+    // A pinned camera_index keeps the old single-camera behaviour; without one
+    // the card offers every paired camera.
+    this._pinned = config.camera_index !== undefined;
+    this._index = config.camera_index ?? 0;
   }
 
   set hass(hass) {
@@ -117,11 +126,12 @@ class TapoH500Card extends HTMLElement {
       const now = new Date();
       const response = await this._call("list_recordings", {
         config_entry_id: await this._entryId(),
-        camera_index: this._config.camera_index,
+        camera_index: this._index,
         start_date: utcDay(new Date(now.getTime() - (this._config.days - 1) * 86400000)),
         end_date: utcDay(now),
       });
       this._camera = response.camera;
+      this._cameras = response.cameras || null;
       this._recordings = response.recordings.slice().reverse();
       this._error = null;
     } catch (err) {
@@ -140,13 +150,18 @@ class TapoH500Card extends HTMLElement {
     try {
       if (action === "refresh") {
         await this._load();
+      } else if (action === "camera") {
+        this._index = Number(button.dataset.index);
+        this._recordings = null;
+        this._render();
+        await this._load();
       } else if (action === "play") {
         this._playing = this._playing === start ? null : start;
         this._render();
       } else if (action === "download") {
         await this._call("download_recording", {
           config_entry_id: await this._entryId(),
-          camera_index: this._config.camera_index,
+          camera_index: this._index,
           start_time: Number(start),
           end_time: Number(end),
         });
@@ -154,7 +169,7 @@ class TapoH500Card extends HTMLElement {
       } else if (action === "delete") {
         await this._call("delete_recording", {
           config_entry_id: await this._entryId(),
-          camera_index: this._config.camera_index,
+          camera_index: this._index,
           start_time: Number(start),
         });
         if (this._playing === start) this._playing = null;
@@ -212,11 +227,18 @@ class TapoH500Card extends HTMLElement {
         : this._recordings.length === 0
           ? `<div class="muted">No recordings in this period.</div>`
           : this._recordings.map((item) => this._row(item)).join("");
+    const picker = (!this._pinned && this._cameras && this._cameras.length > 1)
+      ? `<div class="cameras">${this._cameras.map((cam) => `
+          <button data-action="camera" data-index="${Number(cam.index)}"
+            aria-pressed="${cam.index === this._index}">${esc(cam.alias)}</button>
+        `).join("")}</div>`
+      : "";
     this._card.innerHTML = `
       <div class="head">
         <h2>${esc(title)}</h2>
         <button data-action="refresh">Refresh</button>
       </div>
+      ${picker}
       ${body}`;
   }
 }
