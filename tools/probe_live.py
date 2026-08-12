@@ -529,10 +529,11 @@ def self_test() -> None:
                      "get_pair_list", "getAllChnInfo"):
         assert is_safe(harmless), harmless
     assert all(is_safe(name) for name in KNOWN_METHODS + GUESSED_METHODS)
-    scrubbed = scrub({"parent_device_id": "802D536CBBE02CCC", "alias": "Side Door",
-                      "nested": [{"mac": "186945AABBCC"}], "ai_enhance": 30})
-    assert scrubbed["parent_device_id"] == "802D53…"
-    assert scrubbed["nested"][0]["mac"] == "186945…"
+    # Synthetic identifiers. Never put a real device ID in a tracked file.
+    scrubbed = scrub({"parent_device_id": "DEADBEEFCAFE0123", "alias": "Side Door",
+                      "nested": [{"mac": "ABCDEF012345"}], "ai_enhance": 30})
+    assert scrubbed["parent_device_id"] == "DEADBE…"
+    assert scrubbed["nested"][0]["mac"] == "ABCDEF…"
     assert scrubbed["alias"] == "Side Door" and scrubbed["ai_enhance"] == 30
     print("self-test ok")
 
