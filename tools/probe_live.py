@@ -46,6 +46,29 @@ except ImportError:
 api = None
 
 
+def load_env_file(path: Path) -> list[str]:
+    """Read KEY=value pairs without letting a shell interpret them.
+
+    Sourcing a .env with `. ./.env` hands unquoted values to bash, which will
+    execute anything after a space and print it in the error. Parsing here
+    keeps secrets out of shell word-splitting entirely.
+    """
+    if not path.is_file():
+        return []
+    loaded = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        os.environ.setdefault(key, value)  # a real env var still wins
+        loaded.append(key)
+    return loaded
+
+
 def load_api():
     """Import the component's api module without running its HA __init__.
 
@@ -263,6 +286,71 @@ def probe_methods(client, methods, pause: float) -> dict[str, list[str]]:
     return found
 
 
+# Empty params get the whole envelope rejected with err_code 40210, so method
+# names cannot be probed bare. Tapo params are {module: {function: ...}} and the
+# module inventory is what we actually need. These are the plausible ways to ask
+# for it; the first entry is the call the integration already relies on, so a
+# failure there means the harness is wrong rather than the shape.
+def component_shapes(camera: dict) -> tuple[tuple[str, dict], ...]:
+    known_good = {
+        "method": "getGeneralDeviceList",
+        "params": {"general_camera_manage": {"paired_general_device_list": {}}},
+    }
+    app_component = {"name": "app_component_list"}
+    return (
+        ("CONTROL getGeneralDeviceList", {
+            "method": "multipleRequest", "params": {"requests": [known_good]}}),
+        ("get, module beside method", {
+            "method": "get", "app_component": app_component}),
+        ("get, module under params", {
+            "method": "get", "params": {"app_component": app_component}}),
+        ("multipleRequest[get]", {"method": "multipleRequest", "params": {
+            "requests": [{"method": "get", "app_component": app_component}]}}),
+        ("multipleRequest[getAppComponentList]", {
+            "method": "multipleRequest", "params": {"requests": [{
+                "method": "getAppComponentList",
+                "params": {"app_component": app_component}}]}}),
+        ("component_list", {"method": "component_list", "params": {}}),
+        ("multipleRequest[getComponentList]", {
+            "method": "multipleRequest", "params": {"requests": [{
+                "method": "getComponentList",
+                "params": {"component": {"name": "component_list"}}}]}}),
+    )
+
+
+INTERESTING = ("wake", "live", "preview", "stream", "vod", "play", "video",
+               "record", "media", "ring", "channel", "battery", "camera")
+
+
+def app_components(client) -> list[dict]:
+    """The hub's own module inventory. This is the map everything else needs."""
+    response = client._hub.performRequest(
+        {"method": "get", "app_component": {"name": "app_component_list"}})
+    return response["app_component"]["app_component_list"]
+
+
+def show_components(client) -> None:
+    modules = app_components(client)
+    print(f"\nHub modules ({len(modules)}):")
+    for module in sorted(modules, key=lambda item: item["name"].lower()):
+        print(f"  {module['name']:<34} v{module.get('version')}")
+    hits = [module["name"] for module in modules
+            if any(word in module["name"].lower() for word in INTERESTING)]
+    print(f"\nMedia-adjacent ({len(hits)}): {', '.join(sorted(hits))}")
+
+
+def probe_shapes(client, camera: dict, raw: bool) -> None:
+    print("\nRequest-shape probe (the control must succeed for the rest to "
+          "mean anything):")
+    for label, request in component_shapes(camera):
+        try:
+            response = client._hub.performRequest(request)
+            text = json.dumps(response if raw else scrub(response), default=str)
+        except Exception as err:
+            text = f"{type(err).__name__}: {err}"
+        print(f"\n  {label}\n    {text[:900]}")
+
+
 def tcp_alive(host: str, timeout: float = 3.0) -> bool:
     """Is the media listener accepting connections at all?"""
     with socket.socket() as sock:
@@ -403,7 +491,8 @@ def self_test() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host")
-    parser.add_argument("--username", default="admin")
+    parser.add_argument("--username",
+                        default=os.environ.get("TAPO_USERNAME", "admin"))
     parser.add_argument("--camera", type=int, default=0)
     parser.add_argument("--check", action="store_true",
                         help="only report whether port 8800 is accepting")
@@ -423,6 +512,11 @@ def main() -> int:
                         help="send one named method to the camera")
     parser.add_argument("--child-params", default="{}",
                         help="JSON params for --child-method")
+    parser.add_argument("--components", action="store_true",
+                        help="dump the hub's module inventory")
+    parser.add_argument("--shapes", action="store_true",
+                        help="find a request shape that returns the hub's "
+                             "module inventory; control channel only")
     parser.add_argument("--methods", action="store_true",
                         help="ask the hub which method names exist; read-shaped "
                              "names only, control channel only")
@@ -433,12 +527,18 @@ def main() -> int:
                         help="drop media_type=0 from the query string")
     parser.add_argument("--raw", action="store_true",
                         help="print device IDs and MACs unredacted")
+    parser.add_argument("--env-file", default=".env",
+                        help="KEY=value file for credentials (default .env)")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
 
     if args.self_test:
         self_test()
         return 0
+
+    loaded = load_env_file(Path(args.env_file))
+    if loaded:
+        print(f"Loaded {', '.join(loaded)} from {args.env_file}")
     if not args.host:
         parser.error("--host is required")
 
@@ -450,8 +550,11 @@ def main() -> int:
 
     password = os.environ.get("TAPO_PASSWORD") or getpass.getpass(
         "Camera account password: ")
-    cloud_password = os.environ.get("TAPO_CLOUD_PASSWORD") or getpass.getpass(
-        "TP-Link cloud password: ")
+    # Only the media session needs the cloud password. Everything else runs on
+    # the control channel, so do not ask for a secret this run will not use.
+    needs_media = args.probe or args.control_only
+    cloud_password = os.environ.get("TAPO_CLOUD_PASSWORD") or (
+        getpass.getpass("TP-Link cloud password: ") if needs_media else "")
 
     client = load_api().H500Client(
         args.host, args.username, password, cloud_password)
@@ -471,6 +574,17 @@ def main() -> int:
             return 0 if recovered else 1
 
         camera = survey(client, args.camera, args.raw)
+
+        if args.components:
+            show_components(client)
+            if not (args.probe or args.shapes or args.methods or args.child
+                    or args.child_method):
+                return 0
+
+        if args.shapes:
+            probe_shapes(client, camera, args.raw)
+            if not (args.probe or args.methods or args.child or args.child_method):
+                return 0
 
         if args.methods:
             print("\nMethod-name oracle (-40106 means the hub has no such "
