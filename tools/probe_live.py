@@ -171,6 +171,7 @@ def child_discovery(client, camera: dict, raw: bool, calls) -> None:
 # -40106 means the hub has no such method. Any other outcome means it does, so
 # the control channel is an oracle for which method names exist.
 ABSENT = ("-40106", "UNSUPPORTED_METHOD")
+ABSENT_CODES = ("-40106",)
 # Control-channel calls are cheap; --pause is for media attempts, not these.
 METHOD_PAUSE = 0.2
 
@@ -211,27 +212,55 @@ def is_safe(method: str) -> bool:
     return method not in NEVER_SEND and not MUTATING.match(method)
 
 
-def probe_methods(client, methods, pause: float) -> list[str]:
+def find_error_code(response):
+    """The hub's own code for a method, or None if we cannot find one.
+
+    executeFunction raises KeyError('result') for unparseable replies, which
+    tells us nothing about the method — so this reads the raw envelope and
+    reports None rather than guessing.
+    """
+    try:
+        return response["result"]["responses"][0]["error_code"]
+    except (KeyError, IndexError, TypeError):
+        pass
+    if isinstance(response, dict) and "error_code" in response:
+        return response["error_code"]
+    return None
+
+
+def classify_method(response) -> tuple[str, str]:
+    code = find_error_code(response)
+    if code is None:
+        # Unknown is not evidence of presence. Print the reply and move on.
+        return "unknown", json.dumps(response, default=str)[:160]
+    if str(code) in ABSENT_CODES:
+        return "absent", ""
+    if code == 0:
+        return "WORKS", "accepted these params"
+    return "PRESENT", f"error_code={code}"
+
+
+def probe_methods(client, methods, pause: float) -> dict[str, list[str]]:
     """Which method names does the hub admit to having?"""
-    present = []
+    found: dict[str, list[str]] = {}
     for method in methods:
         if not is_safe(method):
-            print(f"  {method:<34} skipped (could mutate)")
+            print(f"  {method:<34} skipped   (could mutate)")
             continue
         try:
-            client._hub.executeFunction(method, {})
-            outcome, note = "PRESENT", "accepted empty params"
+            response = client._hub.performRequest({
+                "method": "multipleRequest",
+                "params": {"requests": [{"method": method, "params": {}}]},
+            })
+            outcome, note = classify_method(response)
         except Exception as err:
             text = str(err)
-            if any(marker in text for marker in ABSENT):
-                outcome, note = "absent", ""
-            else:
-                outcome, note = "PRESENT", text[:120]
+            outcome = "absent" if any(m in text for m in ABSENT) else "unknown"
+            note = "" if outcome == "absent" else f"{type(err).__name__}: {text[:120]}"
         print(f"  {method:<34} {outcome:<8} {note}")
-        if outcome == "PRESENT":
-            present.append(method)
+        found.setdefault(outcome, []).append(method)
         time.sleep(pause)
-    return present
+    return found
 
 
 def tcp_alive(host: str, timeout: float = 3.0) -> bool:
@@ -344,6 +373,17 @@ def self_test() -> None:
     assert query == {"deviceId": "c", "type": "live", "playerId": "p",
                      "media_type": 0}
     assert "media_type" not in query_for({"device_id": "c"}, "live", "p", False)
+    # An unreadable reply is not evidence that a method exists. The first
+    # version of this oracle called everything PRESENT and reported 48/48.
+    assert classify_method({"weird": 1})[0] == "unknown"
+    assert classify_method({"result": {"responses": [{"error_code": -40106}]}})[0] \
+        == "absent"
+    assert classify_method({"result": {"responses": [{"error_code": 0}]}})[0] \
+        == "WORKS"
+    assert classify_method({"result": {"responses": [{"error_code": -40210}]}})[0] \
+        == "PRESENT"
+    assert find_error_code({"error_code": -40106}) == -40106
+    assert find_error_code("not a dict") is None
     for dangerous in ("formatSdCard", "setReboot", "deletePreset", "play_alarm",
                       "device_reboot", "rebootDevice", "set_led_off",
                       "motorMove", "startScanHub", "setPrivacyMode"):
@@ -435,9 +475,15 @@ def main() -> int:
         if args.methods:
             print("\nMethod-name oracle (-40106 means the hub has no such "
                   "method; anything else means it does):")
-            present = probe_methods(
+            found = probe_methods(
                 client, KNOWN_METHODS + GUESSED_METHODS, METHOD_PAUSE)
-            print(f"\n{len(present)} present: {', '.join(present)}")
+            for outcome in ("WORKS", "PRESENT", "unknown", "absent"):
+                names = found.get(outcome, [])
+                print(f"\n{outcome} ({len(names)}): {', '.join(names) or '—'}")
+            if found.get("unknown") and not found.get("absent"):
+                print("\nNothing came back absent and most replies were "
+                      "unreadable, so this run proves nothing. Treat the "
+                      "unknown list as no evidence either way.")
             if not args.probe and not args.child and not args.child_method:
                 return 0
 
