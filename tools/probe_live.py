@@ -265,6 +265,9 @@ def main() -> int:
                         help="probe a single verb instead of all of them")
     parser.add_argument("--skip-control", action="store_true",
                         help="do not replay a known-good download first")
+    parser.add_argument("--control-only", action="store_true",
+                        help="one known-good download attempt, nothing else; "
+                             "use this to test recovery")
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--pause", type=float, default=5.0,
                         help="seconds between attempts")
@@ -297,6 +300,18 @@ def main() -> int:
     client.connect()
     print(f"Connected to {args.host}; client_id={client._client_id}")
     try:
+        if args.control_only:
+            # Exactly one attempt, no survey: the point is to disturb the hub
+            # as little as possible while checking whether auth works again.
+            print(f"port {MEDIA_PORT}: "
+                  f"{'accepting' if tcp_alive(args.host) else 'REFUSING'}")
+            verdict = control(client, client.camera_at(args.camera),
+                              args.timeout, not args.no_media_type)
+            recovered = verdict in ("video", "json", "error")
+            print("\nMedia auth works again." if recovered else
+                  "\nStill failing. Wait longer, then power-cycle the hub.")
+            return 0 if recovered else 1
+
         camera = survey(client, args.camera, args.raw)
 
         if not args.probe:
