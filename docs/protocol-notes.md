@@ -67,6 +67,41 @@ There is **no** `live`, `preview`, or `stream` module. Live view is likely not a
 hub module at all — plausibly camera-direct after a `preWakeUp`, or not exposed
 locally. Unproven either way.
 
+## Waking a camera for live view
+
+The oracle is valid when a `multipleRequest` carries **non-empty** params: a
+known-good call succeeds, an impossible name returns a per-method `-40106`.
+Both were verified before trusting any negative below. With empty params the
+envelope is rejected wholesale and nothing is learned — an earlier run made
+that mistake and reported 48 of 48 names present.
+
+`preWakeUp` is a **component, not a method**: `multipleRequest[preWakeUp]`
+returns `-40106`. So does every one of these:
+
+    getPreWakeUpConfig  getPreWakeUpStatus  getPreWakeUp  preWakeUpDevice
+    preWakeUpChild      preWakeUpGeneralDevice  getWakeUpStatus
+    preLive  preVod  preDownload  prePlayback  preLiveStream  prePreview
+    getGeneralDeviceStatus  getGeneralDeviceInfo  getGeneralDeviceCapability
+    getPreviewStatus  getLiveStatus  getLiveStreamInfo  getStreamInfo
+    getRingLog  searchRingLog  getEventList  searchEventList
+    getSnapshotConfig  getSnapshotUrl  getSnapshotList
+
+The hub also exposes no introspection: `getModuleSpec`, `getFunctionList`,
+`getMethodList`, `getApiList`, `getSupportedMethods`, `getCapability`,
+`getDeviceCapability`, `getFeatureList` are all absent, as are `get` against
+`function`, `module_spec`, `api_spec`, `capability` and `support`. There is no
+way to make the hub list its own method table.
+
+Two things worth keeping in mind:
+
+- Downloads work against a sleeping TD21 with no wake step at all, so waking
+  may be needed only for live.
+- `preWakeUp` being a *hub* component suggests the hub wakes the camera on the
+  app's behalf during some other call, rather than exposing a standalone verb.
+  If so, opening a live media session may itself trigger the wake — which the
+  port-8800 probe has never validly tested, because the run where `preview`
+  returned HTTP 401 had its `type=download` control return 401 too.
+
 ## What has not worked
 
 - Bare method names with `{}` params: envelope rejected, `40210`, method never

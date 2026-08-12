@@ -37,7 +37,7 @@ import probe_live as probe  # noqa: E402
 
 DEFAULT_PORT = 8765
 state = {"client": None, "requests": 0, "last": 0.0, "allow_writes": False,
-         "started": 0.0}
+         "started": 0.0, "raw": False}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -60,6 +60,7 @@ class Handler(BaseHTTPRequestHandler):
                 "uptime_seconds": round(time.monotonic() - state["started"], 1),
                 "idle_seconds": round(time.monotonic() - state["last"], 1),
                 "allow_writes": state["allow_writes"],
+                "raw": state["raw"],
             })
         elif self.path == "/stop":
             self._reply(200, {"stopping": True})
@@ -95,7 +96,10 @@ class Handler(BaseHTTPRequestHandler):
         state["requests"] += 1
         try:
             response = state["client"]._hub.performRequest(request)
-            self._reply(200, {"response": response})
+            # Scrubbed by default. Raw responses carry device IDs and MACs, and
+            # probe output gets pasted into issues and chat logs.
+            self._reply(200, {"response": response if state["raw"]
+                              else probe.scrub(response)})
         except Exception as err:
             self._reply(200, {"error": f"{type(err).__name__}: {err}"})
 
@@ -137,6 +141,8 @@ def main() -> int:
     parser.add_argument("--idle", type=float, default=1800,
                         help="shut down after this many idle seconds")
     parser.add_argument("--allow-writes", action="store_true")
+    parser.add_argument("--raw", action="store_true",
+                        help="do not redact device IDs and MACs in responses")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--send", help="send one JSON request to a running session")
     parser.add_argument("--health", action="store_true")
@@ -161,6 +167,7 @@ def main() -> int:
         parser.error("TAPO_PASSWORD not set and no .env entry for it")
 
     state["allow_writes"] = args.allow_writes
+    state["raw"] = args.raw
     state["client"] = probe.load_api().H500Client(
         args.host, args.username, password,
         os.environ.get("TAPO_CLOUD_PASSWORD", ""), debug=args.debug)
