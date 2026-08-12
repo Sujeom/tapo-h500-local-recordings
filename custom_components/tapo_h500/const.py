@@ -30,9 +30,10 @@ DEFAULT_POLL_INTERVAL = 20
 DEFAULT_AUTO_DOWNLOAD = AUTO_DOWNLOAD_ALL
 DEFAULT_CONVERT_MP4 = True
 
-# How far back each poll looks. Must comfortably exceed the poll interval so a
-# clip indexed slightly late is still seen.
-LOOKBACK_SECONDS = 900
+# How far back each poll looks. A day's window costs the same single call as a
+# short one and is what makes "last activity" and the 24h counts meaningful;
+# without it those sensors would be blank whenever nothing happened recently.
+LOOKBACK_SECONDS = 86400
 
 EVENT_RING = "ring"
 EVENT_MOTION = "motion"

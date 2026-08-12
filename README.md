@@ -146,11 +146,36 @@ recording downloads.
 
 ## Entities
 
-Each paired camera gets a device with two entities:
+The hub gets its own device, and each paired camera gets one.
 
-- `camera.<name>` — the frame from that camera's newest downloaded clip.
-- `event.<name>_activity` — fires `ring` or `motion`, with `start_time`,
-  `end_time`, `duration` and the hub's raw `hub_type` label as attributes.
+**Hub**
+
+| Entity | Use |
+| --- | --- |
+| `sensor.*_storage_free` / `_storage_total` / `_storage_used` | Recording space, in GB and percent. Automate a warning before the loop starts overwriting. |
+| `sensor.*_storage_status` | The hub's own word for the disk state, e.g. `normal`. |
+| `binary_sensor.*_storage_problem` | On when the disk is not `normal`. |
+| `binary_sensor.*_siren` + `sensor.*_siren_time_left` | Whether the hub siren is sounding, and for how much longer. |
+| `sensor.*_firmware_state`, `sensor.*_ip_address` | Diagnostics. |
+| `binary_sensor.*_loop_recording`, `_led`, `_media_encryption` | Diagnostics. |
+
+**Per camera**
+
+| Entity | Use |
+| --- | --- |
+| `camera.<name>` | The frame from that camera's newest downloaded clip. |
+| `event.<name>_activity` | Fires `ring` or `motion`, with `start_time`, `end_time`, `duration` and the hub's raw `hub_type` label as attributes. |
+| `sensor.<name>_last_activity` | Timestamp of the newest recording. Drives "nothing seen since" automations. |
+| `sensor.<name>_recordings_24h` | How many clips the hub holds for this camera. |
+| `sensor.<name>_ai_enhance`, `_network_mode`, `_model` | Diagnostics. |
+| `binary_sensor.<name>_hub_storage`, `_24_7_recording`, `_ai_enhance_enabled`, `_wifi_backup` | Diagnostics. |
+
+Everything above comes from one extra `multipleRequest` per poll, batched into a
+single round trip because this hub is easy to overload.
+
+**No battery level.** None of the battery getters work on an H500 — the reading
+lives on the camera, and the hub exposes no way to address a camera child. See
+`docs/protocol-notes.md`.
 
 Cameras are enumerated when the config entry loads. Pair a new camera, then
 reload the integration to pick it up.

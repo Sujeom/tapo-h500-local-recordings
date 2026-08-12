@@ -18,6 +18,7 @@ from .const import (
     DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING, LOOKBACK_SECONDS, SIGNAL_NEW_CLIP,
 )
 from .media import async_download_clip, existing_clip
+from .status import hub_readings
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self.entry = entry
         self.client = client
         self.cameras: list[dict] = []
+        self.readings: dict = {}
         self._seen_events: dict[int, set[int]] = {}
         self._seen_clips: dict[int, set[int]] = {}
         self._primed = False
@@ -41,12 +43,27 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
 
-    async def _async_update_data(self) -> dict[int, list[dict]]:
+    def clips_for(self, index: int) -> list[dict]:
+        return (self.data or {}).get("clips", {}).get(index, [])
+
+    def last_activity(self, index: int) -> int | None:
+        moments = [start_of(clip) for clip in self.clips_for(index)]
+        moments = [moment for moment in moments if moment is not None]
+        return max(moments) if moments else None
+
+    async def _async_update_data(self) -> dict:
         try:
             cameras = await self.hass.async_add_executor_job(self.client.cameras)
         except Exception as err:
             raise UpdateFailed(f"Could not list H500 cameras: {err}") from err
         self.cameras = cameras
+
+        try:
+            self.readings = hub_readings(
+                await self.hass.async_add_executor_job(self.client.hub_status))
+        except Exception as err:
+            # Status is a bonus; never fail the whole poll over it.
+            _LOGGER.debug("Hub status unavailable: %s", err)
 
         now = int(dt_util.utcnow().timestamp())
         window = now - LOOKBACK_SECONDS
@@ -68,7 +85,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             self._fire(index, announce, self._seen_events, window)
             self._download_new(index, camera, clips, window)
         self._primed = True
-        return clips_by_camera
+        return {"clips": clips_by_camera, "hub": self.readings}
 
     def _fresh(self, index, entries, seen_map, window) -> list[dict]:
         seen = seen_map.setdefault(index, set())

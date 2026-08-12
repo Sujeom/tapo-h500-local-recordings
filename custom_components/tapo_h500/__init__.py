@@ -30,7 +30,8 @@ from .media import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.CAMERA, Platform.EVENT]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.CAMERA, Platform.EVENT,
+             Platform.SENSOR]
 
 NONNEGATIVE_INT = vol.All(vol.Coerce(int), vol.Range(min=0))
 ENTRY_SCHEMA = {
