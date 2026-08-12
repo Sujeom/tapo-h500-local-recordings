@@ -1,27 +1,60 @@
 # Tapo H500 Local Recordings for Home Assistant
 
-Experimental HACS custom integration for listing and downloading recordings stored on a Tapo H500 HomeBase.
+Experimental HACS custom integration for browsing, downloading and automating
+recordings stored on a Tapo H500 HomeBase.
 
 ## What works
 
 - Connects directly to the H500 on your LAN.
 - Lists paired hub-managed cameras/doorbells.
 - Lists indexed H500 recordings for a date range.
-- Downloads an exact indexed recording into Home Assistant's local media directory.
-- Downloaded clips appear under **Media → Local media → tapo_h500**.
+- Polls the hub and raises a Home Assistant **event entity** per camera when a
+  doorbell press or motion clip appears.
+- Downloads new recordings automatically, doorbell presses only by default.
+- Converts downloads to MP4 so they play in the browser.
+- Generates a JPEG thumbnail for every downloaded clip.
+- Serves a **camera entity** per doorbell showing the newest event frame.
+- Browses downloaded clips under **Media → Tapo H500**, by camera and date,
+  with thumbnails.
+- Ships a **dashboard card** listing the hub's clips with play, download and
+  delete buttons.
+- Deletes downloaded copies; can format hub storage (see the warning below).
 - Does **not** call `preWakeUp`, `preVod`, or a TP-Link cloud media endpoint.
 
-The TP-Link cloud-account password is still required by Tapo's **local** port-8800 media encryption handshake. It is stored in the Home Assistant config entry and is not placed in filenames, service responses, or logs.
+The TP-Link cloud-account password is still required by Tapo's **local**
+port-8800 media encryption handshake. It is stored in the Home Assistant config
+entry and is not placed in filenames, service responses, or logs.
 
 ## Scope and limitations
 
-This first release deliberately supports only the path verified on an H500 with paired TD21 battery doorbells. It does not provide live view, notifications, event automation, thumbnail browsing, deletion, or MP4 conversion. Downloads are MPEG-TS (`.ts`) with MIME type `video/mp2t`.
+**No live stream.** The camera entities serve stills taken from the newest
+recording, not live video. The H500's live media session for hub-attached
+battery cameras is not part of the path verified against real hardware, so it
+is deliberately not attempted here.
 
-The protocol is undocumented. Pinning the H500 to a stable LAN address is strongly recommended. Firmware changes may require integration updates.
+**No per-clip deletion on the hub.** The hub exposes no delete-one-recording
+call — `pytapo` has none, and TP-Link's own documentation says SD/hub footage
+can only be removed by formatting. `tapo_h500.delete_recording` therefore
+removes the *downloaded copy* in Home Assistant. `tapo_h500.format_hub_storage`
+is the only hub-side deletion that exists and it **erases every recording for
+every paired camera, with no undo**.
+
+**Event latency depends on the source.** The integration prefers the hub's
+detection log, which is not verified on H500 firmware; if the hub rejects it,
+the integration permanently falls back to polling the indexed clip list, which
+is verified. In that fallback a clip appears only once the hub has finished
+writing it, so an event can trail the actual doorbell press by the poll
+interval plus the clip length.
+
+The protocol is undocumented. Pinning the H500 to a stable LAN address is
+strongly recommended. Firmware changes may require integration updates.
+
+Requires Home Assistant 2024.11 or newer.
 
 ## HACS installation
 
-HACS installs integrations from a GitHub repository. After this repository is uploaded to GitHub:
+HACS installs integrations from a GitHub repository. After this repository is
+uploaded to GitHub:
 
 1. In HACS, open **Integrations**.
 2. Open the three-dot menu and choose **Custom repositories**.
@@ -31,7 +64,8 @@ HACS installs integrations from a GitHub repository. After this repository is up
 6. Go to **Settings → Devices & services → Add integration**.
 7. Search for **Tapo H500 Local Recordings**.
 
-For a manual installation, copy `custom_components/tapo_h500` into Home Assistant's `custom_components` directory and restart.
+For a manual installation, copy `custom_components/tapo_h500` into Home
+Assistant's `custom_components` directory and restart.
 
 ## Configuration
 
@@ -42,15 +76,74 @@ The config flow asks for:
 - **Camera account password**
 - **TP-Link cloud account password** (used only to derive local media encryption keys)
 
-The H500 and Home Assistant must be able to reach each other over the LAN. The integration uses HTTPS/control traffic to the hub and TCP port `8800` for recording downloads.
+The H500 and Home Assistant must be able to reach each other over the LAN. The
+integration uses HTTPS/control traffic to the hub and TCP port `8800` for
+recording downloads.
 
-## Usage
+### Options
 
-The integration exposes two response-capable actions under **Developer tools → Actions**.
+**Settings → Devices & services → Tapo H500 → Configure**
 
-### 1. List recordings
+| Option | Default | Effect |
+| --- | --- | --- |
+| Seconds between activity checks | `20` | How often the hub is polled. |
+| Download new recordings automatically | Doorbell presses only | `Never`, `Doorbell presses only`, or `Every new recording`. |
+| Convert downloads to MP4 | On | Off keeps the hub's original MPEG-TS. |
 
-Action: `tapo_h500.list_recordings`
+## Entities
+
+Each paired camera gets a device with two entities:
+
+- `camera.<name>` — the frame from that camera's newest downloaded clip.
+- `event.<name>_activity` — fires `ring` or `motion`, with `start_time`,
+  `end_time`, `duration` and the hub's raw `hub_type` label as attributes.
+
+Cameras are enumerated when the config entry loads. Pair a new camera, then
+reload the integration to pick it up.
+
+### Doorbell automation
+
+```yaml
+automation:
+  - alias: Someone at the door
+    triggers:
+      - trigger: state
+        entity_id: event.side_doorbell_activity
+        attribute: event_type
+        to: ring
+    actions:
+      - action: notify.mobile_app_phone
+        data:
+          message: Someone rang the doorbell
+```
+
+The recording downloads on its own; the clip and its thumbnail land under
+**Media → Tapo H500**.
+
+## Dashboard card
+
+The card is registered automatically — no Lovelace resource to add. Add a
+manual card:
+
+```yaml
+type: custom:tapo-h500-card
+camera_index: 1
+days: 2
+```
+
+`camera_index` is the position in the hub's paired-device list and defaults to
+`0`. `days` defaults to `1`. `entry_id` is optional and only needed if you run
+more than one H500.
+
+Each row shows the thumbnail, the local time, the event type and the duration,
+plus **Download** for clips still only on the hub and **Play**/**Delete** for
+clips already downloaded.
+
+## Actions
+
+All four actions return a response and appear under **Developer tools → Actions**.
+
+### `tapo_h500.list_recordings`
 
 ```yaml
 config_entry_id: YOUR_CONFIG_ENTRY_ID
@@ -59,11 +152,12 @@ start_date: "20260812"
 end_date: "20260812"
 ```
 
-Dates use `YYYYMMDD` in UTC. If dates are omitted, today in UTC is used. The response includes exact `start_time` and `end_time` values. Camera indexes follow the paired-device order reported by the hub and begin at zero.
+Dates use `YYYYMMDD` in UTC and default to today. Each returned recording
+carries exact `start_time`/`end_time` boundaries, a `duration`, the classified
+`event_type`, the hub's raw `video_type`, and `downloaded`. Already-downloaded
+recordings also carry `url`, `thumbnail`, `path` and `media_content_id`.
 
-### 2. Download one recording
-
-Action: `tapo_h500.download_recording`
+### `tapo_h500.download_recording`
 
 ```yaml
 config_entry_id: YOUR_CONFIG_ENTRY_ID
@@ -72,30 +166,76 @@ start_time: 1786553183
 end_time: 1786553198
 ```
 
-Always copy the exact time boundaries from `list_recordings`. A successful response includes:
+Always copy the exact time boundaries from `list_recordings`. `convert_to_mp4`
+optionally overrides the integration option for a single download.
+
+### `tapo_h500.delete_recording`
 
 ```yaml
-media_content_id: media-source://media_source/local/tapo_h500/Side_Doorbell_1786553183.ts
-path: tapo_h500/Side_Doorbell_1786553183.ts
-bytes: 3398852
+config_entry_id: YOUR_CONFIG_ENTRY_ID
+camera_index: 1
+start_time: 1786553183
 ```
 
-Open **Media → Local media → tapo_h500** to play or download the clip.
+Removes the downloaded clip and its thumbnail. The hub keeps its own copy.
+
+### `tapo_h500.format_hub_storage`
+
+```yaml
+config_entry_id: YOUR_CONFIG_ENTRY_ID
+confirm: true
+```
+
+**Destroys every recording on the hub.** `confirm: true` is required and there
+is no undo.
+
+## Media layout
+
+```
+<media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.mp4
+<media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.jpg
+```
+
+Folder and file names come from the clip's start time in Home Assistant's local
+timezone, so whether a clip is already downloaded is a path check rather than a
+stored index. Earlier versions wrote flat `<Camera>_<unixtime>.ts` files; those
+are not migrated and can be deleted or moved by hand.
 
 ## Security notes
 
-- This is a local, read-only recording integration; it does not delete clips or modify hub settings.
 - Passwords are kept in the Home Assistant config entry.
 - Device IDs and MAC addresses are not returned by service actions.
+- Clip and thumbnail URLs handed to the dashboard are signed and expire after
+  12 hours; the media directory itself stays behind Home Assistant auth.
 - Do not expose TCP port `8800` to the internet.
 
 ## Verification performed
 
-- Unit tests cover the H500 request payload, required `Content-Length: 0` framing override, and safe media filenames.
-- The integration protocol client was tested with stock `pytapo==3.4.18` against a physical H500; `pytapo` supplies transport and crypto while this integration supplies the app-derived H500 request/framing.
-- A bounded TD21 recording download reached the explicit finished notification and returned 3,398,852 bytes.
-- `ffprobe` identified MPEG-TS, H.264 video, and a 15.07-second duration.
+Verified against a physical H500 with paired TD21 doorbells:
+
+- The recording download path, using stock `pytapo==3.4.18` for transport and
+  crypto with this integration supplying the app-derived H500 request framing.
+- A bounded TD21 recording download reached the explicit finished notification
+  and returned 3,398,852 bytes; `ffprobe` identified MPEG-TS, H.264 video and a
+  15.07-second duration.
+
+Verified by unit test (`python3 -m unittest discover -s tests`, 10 tests, no
+hub or Home Assistant install required):
+
+- The H500 download request payload and the required `Content-Length: 0` outer
+  framing.
+- The verified 25-packet acknowledgement window and finished-notification
+  handling.
+- Doorbell-versus-motion classification, both timestamp field spellings, clip
+  flattening, and camera-name sanitising against path traversal.
+- That an unsupported detection search disables itself after one rejection
+  rather than being retried every poll.
+
+Not yet verified against hardware: the detection-log call, hub storage
+formatting, and everything downstream of a live poll — events, automatic
+downloads, thumbnails, MP4 conversion, the media browser and the card.
 
 ## License
 
-MIT. The integration depends on the separately distributed MIT-licensed `pytapo` package.
+MIT. The integration depends on the separately distributed MIT-licensed
+`pytapo` package.
