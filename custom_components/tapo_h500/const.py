@@ -24,7 +24,10 @@ AUTO_DOWNLOAD_ALL = "all"
 AUTO_DOWNLOAD_MODES = [AUTO_DOWNLOAD_OFF, AUTO_DOWNLOAD_RINGS, AUTO_DOWNLOAD_ALL]
 
 DEFAULT_POLL_INTERVAL = 20
-DEFAULT_AUTO_DOWNLOAD = AUTO_DOWNLOAD_RINGS
+# An H500 with TD21 doorbells labels every clip video_type "2", so ring-only
+# filtering matches nothing and downloads nothing. Defaulting to rings made the
+# feature a silent no-op; default to all until the ring code is identified.
+DEFAULT_AUTO_DOWNLOAD = AUTO_DOWNLOAD_ALL
 DEFAULT_CONVERT_MP4 = True
 
 # How far back each poll looks. Must comfortably exceed the poll interval so a
