@@ -14,6 +14,7 @@ from homeassistant.exceptions import (
     ConfigEntryNotReady, HomeAssistantError, ServiceValidationError,
 )
 from homeassistant.helpers import config_validation as cv
+from homeassistant.loader import async_get_integration
 
 from .api import H500Client
 from .clips import end_of, event_type, start_of
@@ -108,8 +109,42 @@ async def _async_register_card(hass: HomeAssistant) -> None:
         return
     await hass.http.async_register_static_paths([StaticPathConfig(
         CARD_URL, str(Path(__file__).parent / "www" / "tapo-h500-card.js"), True)])
-    add_extra_js_url(hass, CARD_URL)
+
+    # The URL carries the version so a browser holding a cached copy fetches
+    # the new one instead of silently keeping the old card.
+    integration = await async_get_integration(hass, DOMAIN)
+    versioned = f"{CARD_URL}?v={integration.version}"
+
+    add_extra_js_url(hass, versioned)
+    await _async_register_lovelace_resource(hass, versioned)
     data[DATA_CARD] = True
+
+
+async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> None:
+    """Add the card to the dashboard's resource list.
+
+    add_extra_js_url alone is not enough in practice: it only applies on a full
+    frontend load, so the card reads as "Custom element doesn't exist" until the
+    browser happens to reload everything. A real resource is what the dashboard
+    consults. Storage-mode dashboards only — YAML mode owns its own resource
+    list and must not be written to.
+    """
+    try:
+        resources = hass.data["lovelace"].resources
+        if getattr(resources, "loaded", True) is False:
+            await resources.async_load()
+            resources.loaded = True
+        for item in resources.async_items():
+            if str(item.get("url", "")).startswith(CARD_URL):
+                if item["url"] != url:
+                    await resources.async_update_item(item["id"], {"url": url})
+                return
+        await resources.async_create_item({"res_type": "module", "url": url})
+    except Exception as err:  # storage layout differs across versions
+        _LOGGER.warning(
+            "Could not register the dashboard card automatically (%s). Add it "
+            "by hand under Settings > Dashboards > Resources as a JavaScript "
+            "Module pointing at %s", err, url)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
