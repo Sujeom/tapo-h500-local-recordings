@@ -1,0 +1,21 @@
+{
+  "title": "Tapo H500 Local Recordings",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to a Tapo H500",
+        "description": "All traffic remains local. The TP-Link cloud password is required only for local media encryption.",
+        "data": {
+          "host": "H500 IP address",
+          "username": "Camera account username",
+          "password": "Camera account password",
+          "cloud_password": "TP-Link cloud account password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect or authenticate with the H500.",
+      "no_cameras": "The H500 reported no paired cameras."
+    }
+  }
+}
