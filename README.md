@@ -3,6 +3,15 @@
 Experimental HACS custom integration for browsing, downloading and automating
 recordings stored on a Tapo H500 HomeBase.
 
+> **Work in progress.** This is unfinished and changing. It talks to an
+> undocumented protocol that has been reverse engineered against exactly one
+> setup — a single H500 running firmware `1.3.20` with two paired TD21
+> doorbells. Entity names, the on-disk media layout, action fields and option
+> defaults may all change without a migration path, and a firmware update may
+> break it outright. Some things listed below are known not to work; see
+> **Scope and limitations** and `docs/protocol-notes.md`, which records what has
+> actually been observed versus what is still guesswork.
+
 ## What works
 
 - Connects directly to the H500 on your LAN.
@@ -20,6 +29,13 @@ recordings stored on a Tapo H500 HomeBase.
   delete buttons.
 - Deletes downloaded copies; can format hub storage (see the warning below).
 - Does **not** call `preWakeUp`, `preVod`, or a TP-Link cloud media endpoint.
+
+On firmware 1.3.20 the hub reports media encryption as on but sends an empty
+`nonce` in its `Key-Exchange` header. `pytapo` rejects any empty nonce, which
+fails every download; the integration allows it through, because the hub
+derives its key from the empty value and the resulting stream decrypts
+correctly. Verified end to end: `ffprobe` reports MPEG-TS with H.264 at
+2304x1296.
 
 The TP-Link cloud-account password is still required by Tapo's **local**
 port-8800 media encryption handshake. It is stored in the Home Assistant config
@@ -262,8 +278,13 @@ Verified against a physical H500 with paired TD21 doorbells:
 - A bounded TD21 recording download reached the explicit finished notification
   and returned 3,398,852 bytes; `ffprobe` identified MPEG-TS, H.264 video and a
   15.07-second duration.
+- The empty-nonce workaround on firmware `1.3.20`, which stock `pytapo` rejects:
+  205,108 bytes retrieved and decrypted, `ffprobe` reporting MPEG-TS with H.264
+  at 2304x1296.
+- The hub's module inventory, and that `preWakeUp` is a component with no
+  corresponding method. See `docs/protocol-notes.md`.
 
-Verified by unit test (`python3 -m unittest discover -s tests`, 10 tests, no
+Verified by unit test (`python3 -m unittest discover -s tests`, 14 tests, no
 hub or Home Assistant install required):
 
 - The H500 download request payload and the required `Content-Length: 0` outer
@@ -274,10 +295,17 @@ hub or Home Assistant install required):
   flattening, and camera-name sanitising against path traversal.
 - That an unsupported detection search disables itself after one rejection
   rather than being retried every poll.
+- That an empty nonce reaches key derivation intact, a real nonce is passed
+  through untouched, and the session module resolves the patched helper.
 
-Not yet verified against hardware: the detection-log call, hub storage
-formatting, and everything downstream of a live poll — events, automatic
-downloads, thumbnails, MP4 conversion, the media browser and the card.
+**Not yet verified against hardware:** hub storage formatting, and everything
+that runs inside Home Assistant — the event entities, automatic download,
+thumbnail generation, MP4 conversion, the media browser and the dashboard card.
+Those are written against the verified protocol calls but have not been
+exercised in a running Home Assistant instance.
+
+**Known not to work:** doorbell presses cannot be told apart from motion on this
+firmware, and there is no live video.
 
 ## License
 
