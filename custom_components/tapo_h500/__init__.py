@@ -202,6 +202,11 @@ def _register_services(hass: HomeAssistant) -> None:
             scan_downloaded, hass, camera, [start for start, _, _ in clips])
         return {
             "camera": _public_camera(camera),
+            # So a caller can offer a camera picker without probing indexes.
+            "cameras": [
+                {"index": position, **_public_camera(item)}
+                for position, item in enumerate(coordinator.cameras)
+            ],
             "recordings": [
                 {
                     "start_time": start,
