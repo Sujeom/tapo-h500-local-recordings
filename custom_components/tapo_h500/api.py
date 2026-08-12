@@ -15,6 +15,7 @@ from pytapo.media_stream.crypto import AESHelper
 from pytapo.media_stream.session import HttpMediaSession
 
 from .clips import flatten_clips
+from .status import HUB_STATUS_REQUESTS, unpack_multiple
 
 
 class _EmptyNonce(bytes):
@@ -217,6 +218,21 @@ class H500Client:
             self._detection_supported = False
             return None
         return detections
+
+    def hub_status(self):
+        """Every hub-level reading in a single round trip.
+
+        Batched deliberately: this hub is easy to wedge, and one
+        multipleRequest costs the same as one getter.
+        """
+        with self._hub_lock:
+            response = self._hub.performRequest({
+                "method": "multipleRequest",
+                "params": {"requests": [
+                    {"method": name, "params": params}
+                    for name, params in HUB_STATUS_REQUESTS]},
+            })
+        return unpack_multiple(response)
 
     def format_storage(self):
         """Erase hub storage.

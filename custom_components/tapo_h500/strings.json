@@ -55,6 +55,73 @@
           }
         }
       }
+    },
+    "sensor": {
+      "storage_free": {
+        "name": "Storage free"
+      },
+      "storage_total": {
+        "name": "Storage total"
+      },
+      "storage_used": {
+        "name": "Storage used"
+      },
+      "storage_status": {
+        "name": "Storage status"
+      },
+      "siren_time_left": {
+        "name": "Siren time left"
+      },
+      "firmware_state": {
+        "name": "Firmware state"
+      },
+      "ip_address": {
+        "name": "IP address"
+      },
+      "last_activity": {
+        "name": "Last activity"
+      },
+      "recordings_24h": {
+        "name": "Recordings (24h)"
+      },
+      "ai_enhance": {
+        "name": "AI enhance"
+      },
+      "network_mode": {
+        "name": "Network mode"
+      },
+      "model": {
+        "name": "Model"
+      }
+    },
+    "binary_sensor": {
+      "siren": {
+        "name": "Siren"
+      },
+      "storage_problem": {
+        "name": "Storage problem"
+      },
+      "loop_recording": {
+        "name": "Loop recording"
+      },
+      "led": {
+        "name": "Status LED"
+      },
+      "media_encrypted": {
+        "name": "Media encryption"
+      },
+      "hub_storage": {
+        "name": "Hub storage"
+      },
+      "continuous_recording": {
+        "name": "24/7 recording"
+      },
+      "ai_enhance_enabled": {
+        "name": "AI enhance enabled"
+      },
+      "wifi_backup": {
+        "name": "Wi-Fi backup"
+      }
     }
   }
 }

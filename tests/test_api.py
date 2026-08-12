@@ -218,5 +218,76 @@ class ClipsTest(unittest.TestCase):
         self.assertEqual(clips.flatten_clips(result), [{"startTime": 10, "endTime": 20}])
 
 
+status = importlib.import_module("tapo_h500.status")
+
+# Verbatim from an H500 on firmware 1.3.20, with the address replaced.
+OBSERVED = {
+    "getSdCardStatus": {"harddisk_manage": {"hd_info": [{"hd_info_1": {
+        "disk_name": "1", "loop_record_status": "1", "rw_attr": "rw",
+        "total_space": "10.00 GB", "write_protect": "0", "type": "local",
+        "status": "normal", "detect_status": "failed", "percent": "100",
+        "free_space": "8.12 GB", "video_total_space": "9.50 GB",
+        "video_free_space": "7.62 GB"}}]}},
+    "getSirenStatus": {"status": "off", "time_left": 0},
+    "getFirmwareUpdateStatus": {"cloud_config": {"upgrade_status": {
+        "state": "normal", "lastUpgradingSuccess": True}}},
+    "getLedStatus": {"led": {"config": {
+        ".name": "config", ".type": "led", "enabled": "on"}}},
+    "getCircularRecordingConfig": {"harddisk_manage": {"harddisk": {"loop": "on"}}},
+    "getMediaEncrypt": {"cet": {"media_encrypt": {"enabled": "on"}}},
+    "getDeviceIpAddress": {"network": {"wan": {"ipaddr": "192.168.1.50"}}},
+}
+
+
+class StatusTest(unittest.TestCase):
+    def test_readings_from_a_real_response(self):
+        r = status.hub_readings(OBSERVED)
+        self.assertEqual(r["storage_free_gb"], 7.62)
+        self.assertEqual(r["storage_total_gb"], 9.5)
+        self.assertEqual(r["storage_used_percent"], 19.8)
+        self.assertTrue(r["storage_healthy"])
+        self.assertFalse(r["siren_active"])
+        self.assertEqual(r["firmware_state"], "normal")
+        self.assertTrue(r["led_on"])
+        self.assertTrue(r["loop_recording"])
+        self.assertTrue(r["media_encrypted"])
+        self.assertEqual(r["ip_address"], "192.168.1.50")
+
+    def test_missing_data_yields_none_not_an_exception(self):
+        r = status.hub_readings({})
+        self.assertIsNone(r["storage_free_gb"])
+        self.assertIsNone(r["storage_used_percent"])
+        self.assertIsNone(r["storage_healthy"])
+        self.assertIsNone(r["siren_active"])
+        self.assertIsNone(r["led_on"])
+
+    def test_sizes_parse_across_units(self):
+        self.assertEqual(status.gigabytes("7.62 GB"), 7.62)
+        self.assertEqual(status.gigabytes("1024 MB"), 1.0)
+        self.assertEqual(status.gigabytes("2 TB"), 2048.0)
+        self.assertIsNone(status.gigabytes("plenty"))
+        self.assertIsNone(status.gigabytes(None))
+
+    def test_siren_on_is_detected(self):
+        r = status.hub_readings({"getSirenStatus": {"status": "on", "time_left": 12}})
+        self.assertTrue(r["siren_active"])
+        self.assertEqual(r["siren_time_left"], 12)
+
+    def test_unpack_keeps_only_successful_subresponses(self):
+        packed = {"result": {"responses": [
+            {"method": "a", "result": {"x": 1}, "error_code": 0},
+            {"method": "b", "error_code": -40106},
+            {"method": "c", "result": {}, "error_code": 0},
+        ]}}
+        self.assertEqual(status.unpack_multiple(packed), {"a": {"x": 1}})
+        self.assertEqual(status.unpack_multiple("junk"), {})
+
+    def test_disk_handles_a_malformed_table(self):
+        for broken in ({}, {"getSdCardStatus": {}},
+                       {"getSdCardStatus": {"harddisk_manage": {"hd_info": []}}},
+                       {"getSdCardStatus": {"harddisk_manage": {"hd_info": ["x"]}}}):
+            self.assertEqual(status.disk(broken), {})
+
+
 if __name__ == "__main__":
     unittest.main()
