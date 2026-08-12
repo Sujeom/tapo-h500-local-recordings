@@ -2,17 +2,19 @@
 """Find the H500's live-view verb by asking the hub instead of sniffing the app.
 
 Phase A is free and touches nothing: it dumps the paired camera record and the
-child component list, which may already name the capability.
+child component list.
 
-Phase B (--probe) opens real media sessions on port 8800. That wakes a battery
-doorbell and costs battery per attempt, so it runs sequentially and stops at the
-first candidate that returns video.
+Phase B (--probe) opens real media sessions on port 8800. It always runs a
+known-good `type=download` session first as a control: if the control returns
+JSON, the harness and credentials work and any failure afterwards is specific to
+the verb being tried. Without that control an HTTP 401 is unreadable.
 
-Read the error codes, not just pass/fail. A "method does not exist" style code
-means the verb is wrong; a parameter-complaint code means the verb is right and
-only the fields need fitting.
+Port 8800 has been observed refusing connections after a rejected session, so
+the run aborts the moment it sees ConnectionRefused rather than reporting three
+more meaningless failures.
 
     python3 tools/probe_live.py --host 192.168.1.50 --camera 1
+    python3 tools/probe_live.py --host 192.168.1.50 --camera 1 --check
     python3 tools/probe_live.py --host 192.168.1.50 --camera 1 --probe
 
 Passwords come from TAPO_PASSWORD / TAPO_CLOUD_PASSWORD or an interactive
@@ -27,11 +29,14 @@ import importlib
 import json
 import os
 import re
+import socket
 import sys
+import time
 import types
 from pathlib import Path
 
 COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "tapo_h500"
+MEDIA_PORT = 8800
 
 try:
     from pytapo.const import ERROR_CODES
@@ -63,9 +68,36 @@ def load_api():
             ) from err
     return api
 
+
 # Query "type" and payload block name are the same word in the verified
 # download path, so each candidate varies both together.
 CANDIDATES = ("preview", "live", "stream", "video")
+
+# Device IDs, parent IDs and MACs are all long hex strings. Matching the shape
+# rather than the key name means a field nobody anticipated is still redacted.
+HEX_ID = re.compile(r"^[0-9A-Fa-f]{12,}$")
+
+
+def scrub(value):
+    if isinstance(value, str):
+        return f"{value[:6]}…" if HEX_ID.match(value) else value
+    if isinstance(value, dict):
+        return {key: scrub(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [scrub(item) for item in value]
+    return value
+
+
+def query_for(camera, block: str, player_id: str, media_type: bool) -> dict:
+    """The verified download query string with only "type" changed."""
+    query = {
+        "deviceId": camera["device_id"],
+        "type": block,
+        "playerId": player_id,
+    }
+    if media_type:
+        query["media_type"] = 0
+    return query
 
 
 def build_payload(block: str, camera: dict, player_id: str, client_id: int) -> dict:
@@ -102,28 +134,25 @@ def classify(mimetype: str, plaintext: bytes) -> tuple[str, object]:
     return "json", message
 
 
-def query_for(camera, block: str, player_id: str, media_type: bool) -> dict:
-    """The verified download query string with only "type" changed."""
-    query = {
-        "deviceId": camera["device_id"],
-        "type": block,
-        "playerId": player_id,
-    }
-    if media_type:
-        query["media_type"] = 0
-    return query
+def tcp_alive(host: str, timeout: float = 3.0) -> bool:
+    """Is the media listener accepting connections at all?"""
+    with socket.socket() as sock:
+        sock.settimeout(timeout)
+        try:
+            sock.connect((host, MEDIA_PORT))
+            return True
+        except OSError:
+            return False
 
 
-async def probe(client, camera, block: str, timeout: float,
-                media_type: bool) -> tuple[str, object]:
-    session = api.H500MediaSession(
+async def attempt(client, query: dict, payload: dict, timeout: float
+                  ) -> tuple[str, object]:
+    session = load_api().H500MediaSession(
         ip=client.host, cloud_password=client.cloud_password,
         super_secret_key=client._super_secret_key,
-        encryptionMethod=client._encryption_method, port=8800,
-        username=client.username, window_size=25,
-        query_params=query_for(camera, block, client.player_id, media_type),
+        encryptionMethod=client._encryption_method, port=MEDIA_PORT,
+        username=client.username, window_size=25, query_params=query,
     )
-    payload = build_payload(block, camera, client.player_id, client._client_id)
     async with session:
         stream = session.transceive(
             json.dumps(payload, separators=(",", ":")), no_data_timeout=timeout)
@@ -139,19 +168,39 @@ async def probe(client, camera, block: str, timeout: float,
                 return verdict, detail
 
 
-# Device IDs, parent IDs and MACs are all long hex strings. Matching the shape
-# rather than the key name means a field nobody anticipated is still redacted.
-HEX_ID = re.compile(r"^[0-9A-Fa-f]{12,}$")
+def run_attempt(client, query, payload, timeout) -> tuple[str, object]:
+    """Bound the whole attempt, not just the read, and surface partial bytes."""
+    try:
+        return asyncio.run(asyncio.wait_for(
+            attempt(client, query, payload, timeout), timeout * 3))
+    except Exception as err:
+        detail = f"{type(err).__name__}: {err}"
+        partial = getattr(err, "partial", None)
+        if partial:
+            detail += f"\n    bytes={partial!r}\n    hex={partial.hex()}"
+        return "exception", detail
 
 
-def scrub(value):
-    if isinstance(value, str):
-        return f"{value[:6]}…" if HEX_ID.match(value) else value
-    if isinstance(value, dict):
-        return {key: scrub(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [scrub(item) for item in value]
-    return value
+def control(client, camera, timeout: float, media_type: bool) -> str:
+    """Replay a known-good download so a later failure is interpretable."""
+    now = int(time.time())
+    try:
+        clips = client.recent(camera, now - 86400, now)
+    except Exception as err:
+        print(f"  control    skipped   could not list recent clips: {err}")
+        return "skipped"
+    if not clips:
+        print("  control    skipped   no clip in the last 24h to replay")
+        return "skipped"
+    clip = clips[-1]
+    start = int(clip["startTime"])
+    end = min(int(clip["endTime"]), start + 5)
+    query = query_for(camera, "download", client.player_id, media_type)
+    payload = load_api().build_download_payload(
+        camera, start, end, client.player_id, client._client_id)
+    verdict, detail = run_attempt(client, query, payload, timeout)
+    print(f"  control    {verdict:<9} {detail}")
+    return verdict
 
 
 def survey(client, index: int, raw: bool) -> dict:
@@ -170,6 +219,12 @@ def survey(client, index: int, raw: bool) -> dict:
     try:
         components = client._hub.getChildDeviceComponentList()
         print(json.dumps(components if raw else scrub(components), indent=2))
+    except Exception as err:
+        print(f"  unavailable: {err}")
+
+    print("\nWake-up config (battery cameras sleep; live view may need a wake):")
+    try:
+        print(json.dumps(client._hub.getWakeUpConfig(), indent=2))
     except Exception as err:
         print(f"  unavailable: {err}")
     return camera
@@ -202,11 +257,17 @@ def main() -> int:
     parser.add_argument("--host")
     parser.add_argument("--username", default="admin")
     parser.add_argument("--camera", type=int, default=0)
+    parser.add_argument("--check", action="store_true",
+                        help="only report whether port 8800 is accepting")
     parser.add_argument("--probe", action="store_true",
                         help="open media sessions; wakes the camera")
     parser.add_argument("--only", choices=CANDIDATES,
                         help="probe a single verb instead of all of them")
+    parser.add_argument("--skip-control", action="store_true",
+                        help="do not replay a known-good download first")
     parser.add_argument("--timeout", type=float, default=10.0)
+    parser.add_argument("--pause", type=float, default=5.0,
+                        help="seconds between attempts")
     parser.add_argument("--no-media-type", action="store_true",
                         help="drop media_type=0 from the query string")
     parser.add_argument("--raw", action="store_true",
@@ -219,6 +280,12 @@ def main() -> int:
         return 0
     if not args.host:
         parser.error("--host is required")
+
+    if args.check:
+        alive = tcp_alive(args.host)
+        print(f"port {MEDIA_PORT} on {args.host}: "
+              f"{'accepting' if alive else 'REFUSING'}")
+        return 0 if alive else 1
 
     password = os.environ.get("TAPO_PASSWORD") or getpass.getpass(
         "Camera account password: ")
@@ -236,29 +303,39 @@ def main() -> int:
             print("\nPhase A only. Re-run with --probe to try live verbs.")
             return 0
 
-        print("\nProbing live verbs. This wakes the camera.")
         media_type = not args.no_media_type
+        print(f"\nport {MEDIA_PORT}: "
+              f"{'accepting' if tcp_alive(args.host) else 'REFUSING'}")
+        print("\nProbing. This wakes the camera.")
+
+        if not args.skip_control:
+            if control(client, camera, args.timeout, media_type) == "exception":
+                print("\nThe known-good download also failed, so this is the "
+                      "harness or the hub, not the verb. Nothing below would "
+                      "mean anything; stopping.")
+                return 1
+            time.sleep(args.pause)
+
         for block in ([args.only] if args.only else CANDIDATES):
-            print(f"  query {query_for(camera, block, '…', media_type)}")
-            try:
-                # The whole attempt is bounded, not just the read: a stalled
-                # handshake would otherwise hang the run before later verbs.
-                verdict, detail = asyncio.run(asyncio.wait_for(
-                    probe(client, camera, block, args.timeout, media_type),
-                    args.timeout * 3))
-            except Exception as err:
-                verdict = "exception"
-                detail = f"{type(err).__name__}: {err}"
-                partial = getattr(err, "partial", None)
-                if partial:
-                    detail += f"\n    bytes={partial!r}\n    hex={partial.hex()}"
+            printable = query_for(camera, block, client.player_id, media_type)
+            print(f"  query {printable if args.raw else scrub(printable)}")
+            payload = build_payload(
+                block, camera, client.player_id, client._client_id)
+            verdict, detail = run_attempt(client, query_for(
+                camera, block, client.player_id, media_type), payload,
+                args.timeout)
             print(f"  type={block:<8} {verdict:<9} {detail}\n")
             if verdict == "video":
                 print(f"Live video from type={block}. "
                       f"Payload block '{block}' is the verb.")
                 return 0
-            # Let the hub reap the session before the next attempt.
-            asyncio.run(asyncio.sleep(2))
+            if "ConnectionRefused" in str(detail):
+                print(f"Port {MEDIA_PORT} stopped accepting connections. Every "
+                      "later verb would fail the same way for the same reason, "
+                      "so stopping here. Re-check with --check before probing "
+                      "again.")
+                return 1
+            time.sleep(args.pause)
         print("No candidate returned video. Send the bytes and error codes "
               "above; a parameter complaint means that verb is right.")
     finally:
