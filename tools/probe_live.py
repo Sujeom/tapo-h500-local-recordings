@@ -50,7 +50,16 @@ def load_api():
         package = types.ModuleType("tapo_h500")
         package.__path__ = [str(COMPONENT)]
         sys.modules.setdefault("tapo_h500", package)
-        api = importlib.import_module("tapo_h500.api")
+        try:
+            api = importlib.import_module("tapo_h500.api")
+        except ModuleNotFoundError as err:
+            if err.name and err.name.split(".")[0] != "pytapo":
+                raise
+            raise SystemExit(
+                "pytapo is required to talk to the hub. In this repo:\n"
+                "  python3 -m venv .venv && .venv/bin/pip install pytapo==3.4.18\n"
+                "  .venv/bin/python tools/probe_live.py --host <ip> --camera 1"
+            ) from err
     return api
 
 # Query "type" and payload block name are the same word in the verified
