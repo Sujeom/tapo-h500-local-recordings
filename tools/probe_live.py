@@ -134,6 +134,40 @@ def classify(mimetype: str, plaintext: bytes) -> tuple[str, object]:
     return "json", message
 
 
+# python-kasa's envelope for reaching a device behind the hub. The hub and the
+# camera have different method tables, so a -40106 from the hub says nothing
+# about whether the camera itself supports the method.
+CHILD_ENUMERATION = (
+    ("getComponentList", {}),
+    ("getDeviceInfo", {"device_info": {"name": ["basic_info"]}}),
+    ("getWakeUpConfig", {"wake_up": {"name": "config"}}),
+    ("getBatteryInfo", {"battery": {"name": "info"}}),
+    ("getStreamInfo", {"stream": {"name": "info"}}),
+)
+
+
+def child_call(client, camera: dict, method: str, params: dict):
+    """Send one method to the camera itself, through the hub."""
+    return client._hub.executeFunction("controlChild", {
+        "childControl": {
+            "device_id": camera["device_id"],
+            "request_data": {"method": method, "params": params},
+        }
+    })
+
+
+def child_discovery(client, camera: dict, raw: bool, calls) -> None:
+    print("\nAsking the camera directly (controlChild passthrough):")
+    for method, params in calls:
+        try:
+            result = child_call(client, camera, method, params)
+        except Exception as err:
+            print(f"  {method}: {err}")
+            continue
+        print(f"  {method}:")
+        print(json.dumps(result if raw else scrub(result), indent=4))
+
+
 def tcp_alive(host: str, timeout: float = 3.0) -> bool:
     """Is the media listener accepting connections at all?"""
     with socket.socket() as sock:
@@ -268,6 +302,13 @@ def main() -> int:
     parser.add_argument("--control-only", action="store_true",
                         help="one known-good download attempt, nothing else; "
                              "use this to test recovery")
+    parser.add_argument("--child", action="store_true",
+                        help="ask the camera itself via controlChild; control "
+                             "channel only, does not touch port 8800")
+    parser.add_argument("--child-method",
+                        help="send one named method to the camera")
+    parser.add_argument("--child-params", default="{}",
+                        help="JSON params for --child-method")
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--pause", type=float, default=5.0,
                         help="seconds between attempts")
@@ -313,6 +354,13 @@ def main() -> int:
             return 0 if recovered else 1
 
         camera = survey(client, args.camera, args.raw)
+
+        if args.child or args.child_method:
+            child_discovery(client, camera, args.raw,
+                            [(args.child_method, json.loads(args.child_params))]
+                            if args.child_method else CHILD_ENUMERATION)
+            if not args.probe:
+                return 0
 
         if not args.probe:
             print("\nPhase A only. Re-run with --probe to try live verbs.")
