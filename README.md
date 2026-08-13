@@ -513,9 +513,11 @@ All six take the same options.
 **Editing.** Every card has a visual editor, so picking one from the card list
 gives a form rather than "no visual editor available". The form covers the days
 to show, which camera to pin to, when to start scrolling and which hub to use.
-`names` on the faces card and `grid_options` have no field — they are YAML or
-drag-only — and editing in the UI leaves them untouched rather than dropping
-them.
+The faces card also gets a **Face names** field, so the id-to-name map can be
+edited in the UI instead of only in YAML — the card prints the id of anyone
+unnamed, so it can be copied straight across. `grid_options` has no field
+because dragging writes it, and editing in the UI leaves it untouched rather
+than dropping it.
 
 **Resizing.** In a **sections** dashboard every card has drag handles — grab an
 edge and it keeps the size you choose. Each card starts at a size that suits it

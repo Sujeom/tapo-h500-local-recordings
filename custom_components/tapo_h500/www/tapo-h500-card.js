@@ -132,6 +132,10 @@ const FIELD = {
   max_height: { name: "max_height",
     selector: { number: { min: 0, max: 2000, step: 20, mode: "box" } } },
   entry_id: { name: "entry_id", selector: { text: {} } },
+  // A map of face id to name. There is no key/value selector, and the object
+  // one gives a small YAML editor, which is the right shape for a dictionary
+  // whose keys are 12-digit numbers the hub invented.
+  names: { name: "names", selector: { object: {} } },
 };
 
 const LABELS = {
@@ -139,6 +143,7 @@ const LABELS = {
   camera_index: "Camera (leave empty for a picker)",
   max_height: "Scroll after (pixels, 0 for none)",
   entry_id: "Config entry (leave empty for the first hub)",
+  names: "Face names, as id: name (the card shows the id of anyone unnamed)",
 };
 
 /** Which fields each card actually has. A card without a scrolling list has no
@@ -146,8 +151,10 @@ const LABELS = {
  *  nothing. */
 export const editorSchema = (type) => {
   const scrolls = !["tapo-h500-hero-card", "tapo-h500-summary-card"].includes(type);
+  const faces = type === "tapo-h500-faces-card";
   return [FIELD.days, FIELD.camera_index,
-          ...(scrolls ? [FIELD.max_height] : []), FIELD.entry_id];
+          ...(scrolls ? [FIELD.max_height] : []),
+          ...(faces ? [FIELD.names] : []), FIELD.entry_id];
 };
 
 /** The config to store after an edit.
@@ -160,7 +167,12 @@ export const editorSchema = (type) => {
 export const mergeConfig = (current, incoming) => {
   const merged = { ...current, ...incoming };
   for (const [key, value] of Object.entries(merged)) {
-    if (value === undefined || value === "" || value === null) delete merged[key];
+    const empty = value === undefined || value === "" || value === null
+      // An emptied names map should remove the key, not store {}, or the card
+      // would carry a setting that reads as configured and does nothing.
+      || (value && typeof value === "object" && !Array.isArray(value)
+          && Object.keys(value).length === 0);
+    if (empty) delete merged[key];
   }
   return merged;
 };

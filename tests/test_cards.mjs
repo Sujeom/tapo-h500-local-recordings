@@ -401,6 +401,26 @@ test("the editor only offers settings the card actually has", () => {
   }
 });
 
+test("only the faces card is offered a names map", () => {
+  assert.ok(editorSchema("tapo-h500-faces-card").some((f) => f.name === "names"),
+    "the faces card is the only one that uses names, and needs to edit them");
+  for (const type of ["tapo-h500-card", "tapo-h500-hero-card",
+                      "tapo-h500-grid-card", "tapo-h500-timeline-card",
+                      "tapo-h500-summary-card"]) {
+    assert.ok(!editorSchema(type).some((f) => f.name === "names"),
+      `${type} does not use names and must not offer it`);
+  }
+});
+
+test("an emptied names map is removed, not stored as {}", () => {
+  // Otherwise the card carries a setting that reads as configured and does
+  // nothing.
+  assert.deepEqual(mergeConfig({ type: "x", names: { a: 1 } }, { names: {} }),
+                   { type: "x" });
+  assert.deepEqual(mergeConfig({ type: "x" }, { names: { 123: "Alice" } }),
+                   { type: "x", names: { 123: "Alice" } });
+});
+
 test("editing in the UI does not delete what the form cannot see", () => {
   // The form has no field for names or grid_options. Replacing the config
   // instead of merging would wipe a user's face names on any edit.
