@@ -300,3 +300,28 @@ def direction(trail: list[dict], ranks: dict[str, int],
     if here == before:
         return None
     return "approaching" if here > before else "leaving"
+
+
+def in_night(hour: int, start: int, end: int) -> bool:
+    """Whether an hour falls in the night window, which wraps midnight.
+
+    22 to 6 is not a range in the ordinary sense: 23 is inside it and 12 is
+    not, but 23 > 6. Comparing naively marks the whole day as night, which is
+    the obvious way to get this wrong.
+    """
+    if start == end:
+        return False
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
+
+
+def notable(entry: dict, hour: int, start: int, end: int) -> bool:
+    """An unfamiliar face, at night.
+
+    Deliberately narrow. Motion at night is a cat, and a recognised face at
+    night is someone coming home; neither deserves a different alarm sound.
+    An unrecognised face is the one combination worth waking someone for, and
+    widening it is how a signal becomes noise and gets muted.
+    """
+    return 22 in detection_types(entry) and in_night(hour, start, end)

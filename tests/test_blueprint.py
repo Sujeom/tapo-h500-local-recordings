@@ -67,21 +67,25 @@ class Detections(unittest.TestCase):
         self.assertEqual(sorted(INPUTS["detections"]["default"]), [6, 9, 17])
 
     def test_it_matches_every_code_that_fired(self):
-        """Not just the headline alarm_type."""
-        filter_condition = DOC["conditions"][1]["value_template"]
-        self.assertIn("detection_types", filter_condition)
-        self.assertNotIn("alarm_type", filter_condition)
+        """Not just the headline alarm_type. Found by text rather than by
+        position: conditions are now nested under an or/and pair so the reply
+        branch can skip them, and an index would break on any restructure."""
+        self.assertIn("select('in', wanted)", RAW)
+        self.assertIn("detection_types", RAW)
+        self.assertNotIn("alarm_type", RAW)
 
 
 class KnownFaces(unittest.TestCase):
     """A recognised person is named rather than called "a person"."""
 
-    def test_it_reads_the_resolved_names_not_the_ids(self):
+    def test_the_sentence_uses_names_not_ids(self):
         """An automation cannot reach the hub's name map, so the integration
-        resolves it. Reading face_ids here would put a twelve-digit number in
-        a sentence."""
-        self.assertIn("state_attr(trigger.entity_id, 'faces')", RAW)
-        self.assertNotIn("state_attr(trigger.entity_id, 'face_ids')", RAW)
+        resolves it. face_ids IS read elsewhere -- deciding whether to offer
+        the naming button -- so this is scoped to the phrase that reaches a
+        person, where a twelve-digit number would be gibberish."""
+        who = RAW.split("      who: >-", 1)[1].split("      headline:", 1)[0]
+        self.assertIn("'faces'", who)
+        self.assertNotIn("face_ids", who)
 
     def test_a_named_person_takes_the_headline(self):
         self.assertIn("{% if 17 in codes and who %}{{ who }} rang the", RAW)
@@ -95,6 +99,46 @@ class KnownFaces(unittest.TestCase):
     def test_naming_someone_suppresses_the_generic_words(self):
         """"Alice - a person, a familiar face" says the same thing threefold."""
         self.assertIn("set skip = [6, 20] if who else []", RAW)
+
+
+class NamingFromThePhone(unittest.TestCase):
+    def test_the_button_carries_the_ids_it_will_need(self):
+        """The reply event has no reliable device to derive them from, so they
+        travel with the button and come back echoed."""
+        self.assertIn("'face_id': unnamed", RAW)
+        self.assertIn("'entry': config_entry_id(trigger.entity_id)", RAW)
+
+    def test_the_reply_is_handled_by_the_same_automation(self):
+        self.assertIn("mobile_app_notification_action", RAW)
+        self.assertIn("action: TAPO_H500_NAME_FACE", RAW)
+        self.assertIn("action: tapo_h500.name_face", RAW)
+
+    def test_the_reply_branch_stops_before_the_notification_work(self):
+        """A button press is not a detection and must not send an alert."""
+        self.assertIn('- stop: "named"', RAW)
+
+    def test_buttons_are_built_as_a_value_not_as_yaml(self):
+        """The document is parsed before any template runs, so Jinja cannot
+        add or remove keys and list entries -- only fill them in. An {% if %}
+        wrapped around a list item makes the file unparseable."""
+        self.assertIn('actions: "{{ buttons }}"', RAW)
+        self.assertNotIn("{% if input_offer_naming and unnamed %}\n          -", RAW)
+
+    def test_naming_is_only_offered_for_an_unrecognised_face(self):
+        self.assertIn("ids[0] if ids and not known else ''", RAW)
+
+
+class NightEscalation(unittest.TestCase):
+    def test_the_integration_decides_what_counts_as_night(self):
+        """Not the blueprint: a window that wraps midnight is the obvious
+        thing to get wrong, and it is already solved in one place."""
+        self.assertIn("state_attr(trigger.entity_id, 'notable')", RAW)
+
+    def test_a_notable_alert_sounds_different(self):
+        """Marking it without changing the channel changes nothing on a
+        phone, which is the entire point."""
+        self.assertIn("'Tapo H500 alerts' if notable", RAW)
+        self.assertIn("'high' if notable", RAW)
 
 
 class Photograph(unittest.TestCase):

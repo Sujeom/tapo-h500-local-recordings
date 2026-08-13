@@ -13,6 +13,7 @@ SERVICE_FORMAT_HUB_STORAGE = "format_hub_storage"
 SERVICE_NAME_FACE = "name_face"
 SERVICE_DESCRIBE_RECORDING = "describe_recording"
 SERVICE_DAILY_SUMMARY = "daily_summary"
+SERVICE_FIND_FACE = "find_face"
 
 # What to ask a vision model about a still from a doorbell clip.
 #
@@ -267,6 +268,20 @@ CONF_CAMERA_ORDER = "camera_order"
 # an invention. Measured against nothing in particular -- there is no data on
 # walking speed here -- so this is a judgement, and a generous one.
 DIRECTION_WINDOW = 180
+
+# The hours an unfamiliar face counts as notable, as [start, end) local.
+#
+# An unknown face at three in the afternoon is a delivery; the same face at
+# three in the morning is not. Nothing else here distinguishes them, and the
+# difference is the whole point of a separate signal -- it is what earns a
+# different notification sound.
+#
+# 22:00 to 06:00 by default, wrapping midnight. Configurable because a night
+# shift makes a nonsense of anyone else's idea of night.
+CONF_NIGHT_START = "night_start"
+CONF_NIGHT_END = "night_end"
+DEFAULT_NIGHT_START = 22
+DEFAULT_NIGHT_END = 6
 
 # Options that actually change how the integration talks to the hub. A change
 # to one of these needs a reload; a change to anything else does not.

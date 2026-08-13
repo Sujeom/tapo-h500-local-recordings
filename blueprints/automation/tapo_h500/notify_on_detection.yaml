@@ -98,6 +98,17 @@ blueprint:
       selector:
         boolean:
 
+    offer_naming:
+      name: Offer to name unknown faces
+      description: >-
+        Add a "Name this face" button to notifications about someone the hub
+        recognised but you have not named. Tapping it asks for a name on the
+        phone, so a stranger becomes a name while you are looking at their
+        photograph rather than in Settings later. Needs the companion app.
+      default: true
+      selector:
+        boolean:
+
     dashboard_path:
       name: Dashboard path
       description: >-
@@ -112,37 +123,54 @@ max: 25
 triggers:
   - trigger: state
     entity_id: !input cameras
+    id: detection
+  # The phone answering the "Name this face" button. The same automation
+  # handles it so the face id does not have to be carried anywhere else.
+  - trigger: event
+    event_type: mobile_app_notification_action
+    event_data:
+      action: TAPO_H500_NAME_FACE
+    id: naming
 
 conditions:
-  # Skip the entity restoring its last event on a restart or a reload.
-  - condition: template
-    value_template: >-
-      {{ trigger.from_state.state not in ['unknown', 'unavailable']
-         and trigger.to_state.state not in ['unknown', 'unavailable'] }}
-  # Only the detections chosen above. detection_types lists everything that
-  # fired at once, so a person who also tripped motion still matches.
-  - condition: template
-    value_template: >-
-      {% set wanted = input_detections | map('int') | list %}
-      {{ (state_attr(trigger.entity_id, 'detection_types') or [])
-         | select('in', wanted) | list | count > 0 }}
-  # Optional gate: only notify while some other entity is in a given state.
-  - condition: template
-    value_template: >-
-      {{ not input_quiet_entity
-         or states(input_quiet_entity) == input_quiet_state }}
-  # Repeat suppression. last_triggered belongs to the automation, so this
-  # covers every camera it watches rather than each one separately.
-  - condition: template
-    value_template: >-
-      {% if input_repeat_minutes | int == 0 %}true
-      {% else %}
-        {{ (this.attributes.get('last_triggered') is none)
-           or (now() - this.attributes.last_triggered).total_seconds()
-              > (input_repeat_minutes | int) * 60 }}
-      {% endif %}
+  # The naming reply is handled in its own branch below and skips every
+  # detection condition, none of which apply to it.
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: naming
+      - condition: and
+        conditions:
+
+          - condition: template
+            value_template: >-
+              {{ trigger.from_state.state not in ['unknown', 'unavailable']
+                 and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+          # Only the detections chosen above. detection_types lists everything that
+          # fired at once, so a person who also tripped motion still matches.
+          - condition: template
+            value_template: >-
+              {% set wanted = input_detections | map('int') | list %}
+              {{ (state_attr(trigger.entity_id, 'detection_types') or [])
+                 | select('in', wanted) | list | count > 0 }}
+          # Optional gate: only notify while some other entity is in a given state.
+          - condition: template
+            value_template: >-
+              {{ not input_quiet_entity
+                 or states(input_quiet_entity) == input_quiet_state }}
+          # Repeat suppression. last_triggered belongs to the automation, so this
+          # covers every camera it watches rather than each one separately.
+          - condition: template
+            value_template: >-
+              {% if input_repeat_minutes | int == 0 %}true
+              {% else %}
+                {{ (this.attributes.get('last_triggered') is none)
+                   or (now() - this.attributes.last_triggered).total_seconds()
+                      > (input_repeat_minutes | int) * 60 }}
+              {% endif %}
 
 variables:
+  input_offer_naming: !input offer_naming
   input_detections: !input detections
   input_quiet_entity: !input quiet_entity
   input_quiet_state: !input quiet_state
@@ -152,6 +180,21 @@ variables:
   dashboard: !input dashboard_path
 
 actions:
+  # The phone replying with a name. Store it and stop -- none of the
+  # notification work below applies to a button press.
+  - if:
+      - condition: trigger
+        id: naming
+    then:
+      - action: tapo_h500.name_face
+        data:
+          config_entry_id: "{{ trigger.event.data.entry }}"
+          face_id: "{{ trigger.event.data.face_id }}"
+          # reply_text is what was typed on the phone. Empty clears the name,
+          # which is the same rule the card and the options screen use.
+          name: "{{ trigger.event.data.reply_text | default('', true) }}"
+      - stop: "named"
+
   - variables:
       codes: "{{ state_attr(trigger.entity_id, 'detection_types') or [] }}"
       # event.front_doorbell_activity -> camera.front_doorbell
@@ -205,6 +248,37 @@ actions:
         {% elif 19 in codes %}Tampering at {{ where }}
         {% else %}Activity at {{ where }}{% endif %}
       link: "/lovelace/{{ dashboard }}?more-info-entity-id={{ camera }}"
+      # An unfamiliar face during the configured night, decided by the
+      # integration so this does not re-implement a window wrapping midnight.
+      notable: "{{ state_attr(trigger.entity_id, 'notable') or false }}"
+      # The hub gave this sighting a face id and no name of yours matched it.
+      # That is the only case where naming from a notification makes sense.
+      unnamed: >-
+        {%- set ids = state_attr(trigger.entity_id, 'face_ids') or [] -%}
+        {%- set known = state_attr(trigger.entity_id, 'faces') or [] -%}
+        {{ ids[0] if ids and not known else '' }}
+      # Built as a value rather than as YAML with {% if %} around list items:
+      # the document is parsed before any template runs, so Jinja cannot add
+      # or remove keys and entries -- it can only fill them in.
+      buttons: >-
+        {%- set base = [
+              {'action': 'URI', 'title': 'Camera', 'uri': link},
+              {'action': 'URI', 'title': 'Recordings',
+               'uri': '/media-browser/local/tapo_h500'}] -%}
+        {%- if input_offer_naming and unnamed -%}
+          {#- face_id and entry travel WITH the button: the companion app
+              echoes unknown keys back in the event, which is the only way the
+              reply knows which face it is answering about. Deriving it from a
+              device id afterwards does not work -- the event carries no
+              reliable device. -#}
+          {{ base + [{'action': 'TAPO_H500_NAME_FACE',
+                      'title': 'Name this face',
+                      'behavior': 'textInput',
+                      'textInputButtonTitle': 'Save',
+                      'textInputPlaceholder': 'Who is this?',
+                      'face_id': unnamed,
+                      'entry': config_entry_id(trigger.entity_id)}] }}
+        {%- else -%}{{ base }}{%- endif -%}
 
   # First: immediately, without a picture. There is not one yet.
   - action: "{{ service }}"
@@ -214,15 +288,14 @@ actions:
         {% if who %}{{ who }} — {% endif %}{{ seen }}, {{ when }}
       data:
         tag: "tapo-h500-{{ camera }}"
+        # An unfamiliar face at night gets a high-importance channel, which is
+        # what makes a phone sound different -- the entire point of telling it
+        # apart from a daytime delivery.
+        channel: "{{ 'Tapo H500 alerts' if notable else 'Tapo H500' }}"
+        importance: "{{ 'high' if notable else 'default' }}"
         clickAction: "{{ link }}"
         url: "{{ link }}"
-        actions:
-          - action: URI
-            title: Camera
-            uri: "{{ link }}"
-          - action: URI
-            title: Recordings
-            uri: /media-browser/local/tapo_h500
+        actions: "{{ buttons }}"
 
   # Then, if asked: wait for this event's own clip and replace the alert with
   # one carrying its frame. Same tag, so it takes the first one's place.
@@ -247,12 +320,10 @@ actions:
           data:
             image: "{{ frame }}"
             tag: "tapo-h500-{{ camera }}"
+            # Same channel as the first, or replacing it would quietly demote
+            # a night alert to an ordinary one.
+            channel: "{{ 'Tapo H500 alerts' if notable else 'Tapo H500' }}"
+            importance: "{{ 'high' if notable else 'default' }}"
             clickAction: "{{ link }}"
             url: "{{ link }}"
-            actions:
-              - action: URI
-                title: Camera
-                uri: "{{ link }}"
-              - action: URI
-                title: Recordings
-                uri: /media-browser/local/tapo_h500
+            actions: "{{ buttons }}"

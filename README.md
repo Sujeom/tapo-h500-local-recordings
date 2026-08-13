@@ -56,6 +56,11 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   they were last seen and at which camera. The hub keeps one id per person
   across every camera, so a trail of sightings follows them from door to door.
   There is a `tapo_h500.name_face` action too, for automations.
+- **Name from the phone:** an alert about an unrecognised face carries a
+  **Name this face** button — type a name where you are looking at their photo.
+- **Night alerts:** an unfamiliar face between 22:00 and 06:00 gets a
+  high-importance channel, so it sounds different from a daytime delivery.
+- **Search:** `tapo_h500.find_face` returns every recording someone appears in.
 - **Direction:** tell it which camera is nearest the street
   (**Configure → Camera layout**) and a recognised person moving between
   cameras reads as *approaching* or *leaving* — warning before the doorbell.

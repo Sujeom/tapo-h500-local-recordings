@@ -205,3 +205,27 @@ daily_summary:
       default: 24
       selector:
         number: {min: 1, max: 168, unit_of_measurement: hours, mode: box}
+
+find_face:
+  name: Find a person's recordings
+  description: >-
+    Every recording someone appears in, newest first. face_ids has been on
+    every clip since the beginning and nothing could search it — the media
+    browser groups by camera and date only.
+  fields:
+    config_entry_id:
+      name: Hub
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    who:
+      name: Who
+      description: >-
+        A name you have given someone, or the hub's own face id. A name may
+        resolve to more than one id: the hub clusters the same person again
+        when lighting differs, and both may have been named.
+      required: true
+      example: Alice
+      selector:
+        text:

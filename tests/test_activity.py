@@ -100,3 +100,39 @@ class Thresholds(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NightWindow(unittest.TestCase):
+    """A window that wraps midnight, and the one signal built on it."""
+
+    def test_an_hour_inside_a_wrapping_window(self):
+        self.assertTrue(clips.in_night(23, 22, 6))
+        self.assertTrue(clips.in_night(2, 22, 6))
+        self.assertTrue(clips.in_night(22, 22, 6))
+
+    def test_an_hour_outside_it(self):
+        self.assertFalse(clips.in_night(12, 22, 6))
+        self.assertFalse(clips.in_night(6, 22, 6))
+        self.assertFalse(clips.in_night(21, 22, 6))
+
+    def test_a_window_that_does_not_wrap_still_works(self):
+        self.assertTrue(clips.in_night(2, 1, 5))
+        self.assertFalse(clips.in_night(6, 1, 5))
+
+    def test_an_empty_window_is_never_night(self):
+        """Start equal to end is how someone turns this off; read naively it
+        would mark either nothing or everything."""
+        self.assertFalse(clips.in_night(3, 0, 0))
+        self.assertFalse(clips.in_night(3, 22, 22))
+
+    def test_only_an_unfamiliar_face_at_night_is_notable(self):
+        unknown = {"events_1": (1 << 1) | (1 << 5) | (1 << 21)}   # 2, 6, 22
+        self.assertTrue(clips.notable(unknown, 2, 22, 6))
+        self.assertFalse(clips.notable(unknown, 14, 22, 6))
+
+    def test_motion_at_night_is_a_cat(self):
+        self.assertFalse(clips.notable({"events_1": 1 << 1}, 2, 22, 6))
+
+    def test_a_recognised_face_at_night_is_someone_coming_home(self):
+        known = {"events_1": (1 << 5) | (1 << 19)}                # 6, 20
+        self.assertFalse(clips.notable(known, 2, 22, 6))

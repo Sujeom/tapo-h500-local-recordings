@@ -32,6 +32,7 @@ from .const import (
     SERVICE_NAME_FACE,
     SERVICE_DESCRIBE_RECORDING,
     SERVICE_DAILY_SUMMARY,
+    SERVICE_FIND_FACE,
     SIGNAL_FACES_CHANGED,
     RELOAD_ON_CHANGE,
     DESCRIBE_PROMPT,
@@ -40,7 +41,7 @@ from .const import (
 from .coordinator import H500Coordinator
 from .media import (
     async_delete_clip, async_download_clip, clip_path, describe,
-    media_content_id, media_root, scan_downloaded,
+    existing_clip, media_content_id, media_root, scan_downloaded,
 )
 from .preview import H500PreviewView, preview_url
 
@@ -69,6 +70,13 @@ DOWNLOAD_SCHEMA = vol.Schema({
 DELETE_SCHEMA = vol.Schema({
     **ENTRY_SCHEMA,
     vol.Required("start_time"): NONNEGATIVE_INT,
+})
+FIND_FACE_SCHEMA = vol.Schema({
+    vol.Required("config_entry_id"): cv.string,
+    # Either a name you gave someone or the hub's own id, because the useful
+    # one differs by caller: an automation has the id from an event, a person
+    # typing into Developer Tools has the name.
+    vol.Required("who"): cv.string,
 })
 SUMMARY_SCHEMA = vol.Schema({
     vol.Required("config_entry_id"): cv.string,
@@ -102,6 +110,7 @@ SERVICES = (
     SERVICE_NAME_FACE,
     SERVICE_DESCRIBE_RECORDING,
     SERVICE_DAILY_SUMMARY,
+    SERVICE_FIND_FACE,
     SIGNAL_FACES_CHANGED,
     RELOAD_ON_CHANGE,
     DESCRIBE_PROMPT,
@@ -446,6 +455,46 @@ def _register_services(hass: HomeAssistant) -> None:
         return {"hours": call.data["hours"],
                 "summary": summarise(per_camera, now, window)}
 
+    async def find_face(call: ServiceCall):
+        """Every recording a person appears in, newest first.
+
+        face_ids has been on every clip since the beginning and nothing could
+        search it: the media browser groups by camera and date only, so
+        "show me every clip with Alice" meant reading ids by eye.
+        """
+        coordinator = _coordinator(hass, call.data["config_entry_id"])
+        wanted = str(call.data["who"]).strip()
+        names = coordinator.face_names
+        # A name resolves to possibly several ids -- the hub clusters the same
+        # person more than once when lighting differs, and both may be named.
+        ids = {face_id for face_id, name in names.items()
+               if name.casefold() == wanted.casefold()} or {wanted}
+
+        matches = []
+        for index, camera in enumerate(coordinator.cameras):
+            for clip in coordinator.clips_for(index):
+                if not ids & {str(face) for face in face_ids(clip)}:
+                    continue
+                start, end = start_of(clip), end_of(clip)
+                if start is not None:
+                    matches.append((index, camera, clip, start, end))
+
+        def _describe_matches():
+            """Blocking: existing_clip stats the media directory per clip."""
+            return [{
+                "camera": camera.get("alias") or f"Camera {index}",
+                "camera_index": index,
+                "start_time": start,
+                "end_time": end,
+                "detection": describe_detection(clip),
+                "downloaded": existing_clip(hass, camera, start) is not None,
+            } for index, camera, clip, start, end in matches]
+
+        found = await hass.async_add_executor_job(_describe_matches)
+        found.sort(key=lambda item: item["start_time"], reverse=True)
+        return {"who": wanted, "face_ids": sorted(ids),
+                "count": len(found), "recordings": found}
+
     for service, handler, schema in (
         (SERVICE_LIST_RECORDINGS, list_recordings, LIST_SCHEMA),
         (SERVICE_DOWNLOAD_RECORDING, download_recording, DOWNLOAD_SCHEMA),
@@ -454,6 +503,7 @@ def _register_services(hass: HomeAssistant) -> None:
         (SERVICE_NAME_FACE, name_face, NAME_FACE_SCHEMA),
         (SERVICE_DESCRIBE_RECORDING, describe_recording, DESCRIBE_SCHEMA),
         (SERVICE_DAILY_SUMMARY, daily_summary, SUMMARY_SCHEMA),
+        (SERVICE_FIND_FACE, find_face, FIND_FACE_SCHEMA),
     ):
         hass.services.async_register(
             DOMAIN, service, handler, schema=schema,

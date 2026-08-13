@@ -6,12 +6,16 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .clips import (
     describe_detection, detection_types, end_of, face_ids, hub_label,
-    start_of,
+    notable, start_of,
 )
-from .const import DATA_HUBS, DOMAIN, EVENT_TYPES
+from .const import (
+    CONF_NIGHT_END, CONF_NIGHT_START, DATA_HUBS,
+    DEFAULT_NIGHT_END, DEFAULT_NIGHT_START, DOMAIN, EVENT_TYPES,
+)
 from .entity import H500Entity
 from .media import clip_path, signed_url
 
@@ -50,6 +54,17 @@ class H500ActivityEvent(H500Entity, EventEntity):
         return sorted(
             {names[str(face)] for face in face_ids(entry) if str(face) in names})
 
+    def _notable(self, entry: dict, start_time: int | None) -> bool:
+        """Whether this is an unfamiliar face during the configured night."""
+        if start_time is None:
+            return False
+        options = self.coordinator.entry.options
+        local = dt_util.as_local(dt_util.utc_from_timestamp(start_time))
+        return notable(
+            entry, local.hour,
+            options.get(CONF_NIGHT_START, DEFAULT_NIGHT_START),
+            options.get(CONF_NIGHT_END, DEFAULT_NIGHT_END))
+
     def _own_frame(self, start_time: int | None) -> str | None:
         """Signed URL for the thumbnail of the clip this event refers to."""
         if start_time is None:
@@ -86,6 +101,10 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # aloud as "Face 123456789012 is at the door" is worse than saying
             # "a person" -- the id belongs in face_ids, not in a sentence.
             "faces": self._known_faces(entry),
+            # An unfamiliar face at night: the one combination worth a
+            # different alarm sound. Derived here so an automation does not
+            # have to re-implement a window that wraps midnight.
+            "notable": self._notable(entry, start_time),
             # This event's OWN frame, addressed by its timestamp.
             #
             # The camera entity deliberately serves whatever thumbnail is
