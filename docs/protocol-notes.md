@@ -226,8 +226,21 @@ alarm_type=19  events_1=786464  types=[6, 19, 20]
 doing it. It is also one of only two codes ever seen *alone*, which fits an
 alarm that can fire with nobody recognised.
 
-22 remains unnamed: it occurs 18 times and always alongside 6, so it is some
-subset of person events that nothing observed distinguishes.
+**22 is a face the hub could not identify.** Inferred rather than confirmed by
+an app label, but the split is clean:
+
+| Code | Carries a `face_id` | Does not |
+| --- | --- | --- |
+| 20 | **6 of 6** | 0 |
+| 22 | 1 of 18 | 17 |
+
+That single exception is the only event carrying both codes, so the id there
+belongs to the 20; excluding it, 22 is 0 for 17. It also cannot be body or
+person detection — that would fire on all 29 person events, and 22 fires on 18.
+So 20 and 22 partition faces into recognised and not.
+
+An app label reading "unknown" or "stranger" on a 22 event would settle it
+outright. Only code 10 is now unnamed, and it has never appeared without 17.
 
 Only three are named. 6 and 22 are the commonest after motion but never appear
 alone, so nothing in the data separates what they mean from what accompanies

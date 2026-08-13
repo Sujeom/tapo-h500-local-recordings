@@ -594,10 +594,9 @@ class DetectionTest(unittest.TestCase):
     def test_unknown_codes_are_shown_not_guessed(self):
         # Naming an unproven code would put a confident wrong label on a
         # recording, which is worse than showing the number.
-        # 6 and 9 are named now (person, pet); 22 still is not.
         self.assertEqual(
             clips.describe_detection({"events_1": 2097442, "alarm_type": 22}),
-            "motion + person + pet + type 22")
+            "motion + person + pet + unknown face")
         self.assertEqual(clips.describe_detection({"events_1": 2}), "motion")
         self.assertIsNone(clips.describe_detection({}))
 
@@ -642,11 +641,16 @@ class DetectionTest(unittest.TestCase):
     ]
 
     def test_the_apps_own_labels_come_back_out(self):
+        # Everything the app named must appear. All three also carry code 22,
+        # which reads as an unrecognised face -- the app folds that into
+        # "person" rather than listing it, so it is the one allowed extra.
         for label, events_1, expected in self.LABELLED:
             described = clips.describe_detection({"events_1": events_1})
             named = {w for w in described.replace(" + ", ",").split(",")
                      if not w.startswith("type ")}
-            self.assertEqual(named, expected, f"app said {label!r}, got {described!r}")
+            self.assertTrue(expected <= named,
+                            f"app said {label!r}, got {described!r}")
+            self.assertEqual(named - expected, {"unknown face"}, described)
 
     def test_the_car_and_the_dog_are_the_only_difference(self):
         base = set(clips.detection_types({"events_1": 2097186}))
@@ -662,11 +666,21 @@ class DetectionTest(unittest.TestCase):
         # A tamper alarm is not a doorbell press.
         self.assertEqual(clips.event_type(theft), "motion")
 
-    def test_unattributed_codes_are_still_shown_as_numbers(self):
-        # 22 is common but nothing observed says what it means; naming it would
-        # print a guess onto every recording that carries it.
-        self.assertNotIn(22, clips.DETECTION_NAMES)
-        self.assertIn("type 22", clips.describe_detection({"events_1": 2097152}))
+    def test_a_recognised_and_an_unrecognised_face_read_differently(self):
+        # 20 carried a face_id in 6 of 6 detections and 22 in 1 of 18, and that
+        # one exception is the only event carrying both -- so they partition
+        # faces into recognised and not.
+        known = clips.describe_detection({"events_1": 524322})     # 2, 6, 20
+        unknown = clips.describe_detection({"events_1": 2097186})  # 2, 6, 22
+        self.assertIn("face", known)
+        self.assertNotIn("unknown", known)
+        self.assertIn("unknown face", unknown)
+
+    def test_the_doorbell_signal_is_still_shown_as_a_number(self):
+        # 10 has only ever appeared beside 17, so nothing says what it is on
+        # its own; naming it would print a guess onto every press.
+        self.assertNotIn(10, clips.DETECTION_NAMES)
+        self.assertIn("type 10", clips.describe_detection({"events_1": 66080}))
 
     def test_detections_are_matched_to_clips_by_start_time(self):
         clip_list = [{"startTime": 1786553183, "endTime": 1786553199},

@@ -55,7 +55,7 @@ EVENT_TYPES = [EVENT_RING, EVENT_MOTION]
 # matches and the detection log below is what actually classifies.
 RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 
-# alarm_type codes from searchDetectionList on firmware 1.3.20. Seven of the nine
+# alarm_type codes from searchDetectionList on firmware 1.3.20. Eight of the nine
 # are now named, each against something observed rather than guessed.
 #
 # The Tapo app labelled three side-doorbell events, and they differ by exactly
@@ -80,11 +80,18 @@ RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 #       alone, which fits an alarm that can fire with nobody recognised.
 #   20  face. All 5 of its detections carried a face_id; no other code ever did.
 #
-# Two remain unnamed, on purpose: 22 occurs 18 times and always alongside 6,
-# so it is some subset of person events that nothing observed distinguishes,
-# and 10 has only ever appeared beside 17, so it is part of the doorbell
-# signal rather than a thing of its own. Both display as their number,
-# because a confident wrong label on a recording is worse than "type 22".
+#   22  a face the hub could NOT identify. Inferred rather than confirmed by an
+#       app label, but the split is clean: code 20 carries a face_id in 6 of 6
+#       detections, and 22 in 1 of 18 -- and that single exception is the only
+#       event where both appear, so the id there belongs to the 20. Excluding
+#       it, 22 is 0 for 17. It also cannot be body-or-person detection: that
+#       would fire on all 29 person events, and 22 fires on 18. So 20 and 22
+#       partition faces into recognised and not. An app label saying
+#       "unknown"/"stranger" on a 22 event would settle it outright.
+#
+# One remains unnamed, on purpose: 10 has only ever appeared beside 17, so it
+# is part of the doorbell signal rather than a thing of its own. It displays as
+# its number, because a confident wrong label is worse than "type 10".
 DETECTION_NAMES = {
     2: "motion",
     6: "person",
@@ -93,6 +100,7 @@ DETECTION_NAMES = {
     17: "doorbell",
     19: "theft",
     20: "face",
+    22: "unknown face",
 }
 
 # Which codes mean a doorbell press. 17 is confirmed against a real press; 10
