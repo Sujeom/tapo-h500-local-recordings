@@ -114,6 +114,9 @@
       },
       "wifi_backup": {
         "name": "Wi-Fi backup"
+      },
+      "face_detection": {
+        "name": "Face detection"
       }
     },
     "siren": {

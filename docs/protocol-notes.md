@@ -41,6 +41,84 @@ including ones that certainly exist — it is for Sub-1GHz devices, not
 `-40106` is not a clean oracle. A real namespace with a wrong section name
 returns it too, so a negative proves nothing about either half.
 
+## Log in as `admin`, not as the cloud email
+
+The hub accepts the **camera account** username and refuses the TP-Link cloud
+email, and the refusal is indistinguishable from a lockout unless you read the
+debug log:
+
+```
+{'error_code': -40401, 'result': {'data': {'code': -60502}}}
+username: 'someone@example.com'
+```
+
+There is no `sec_left` in that reply, so pytapo never raises its
+`Temporary Suspension` message — it raises the generic
+`Invalid authentication data` instead. That is the same `-40401` / `-60502`
+pair recorded in the error table, and it looks exactly like the wedge that
+repeated logins cause. It is not one: on 2026-08-13 the email was refused after
+eight hours of complete quiet, and `admin` connected on the first try in the
+same minute.
+
+**How to tell the two apart.** A real wedge refuses *every* credential and
+clears with time or a power cycle. A wrong username refuses forever and clears
+the moment the username changes. If a login fails, try `admin` before
+concluding the hub is wedged — and before retrying, since a refused login is
+itself a login attempt.
+
+`tools/*.py` read `TAPO_USERNAME` and fall back to `admin`. A `.env` that sets
+it to the cloud email overrides that fallback, which is how this went unnoticed.
+
+## Every component, probed
+
+All 47 components, both addressing forms, 709 read-only calls in one session.
+Twelve calls answer with anything other than `-40106`:
+
+| Component | Call | Result |
+| --- | --- | --- |
+| `faceDetection` | `getFaceDetectionConfig` | `0` — `enabled` plus a `tags` list |
+| `led` | `getLedStatus`, and `get led.*` in any section | `0` |
+| `siren` | `getSirenConfig`, `getSirenStatus` | `0` |
+| `usrDefAudio` | `getUsrDefAudioConfig` | `0` — 5 files max, 15000ms each |
+| `usrDefAudio` | `getUsrDefAudioList` | `0` — all five slots empty |
+| `mirrorscreen` | `getMirrorScreenConfig` | `-40209`, or `0` with the right shape |
+| `migrate` | `getMigrateConfig` | `-40209` |
+
+The other 40 components answer `-40106` to every namespace spelling and every
+`get<Component>{Config,Status,Info,List,}` name. A component in
+`app_component_list` is not a promise of a local method, and this is the
+measurement that settles it rather than assuming it.
+
+### faceDetection is readable — the earlier note was wrong
+
+```json
+{"face_detection": {"detection": {"enabled": "on",
+ "tags": ["family","friend","courier","neighbor","colleague","schoolmate","others"]}}}
+```
+
+That contradicts the old finding below that "every plausible method is absent".
+It is read-only: `setFaceDetectionConfig` refuses even a write of the hub's own
+current value with `-40211`, and the value was confirmed unchanged afterwards.
+Exposed as a diagnostic `binary_sensor`, with the tags as an attribute.
+
+### mirrorscreen is reachable, and empty
+
+`-40209` is not constant here — params genuinely matter, which distinguishes it
+from `getRecordPlan`'s `-60305`:
+
+| Params | Result |
+| --- | --- |
+| `{"mirrorscreen":{"name":["config"]}}` | **`0`** — `{"mirrorscreen": {}}` |
+| `{"mirrorscreen":{"name":"config"}}` | `-40209` |
+| `{"mirrorscreen":{"name":"zzz_nope"}}` | `-40209` |
+| `{"mirrorscreen":{}}` | `-40209` |
+| `{"zzz_nope":{"name":"config"}}` | `-40106` (control) |
+
+So `name` must be a **list**. The call then succeeds and returns an empty
+object — the component is addressable but holds no configuration, so there is
+nothing to expose and nothing to control. Worth retrying if a screen is ever
+paired to the hub.
+
 ## The full component inventory
 
 All 47, for reference — earlier notes only listed the media-adjacent subset,

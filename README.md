@@ -179,7 +179,10 @@ Assistant's `custom_components` directory and restart.
 The config flow asks for:
 
 - **H500 IP address**
-- **Camera account username** (normally `admin`)
+- **Camera account username** — use `admin`, not your TP-Link email. The hub
+  refuses the cloud email with an error that is indistinguishable from a
+  lockout (`-40401` / `-60502`, no retry-after), so a wrong username here looks
+  exactly like a hub that has stopped responding. See `docs/protocol-notes.md`.
 - **Camera account password**
 - **TP-Link cloud account password** (used only to derive local media encryption keys)
 
@@ -213,6 +216,7 @@ The hub gets its own device, and each paired camera gets one.
 | `sensor.*_siren_time_left` | How much longer the siren will sound. |
 | `sensor.*_firmware_state`, `sensor.*_ip_address` | Diagnostics. |
 | `binary_sensor.*_media_encryption` | Diagnostics. |
+| `binary_sensor.*_face_detection` | Whether the hub's face detection is on, with the recognised `tags` (family, friend, courier, neighbour, colleague, schoolmate, others) as an attribute. Read-only — the hub refuses to change it locally. |
 
 **Hub settings you can change**
 

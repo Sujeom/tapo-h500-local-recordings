@@ -22,6 +22,7 @@ HUB_STATUS_REQUESTS = (
     ("getMediaEncrypt", {"cet": {"name": ["media_encrypt"]}}),
     ("getDeviceIpAddress", {"network": {"name": ["wan"]}}),
     ("getDiagnoseMode", {"system": {"name": "sys"}}),
+    ("getFaceDetectionConfig", {"face_detection": {"name": "config"}}),
     ("getFirmwareAutoUpgradeConfig", {"auto_upgrade": {"name": ["common"]}}),
 )
 
@@ -122,6 +123,8 @@ def hub_readings(status: dict) -> dict:
     siren_config = status.get("getSirenConfig") or {}
     upgrade = dig(status.get("getFirmwareAutoUpgradeConfig"),
                   "auto_upgrade", "common") or {}
+    face = dig(status.get("getFaceDetectionConfig"),
+               "face_detection", "detection") or {}
     return {
         "siren_tone": siren_config.get("siren_type"),
         # 1-10 as a string on the wire; kept numeric for the volume slider.
@@ -152,4 +155,8 @@ def hub_readings(status: dict) -> dict:
         # toggling it has to send back the time and window it did not change.
         "auto_upgrade_config": upgrade,
         "auto_upgrade_time": upgrade.get("time"),
+        # Read-only: getFaceDetectionConfig answers, but setFaceDetectionConfig
+        # refuses even a write of the hub's own current value (-40211).
+        "face_detection": _on(face.get("enabled")),
+        "face_detection_tags": face.get("tags") or [],
     }
