@@ -115,12 +115,15 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     integration = await async_get_integration(hass, DOMAIN)
     versioned = f"{CARD_URL}?v={integration.version}"
 
-    add_extra_js_url(hass, versioned)
-    await _async_register_lovelace_resource(hass, versioned)
+    # Only one mechanism, or the file loads twice and the second define()
+    # throws. The resource list is what dashboards actually read; the extra JS
+    # URL is the fallback for when that is unavailable, such as YAML mode.
+    if not await _async_register_lovelace_resource(hass, versioned):
+        add_extra_js_url(hass, versioned)
     data[DATA_CARD] = True
 
 
-async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> None:
+async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> bool:
     """Add the card to the dashboard's resource list.
 
     add_extra_js_url alone is not enough in practice: it only applies on a full
@@ -138,13 +141,15 @@ async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> No
             if str(item.get("url", "")).startswith(CARD_URL):
                 if item["url"] != url:
                     await resources.async_update_item(item["id"], {"url": url})
-                return
+                return True
         await resources.async_create_item({"res_type": "module", "url": url})
+        return True
     except Exception as err:  # storage layout differs across versions
         _LOGGER.warning(
             "Could not register the dashboard card automatically (%s). Add it "
             "by hand under Settings > Dashboards > Resources as a JavaScript "
             "Module pointing at %s", err, url)
+        return False
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

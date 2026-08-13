@@ -243,10 +243,16 @@ class TapoH500Card extends HTMLElement {
   }
 }
 
-customElements.define("tapo-h500-card", TapoH500Card);
-window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "tapo-h500-card",
-  name: "Tapo H500 Recordings",
-  description: "Browse, download, play and delete H500 recordings.",
-});
+// Defined only once. The same file can legitimately be loaded more than once
+// -- the integration registers a dashboard resource, a user may have added
+// another by hand, and differing URLs count as separate modules. A second
+// define() throws "the name has already been used with this registry".
+if (!customElements.get("tapo-h500-card")) {
+  customElements.define("tapo-h500-card", TapoH500Card);
+  window.customCards = window.customCards || [];
+  window.customCards.push({
+    type: "tapo-h500-card",
+    name: "Tapo H500 Recordings",
+    description: "Browse, download, play and delete H500 recordings.",
+  });
+}
