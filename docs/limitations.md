@@ -121,9 +121,11 @@ things separate them: a recognised face (20) accompanies **6** in all five of
 its detections but 22 only once, and a face is a person; and the confirmed
 doorbell press carried **6** and not 22, and someone pressed it.
 
-The unnamed ones display as `type 22` rather than a guess. To name one, note
-what actually happened at a given minute and check the code on that event —
-a car, a delivery, a pet — and it can be added to `DETECTION_NAMES`.
+Nothing is unnamed at present, but a code that has never been seen would
+display as `type 31` rather than a guess. To name a new one, note what actually
+happened at a given minute and check the code on that event — a car, a
+delivery, a pet — then add it to `DETECTION_NAMES` with the observation that
+justifies it.
 
 The protocol is undocumented. Pinning the H500 to a stable LAN address is
 strongly recommended. Firmware changes may require integration updates.
