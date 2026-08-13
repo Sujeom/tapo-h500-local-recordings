@@ -17,6 +17,7 @@ CARD_URL = "/tapo_h500_static/tapo-h500-card.js"
 CONF_POLL_INTERVAL = "poll_interval"
 CONF_AUTO_DOWNLOAD = "auto_download"
 CONF_CONVERT_MP4 = "convert_mp4"
+CONF_KEEP_DOWNLOADS = "keep_downloads"
 
 AUTO_DOWNLOAD_OFF = "off"
 AUTO_DOWNLOAD_RINGS = "rings"
@@ -29,6 +30,9 @@ DEFAULT_POLL_INTERVAL = 20
 # feature a silent no-op; default to all until the ring code is identified.
 DEFAULT_AUTO_DOWNLOAD = AUTO_DOWNLOAD_ALL
 DEFAULT_CONVERT_MP4 = True
+# 0 keeps everything. Any positive number is how many of the newest
+# automatically downloaded clips to keep per camera.
+DEFAULT_KEEP_DOWNLOADS = 0
 
 # How far back each poll looks. A day's window costs the same single call as a
 # short one and is what makes "last activity" and the 24h counts meaningful;

@@ -25,10 +25,12 @@
         "data": {
           "poll_interval": "Seconds between activity checks",
           "auto_download": "Download new recordings automatically",
-          "convert_mp4": "Convert downloads to MP4"
+          "convert_mp4": "Convert downloads to MP4",
+          "keep_downloads": "Downloaded clips to keep per camera"
         },
         "data_description": {
-          "convert_mp4": "MP4 plays in the browser; turn this off to keep the hub's original MPEG-TS."
+          "convert_mp4": "MP4 plays in the browser; turn this off to keep the hub's original MPEG-TS.",
+          "keep_downloads": "0 keeps everything. Any other number prunes the oldest automatic downloads once a camera holds more than that. Manual downloads are never pruned."
         }
       }
     }

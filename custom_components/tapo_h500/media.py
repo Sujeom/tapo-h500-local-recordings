@@ -19,7 +19,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
-from .clips import camera_slug
+from .clips import camera_slug, surplus
 from .const import CONVERT_ARGS, MEDIA_DIR, THUMBNAIL_ARGS
 
 _LOGGER = logging.getLogger(__name__)
@@ -203,6 +203,26 @@ async def async_delete_clip(hass: HomeAssistant, camera, start_time: int) -> lis
         for suffix in (".mp4", ".ts", ".jpg")
     ]
     removed = await hass.async_add_executor_job(_delete, candidates)
+    return [relative(hass, path) for path in removed]
+
+
+def _videos(directory: Path) -> list[Path]:
+    # Names sort chronologically: <date>/<HHMMSS>.<ext>.
+    return sorted(path for path in directory.glob("*/*")
+                  if path.suffix in (".mp4", ".ts"))
+
+
+async def async_prune(hass: HomeAssistant, camera, keep: int) -> list[str]:
+    """Drop the oldest downloads once a camera holds more than `keep`."""
+    if keep <= 0:
+        return []
+    videos = await hass.async_add_executor_job(_videos, camera_dir(hass, camera))
+    doomed = surplus(videos, keep)
+    if not doomed:
+        return []
+    paths = [path for video in doomed
+             for path in (video, video.with_suffix(".jpg"))]
+    removed = await hass.async_add_executor_job(_delete, paths)
     return [relative(hass, path) for path in removed]
 
 

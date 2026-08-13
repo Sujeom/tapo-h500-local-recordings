@@ -142,6 +142,7 @@ recording downloads.
 | --- | --- | --- |
 | Seconds between activity checks | `20` | How often the hub is polled. |
 | Download new recordings automatically | Every new recording | `Never`, `Doorbell presses only`, or `Every new recording`. See the note below before choosing presses-only. |
+| Downloaded clips to keep per camera | `0` | `0` keeps everything. Any other number prunes the oldest automatic downloads once a camera holds more than that, so set `5` and the sixth arrival evicts the oldest. Manual downloads are never pruned. |
 | Convert downloads to MP4 | On | Off keeps the hub's original MPEG-TS. |
 
 ## Entities
@@ -227,13 +228,16 @@ Add a manual card:
 ```yaml
 type: custom:tapo-h500-card
 days: 2
+max_height: 400
 ```
 
 With no `camera_index` the card shows a button per paired camera and remembers
 which one you picked, so one card covers the whole hub. Setting `camera_index`
 pins it to a single camera and hides the picker, which is what you want if you
 prefer one card per doorbell. `days` defaults to `1`. `entry_id` is optional and
-only needed if you run more than one H500.
+only needed if you run more than one H500. `max_height` is the pixel height at
+which the list starts scrolling instead of stretching the dashboard; set `0` to
+let it grow.
 
 Each row shows the thumbnail, the local time, the event type and the duration,
 plus **Download** for clips still only on the hub and **Play**/**Delete** for
