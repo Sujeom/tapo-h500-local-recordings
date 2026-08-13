@@ -188,6 +188,16 @@ RING_ALARM_TYPES: set[int] = {17}
 # visit read as one continuous presence rather than a stutter.
 DETECTION_HOLD = 30
 
+# What counts as an unusual hour, measured against the camera's own recent
+# rate rather than a fixed number: a doorbell on a main road and a back gate
+# do not agree on what "busy" means.
+#
+# The floor exists because a ratio breaks at both ends. A quiet camera has a
+# baseline near zero, where a single delivery is infinitely above typical;
+# below four events in an hour nothing is flagged at all.
+UNUSUAL_MULTIPLIER = 3.0
+UNUSUAL_FLOOR = 4
+
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
 
 # Video is remuxed, not re-encoded. Audio is re-encoded because the hub's TS

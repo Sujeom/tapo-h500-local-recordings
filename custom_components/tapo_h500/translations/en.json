@@ -108,6 +108,9 @@
       },
       "custom_sounds": {
         "name": "Custom sounds"
+      },
+      "recordings_1h": {
+        "name": "Recordings in the last hour"
       }
     },
     "binary_sensor": {
@@ -155,6 +158,9 @@
       },
       "detected_unknown_face": {
         "name": "Unfamiliar face"
+      },
+      "unusual_activity": {
+        "name": "Unusual activity"
       }
     },
     "siren": {

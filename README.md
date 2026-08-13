@@ -50,6 +50,8 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Faces:** name someone once with the `tapo_h500.name_face` action and every
   card shows it. Each named face also gets a sensor for when they were last
   seen, on any camera.
+- **Unusual activity:** each camera flags an hour that stands out against its
+  own recent rate, so a busy street and a back gate are judged separately.
 - **History:** each camera gets a `binary_sensor` per detection — motion,
   person, animal, unfamiliar face, tampering — on for 30 seconds after the
   hub reports it, so activity appears on a history graph and can be used as an

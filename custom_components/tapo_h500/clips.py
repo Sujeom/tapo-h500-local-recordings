@@ -196,3 +196,41 @@ def surplus(items, keep: int) -> list:
     if keep <= 0 or len(items) <= keep:
         return []
     return list(items[:-keep])
+
+
+def events_since(clips: list[dict], since: int) -> int:
+    """How many of these recordings started at or after a moment."""
+    return sum(1 for clip in clips
+               if (start_of(clip) or 0) >= since)
+
+
+def hourly_baseline(clips: list[dict], now: int, window: int) -> float:
+    """The camera's own typical events-per-hour over the polled window.
+
+    Deliberately the camera's own history rather than a fixed threshold: a
+    doorbell on a main road might see forty events a day and a back gate two,
+    and "busy" means something different at each. Anything older than the
+    window is not available -- the integration holds 24 hours, not a database
+    -- so this is a same-day baseline, which is the honest limit of it.
+    """
+    hours = max(1.0, window / 3600)
+    counted = events_since(clips, now - window)
+    return counted / hours
+
+
+def unusually_busy(clips: list[dict], now: int, window: int,
+                   multiplier: float, floor: int) -> bool:
+    """Whether the last hour stands out against this camera's own baseline.
+
+    Two guards, because a ratio alone is useless at both ends. A camera that
+    normally sees nothing has a baseline of zero, and any event at all would
+    be infinitely unusual -- hence the floor, below which nothing is flagged.
+    And a camera that is always busy should not flag continuously, which is
+    what the multiplier is for.
+    """
+    recent = events_since(clips, now - 3600)
+    # One expression, deliberately: an earlier version also returned early
+    # below the floor, which enforced it twice. Removing either guard then
+    # changed no behaviour, so no test could tell a broken one from a working
+    # one -- the floor lives here and only here.
+    return recent >= max(floor, hourly_baseline(clips, now, window) * multiplier)

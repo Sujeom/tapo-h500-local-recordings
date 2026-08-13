@@ -15,8 +15,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .clips import detection_types
-from .const import DATA_HUBS, DETECTION_HOLD, DETECTION_NAMES, DOMAIN
+from .clips import detection_types, unusually_busy
+from .const import (
+    DATA_HUBS, DETECTION_HOLD, DETECTION_NAMES, DOMAIN, LOOKBACK_SECONDS,
+    UNUSUAL_FLOOR, UNUSUAL_MULTIPLIER,
+)
 from .coordinator import H500Coordinator
 from .entity import H500Entity
 from .sensor import hub_device
@@ -87,6 +90,10 @@ async def async_setup_entry(
         H500CameraFlag(coordinator, index, camera, description)
         for index, camera in enumerate(coordinator.cameras)
         for description in CAMERA_FLAGS
+    ]
+    entities += [
+        H500UnusualActivity(coordinator, index, camera)
+        for index, camera in enumerate(coordinator.cameras)
     ]
     entities += [
         H500DetectionFlag(coordinator, index, camera, code)
@@ -186,3 +193,42 @@ class H500DetectionFlag(H500Entity, BinarySensorEntity):
         self._clear_timer = None
         self._attr_is_on = False
         self.async_write_ha_state()
+
+
+class H500UnusualActivity(H500Entity, BinarySensorEntity):
+    """On when the last hour stands out against this camera's own recent rate.
+
+    Compared against the camera itself rather than a fixed number, because a
+    doorbell on a main road and a back gate disagree about what busy means.
+    The baseline can only come from the polled window -- this integration holds
+    a day of recordings, not a database -- so it is a same-day comparison, and
+    the entity says so rather than implying weeks of history.
+    """
+
+    _attr_translation_key = "unusual_activity"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, index: int, camera: dict) -> None:
+        super().__init__(coordinator, index, camera)
+        self._attr_unique_id = f"{camera['device_id']}_unusual_activity"
+
+    @property
+    def is_on(self) -> bool:
+        from homeassistant.util import dt as dt_util
+        return unusually_busy(
+            self.coordinator.clips_for(self.index),
+            int(dt_util.utcnow().timestamp()),
+            LOOKBACK_SECONDS, UNUSUAL_MULTIPLIER, UNUSUAL_FLOOR)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        from homeassistant.util import dt as dt_util
+        from .clips import events_since, hourly_baseline
+        clips = self.coordinator.clips_for(self.index)
+        now = int(dt_util.utcnow().timestamp())
+        return {
+            "events_last_hour": events_since(clips, now - 3600),
+            "typical_per_hour": round(
+                hourly_baseline(clips, now, LOOKBACK_SECONDS), 2),
+        }

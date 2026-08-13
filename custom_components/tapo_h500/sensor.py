@@ -14,6 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
+from .clips import events_since
 from .const import DATA_HUBS, DOMAIN
 from .coordinator import H500Coordinator
 from .entity import H500Entity
@@ -107,6 +108,13 @@ CAMERA_SENSORS: tuple[CameraSensor, ...] = (
         value=lambda c, i, cam: (
             dt_util.utc_from_timestamp(c.last_activity(i))
             if c.last_activity(i) is not None else None),
+    ),
+    CameraSensor(
+        key="recordings_1h", translation_key="recordings_1h",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="recordings",
+        value=lambda c, i, cam: events_since(
+            c.clips_for(i), int(dt_util.utcnow().timestamp()) - 3600),
     ),
     CameraSensor(
         key="recordings_24h", translation_key="recordings_24h",
