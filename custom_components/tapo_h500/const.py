@@ -44,3 +44,18 @@ EVENT_TYPES = [EVENT_RING, EVENT_MOTION]
 RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
+
+# Video is remuxed, not re-encoded. Audio is re-encoded because the hub's TS
+# audio codec is not always one MP4 can carry.
+#
+# "-f mp4" is load bearing: the clip is written to a temporary ".mp4.part"
+# first, and ffmpeg picks its muxer from the extension. Without an explicit
+# format it fails with "Unable to choose an output format" and every download
+# dies at the conversion step.
+CONVERT_ARGS = ["-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart",
+                "-f", "mp4"]
+
+# One frame, scaled down. A full 2304x1296 frame is ~530 KB, which is absurd
+# for something the card renders at 96x54; 640 wide is ~65 KB and still sharp
+# on a high-DPI screen. Height -2 keeps the aspect ratio even.
+THUMBNAIL_ARGS = ["-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4"]

@@ -20,14 +20,11 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
 from .clips import camera_slug
-from .const import MEDIA_DIR
+from .const import CONVERT_ARGS, MEDIA_DIR, THUMBNAIL_ARGS
 
 _LOGGER = logging.getLogger(__name__)
 
 URL_LIFETIME = timedelta(hours=12)
-# Video is remuxed, not re-encoded. Audio is re-encoded because the hub's TS
-# audio codec is not always one MP4 can carry.
-CONVERT_ARGS = ["-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart"]
 
 
 def media_root(hass: HomeAssistant) -> Path:
@@ -126,7 +123,7 @@ async def async_thumbnail(hass: HomeAssistant, video: Path) -> Path | None:
     for seek in ("1", "0"):
         made = await _run_ffmpeg(hass, [
             "-y", "-ss", seek, "-i", str(video),
-            "-frames:v", "1", "-q:v", "5", str(thumbnail),
+            *THUMBNAIL_ARGS, str(thumbnail),
         ])
         if made and await hass.async_add_executor_job(_has_content, thumbnail):
             return thumbnail
