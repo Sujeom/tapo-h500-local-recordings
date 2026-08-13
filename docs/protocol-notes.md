@@ -239,8 +239,20 @@ belongs to the 20; excluding it, 22 is 0 for 17. It also cannot be body or
 person detection — that would fire on all 29 person events, and 22 fires on 18.
 So 20 and 22 partition faces into recognised and not.
 
-An app label reading "unknown" or "stranger" on a 22 event would settle it
-outright. Only code 10 is now unnamed, and it has never appeared without 17.
+**The detection log is immutable, and 20 means matched rather than named.** A
+face on the 7:46pm event of 2026-08-12 was given a name in the app afterwards;
+the stored detection did not change by a byte — `events_1` is still 524450,
+identical to the reading taken before. And that event already carried code 20
+and `face_id` 1969491410946 *before* anyone named that person, while the six
+detections around it (7:40, 7:44, 7:47, 7:52, 7:56, 8:05) are all 22 with no
+face at all.
+
+So the hub clusters faces and hands out ids on its own; the name is attached
+app-side and never reaches the local record. Which is also why the faces card
+takes its names from card config: there is nothing local to read them from.
+
+An app label reading "unknown" or "stranger" on a 22 event would still settle
+22 outright. Only code 10 is now unnamed, and it has never appeared without 17.
 
 Only three are named. 6 and 22 are the commonest after motion but never appear
 alone, so nothing in the data separates what they mean from what accompanies

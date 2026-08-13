@@ -78,9 +78,14 @@ RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 #       morning: alarm_type 19, alongside person and face because someone was
 #       standing there doing it. It is also one of only two codes ever seen
 #       alone, which fits an alarm that can fire with nobody recognised.
-#   20  face. All 5 of its detections carried a face_id; no other code ever did.
+#   20  a face the hub matched to an individual. Every one of its detections
+#       carried a face_id and no other code ever did. "Matched", not "named":
+#       the 7:46pm event on 2026-08-12 already carried 20 and a face_id long
+#       before that person was given a name in the app, and naming them did not
+#       change the record by a single byte. The hub clusters faces and hands out
+#       ids; the name lives app-side.
 #
-#   22  a face the hub could NOT identify. Inferred rather than confirmed by an
+#   22  a face the hub could NOT match to an individual. Inferred rather than an
 #       app label, but the split is clean: code 20 carries a face_id in 6 of 6
 #       detections, and 22 in 1 of 18 -- and that single exception is the only
 #       event where both appear, so the id there belongs to the 20. Excluding
