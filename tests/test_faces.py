@@ -193,10 +193,18 @@ class SeenRecently(unittest.TestCase):
 
     def test_it_is_not_a_device_tracker(self):
         """Off means "not seen", which is not "away". Modelling it as presence
-        would invite occupancy automations built on a guess."""
+        would invite occupancy automations built on a guess.
+
+        Checked against the class declaration rather than the file: the
+        docstring says "deliberately not a device_tracker", and a whole-file
+        search matches that sentence.
+        """
         BS = (COMPONENT / "binary_sensor.py").read_text()
-        self.assertIn("class H500FaceSeenRecently", BS)
-        self.assertNotIn("device_tracker", BS)
+        declaration = BS.split("class H500FaceSeenRecently", 1)[1].split(":", 1)[0]
+        self.assertIn("BinarySensorEntity", declaration)
+        self.assertNotIn("Tracker", declaration)
+        platforms = (COMPONENT / "__init__.py").read_text()
+        self.assertNotIn("Platform.DEVICE_TRACKER", platforms)
 
     def test_its_name_says_what_it_means(self):
         BS = (COMPONENT / "binary_sensor.py").read_text()
