@@ -151,26 +151,11 @@ which is how `mirrorscreen` went unnoticed:
     support_presence_sensor               system             testChildSignal
     testSignal         tssDeviceManage    usbsharemanage     usrDefAudio
 
-### mirrorscreen: the method exists, the params do not
+### mirrorscreen: solved
 
-`getMirrorScreenConfig` answers **`-40209`**, not `-40106`. That distinction is
-the whole finding: `-40106` is "no such method" and `-40209` is the parameter
-complaint this firmware also returns for an out-of-range siren volume. So the
-method is real and the params tried so far are wrong.
-
-Absent so far: every direct-namespace form (`mirrorscreen`, `mirror_screen`,
-`mirrorScreen` across `config`/`info`/`status`/`list`/`enable`), and the
-sibling names `getMirrorscreenConfig`, `getMirrorScreenStatus`,
-`getMirrorScreen`, `getScreenMirrorConfig`, `getMirrorScreenList`.
-
-Untried, because the hub started refusing logins mid-probe: `getMirrorScreenConfig`
-with an empty namespace, a `name` list, a `table`, a channel, or child device
-addressing. pytapo has no casting or mirroring concept at all to borrow a shape
-from, so this one has no reference implementation.
-
-Worth noting the name is ambiguous. It may mean casting a feed to another
-screen, or it may mean flipping the image — "mirror" in the camera-settings
-sense. Nothing observed yet distinguishes the two.
+This section previously recorded the params as unknown. They are not — see
+*mirrorscreen is reachable, and empty* above: `name` must be a list, the call
+then returns `error_code 0`, and the component holds no configuration.
 
 ## Hub modules
 
