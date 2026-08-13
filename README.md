@@ -50,9 +50,12 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   edit it directly.
 - **Faces:** **Configure → Name faces** lists every face the hub has
   recognised, with a link to their photo so you can see who the number is, how
-  often and where it saw them, and a box to type a name into. Names are stored on the hub, so every card and sensor uses them, and
-  each named face gets a last-seen sensor. There is a `tapo_h500.name_face`
-  action too, for automations.
+  often and where it saw them, and a box to type a name into — or use the
+  **Name this face** button on the faces card. Names are stored on the hub, so
+  every card and sensor uses them, and each named face gets sensors for when
+  they were last seen and at which camera. The hub keeps one id per person
+  across every camera, so a trail of sightings follows them from door to door.
+  There is a `tapo_h500.name_face` action too, for automations.
 - **Ask it:** "who was at the door?" and "what happened today?" work in Assist.
 - **Summaries:** call `tapo_h500.daily_summary` from an automation for a digest
   — a service, not a schedule, so nothing arrives unless you ask for it.
