@@ -1,7 +1,7 @@
 /**
  * Tapo H500 dashboard cards.
  *
- * Six ways to look at the same recordings, all fed by the integration's own
+ * Seven ways to look at the same recordings, all fed by the integration's own
  * response services, so none of them needs extra API surface:
  *
  *   custom:tapo-h500-card            list, with download/play/delete
@@ -10,13 +10,14 @@
  *   custom:tapo-h500-timeline-card   events grouped by hour
  *   custom:tapo-h500-faces-card      who has been recognised, with names
  *   custom:tapo-h500-summary-card    events by hour of day, as a bar chart
+ *   custom:tapo-h500-face-summary-card  how often each face was seen
  *
  * Shared options:
  *   days: 1              # how many days back to list
  *   camera_index: 0      # optional; omit to get a picker for every paired camera
  *   entry_id: abc123     # optional; the first H500 entry is used by default
  *   max_height: 400      # list/grid/timeline/faces only; 0 to grow unbounded
- *   names: {id: Alice}   # faces card only; the hub supplies no names
+ *   names: {id: Alice}   # faces cards only; the hub supplies no names
  *
  * One file on purpose: it is the single resource the integration registers, so
  * splitting the shared engine into a second module would need a second
@@ -81,6 +82,18 @@ export const groupByFace = (items, names = {}) => {
   }
   return [...faces.values()];
 };
+
+/** Faces ranked by how often they were seen, most first.
+ *
+ * Sorted by count, then by name, then by id. Without the last two a redraw
+ * could reorder faces that tie, and bars swapping places between refreshes
+ * reads as data changing when nothing has.
+ */
+export const facesByCount = (items, names = {}) =>
+  groupByFace(items, names).sort((a, b) =>
+    b.sightings - a.sightings
+    || String(a.name ?? "").localeCompare(String(b.name ?? ""))
+    || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
 
 /** 24 counts, one per hour of the local day. */
 export const eventsByHour = (items) => {
@@ -150,8 +163,10 @@ const LABELS = {
  *  use for max_height, and offering it would invite a setting that does
  *  nothing. */
 export const editorSchema = (type) => {
-  const scrolls = !["tapo-h500-hero-card", "tapo-h500-summary-card"].includes(type);
-  const faces = type === "tapo-h500-faces-card";
+  const scrolls = !["tapo-h500-hero-card", "tapo-h500-summary-card",
+                    "tapo-h500-face-summary-card"].includes(type);
+  const faces = ["tapo-h500-faces-card",
+                 "tapo-h500-face-summary-card"].includes(type);
   return [FIELD.days, FIELD.camera_index,
           ...(scrolls ? [FIELD.max_height] : []),
           ...(faces ? [FIELD.names] : []), FIELD.entry_id];
@@ -902,6 +917,113 @@ class TapoH500FacesCard extends H500Base {
   }
 }
 
+class TapoH500FaceSummaryCard extends H500Base {
+  // Height depends on how many faces there are, so the floor is low and the
+  // card grows with its own content rather than reserving a chart-sized block.
+  static grid = { rows: 4, min_rows: 2, columns: 12, min_columns: 6 };
+  static defaults = { days: 7, max_height: 0 };
+  static style = `
+    .chart { width: 100%; height: auto; display: block; }
+    .grid { stroke: var(--divider-color); stroke-width: 1; }
+    .bar { fill: var(--primary-color); }
+    .hit { fill: transparent; }
+    .hit:hover ~ .bar, .bar:hover { fill: var(--primary-color); opacity: 0.75; }
+    .who { fill: var(--primary-text-color); font-size: 10px; }
+    .who.unnamed { font-family: monospace; font-size: 9px;
+                   fill: var(--secondary-text-color); }
+    .n { fill: var(--primary-text-color); font-size: 10px; font-weight: 500; }
+    .tick { fill: var(--secondary-text-color); font-size: 9px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 2px 6px 2px 0;
+             border-bottom: 1px solid var(--divider-color); }
+    td.n { text-align: right; font-variant-numeric: tabular-nums; }
+    .total { margin-bottom: 6px; }
+    .hint { margin-top: 10px; }
+  `;
+
+  getCardSize() {
+    return 2 + Math.ceil((this._faces || []).length / 2);
+  }
+
+  _label(face) {
+    const named = face.name !== undefined && face.name !== null;
+    return { named, text: named ? String(face.name) : `Face ${face.id}` };
+  }
+
+  _table(faces) {
+    const rows = faces.map((face) => `
+      <tr><td>${esc(this._label(face).text)}</td>
+          <td class="n">${Number(face.sightings)}</td></tr>`).join("");
+    return `<table><thead><tr><th>Face</th><th class="n">Times seen</th></tr>
+      </thead><tbody>${rows}</tbody></table>`;
+  }
+
+  _chart(faces) {
+    // Horizontal bars, because the categories are names of arbitrary length.
+    // Vertical bars would need the labels rotated or truncated; here a long
+    // name simply uses more of the gutter.
+    const W = 336, R = 22, T = 6, B = 16;
+    const L = 96;                       // gutter for the names
+    const row = 22, barH = 12;          // one row per face, thin marks
+    const H = T + faces.length * row + B;
+    const plotW = W - L - R;
+    const top = niceMax(Math.max(...faces.map((f) => f.sightings)));
+    const x = (value) => L + (value / top) * plotW;
+
+    // Two gridlines only: zero and the top. Bars are read by length, and more
+    // rules than that compete with the bars themselves.
+    const grid = [0, top].map((value) => `
+      <line class="grid" x1="${x(value).toFixed(1)}" x2="${x(value).toFixed(1)}"
+            y1="${T}" y2="${(H - B).toFixed(1)}"/>
+      <text class="tick" x="${x(value).toFixed(1)}" y="${H - 4}"
+            text-anchor="middle">${value}</text>`).join("");
+
+    const bars = faces.map((face, index) => {
+      const y = T + index * row;
+      const mid = y + row / 2;
+      const { named, text } = this._label(face);
+      const count = Number(face.sightings);
+      const title = `${text} — seen ${count} time${count === 1 ? "" : "s"}`;
+      const width = Math.max(2, x(count) - L);
+      return `
+        <rect class="hit" x="0" y="${y}" width="${W}" height="${row}">
+          <title>${esc(title)}</title></rect>
+        <text class="who${named ? "" : " unnamed"}" x="0" y="${(mid + 3).toFixed(1)}"
+          >${esc(text.length > 16 ? `${text.slice(0, 15)}…` : text)}</text>
+        <rect class="bar" x="${L}" y="${(mid - barH / 2).toFixed(1)}"
+          width="${width.toFixed(1)}" height="${barH}" rx="4"/>
+        <text class="n" x="${(L + width + 4).toFixed(1)}"
+          y="${(mid + 3).toFixed(1)}">${count}</text>`;
+    }).join("");
+
+    return `<svg class="chart" viewBox="0 0 ${W} ${H}"
+      preserveAspectRatio="xMidYMid meet" role="img"
+      aria-label="Times each face was seen">${grid}${bars}</svg>`;
+  }
+
+  body() {
+    this._faces = facesByCount(this._recordings, this._config.names || {});
+    if (!this._faces.length) {
+      return `<div class="muted">No faces recognised in this period. The hub
+        only reports one when its own face detection fires.</div>`;
+    }
+    const total = this._faces.reduce((sum, face) => sum + face.sightings, 0);
+    const unnamed = this._faces.filter((face) => this._label(face).named === false);
+    const hint = unnamed.length
+      ? `<div class="muted hint">Name a face by adding <code>names:</code> to
+         this card: <code>${esc(unnamed[0].id)}: Alice</code></div>`
+      : "";
+    // The chart has a table twin, so no value is available only on hover.
+    return `
+      <div class="total muted">${this._faces.length} face${
+        this._faces.length === 1 ? "" : "s"}, ${total} sighting${
+        total === 1 ? "" : "s"}</div>
+      ${this._chart(this._faces)}
+      ${this._table(this._faces)}
+      ${hint}`;
+  }
+}
+
 // Defined only once each. The same file can legitimately be loaded more than
 // once -- the integration registers a dashboard resource, a user may have added
 // another by hand, and differing URLs count as separate modules. A second
@@ -925,6 +1047,10 @@ register("tapo-h500-faces-card", TapoH500FacesCard, "Tapo H500 Faces",
   "Who the hub has recognised, with the names it will not supply itself.");
 register("tapo-h500-summary-card", TapoH500SummaryCard, "Tapo H500 Summary",
   "Events by hour of day, as a bar chart.");
+register("tapo-h500-face-summary-card", TapoH500FaceSummaryCard,
+  "Tapo H500 Face Summary",
+  "How often each face was seen, as a bar chart.");
 
 export { H500Base, TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
-         TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard };
+         TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard,
+         TapoH500FaceSummaryCard };

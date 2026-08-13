@@ -13,6 +13,7 @@ from .clips import (
 )
 from .const import DATA_HUBS, DOMAIN, EVENT_TYPES
 from .entity import H500Entity
+from .media import clip_path, signed_url
 
 
 async def async_setup_entry(
@@ -39,6 +40,16 @@ class H500ActivityEvent(H500Entity, EventEntity):
         self.async_on_remove(async_dispatcher_connect(
             self.hass, self.coordinator.signal("event", self.index), self._handle))
 
+    def _own_frame(self, start_time: int | None) -> str | None:
+        """Signed URL for the thumbnail of the clip this event refers to."""
+        if start_time is None:
+            return None
+        try:
+            return signed_url(
+                self.hass, clip_path(self.hass, self.camera, start_time, ".jpg"))
+        except Exception:  # noqa: BLE001 - an attribute is never worth failing on
+            return None
+
     @callback
     def _handle(self, kind: str, entry: dict) -> None:
         start_time = start_of(entry)
@@ -58,5 +69,19 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # A number per recognised face. The hub offers no name and no
             # image, but the id is stable enough to match in an automation.
             "face_ids": face_ids(entry),
+            # This event's OWN frame, addressed by its timestamp.
+            #
+            # The camera entity deliberately serves whatever thumbnail is
+            # newest, which is right for a camera and wrong for an event: ask
+            # it two minutes later, after another clip has landed, and it
+            # answers with the wrong picture. Measured across 49 detections on
+            # this hub, a detection's start time is exactly the clip's start
+            # time, so the path is computable here and stays pinned to this
+            # event no matter what arrives afterwards.
+            #
+            # The file does not exist yet -- the hub is still recording -- so
+            # this 404s until the download lands. Signing does not check for
+            # the file, and the URL is good for 12 hours.
+            "image": self._own_frame(start_time),
         })
         self.async_write_ha_state()

@@ -52,6 +52,8 @@ actions:
            | replace('_activity', '_last_activity') }}
       # This event's own timestamp, to compare against that sensor.
       moment: "{{ trigger.to_state.state | as_timestamp | int }}"
+      # A URL to this event's own thumbnail, fixed at the moment it fired.
+      frame: "{{ state_attr(trigger.entity_id, 'image') }}"
       when: >-
         {{ (trigger.to_state.state | as_datetime | as_local)
            .strftime('%-I:%M %p') }}
@@ -142,8 +144,11 @@ actions:
         {% else %}Animal at {{ where }}{% endif %}
       message: "Saw {{ seen }}, {{ when }}"
       data:
-        # Now this is genuinely the frame from the event that triggered it.
-        image: /api/camera_proxy/{{ camera }}
+        # This event's own frame, not "whatever is newest". The camera entity
+        # answers with the latest thumbnail on disk, so if another event lands
+        # while this notification is sitting on your phone, the picture changes
+        # under it. The event carries a URL pinned to its own timestamp.
+        image: "{{ frame }}"
         tag: tapo-h500-{{ camera }}      # same tag: replaces, never duplicates
         clickAction: /lovelace/0?more-info-entity-id={{ camera }}
         url: /lovelace/0?more-info-entity-id={{ camera }}

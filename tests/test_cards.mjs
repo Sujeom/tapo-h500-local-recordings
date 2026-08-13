@@ -30,10 +30,11 @@ globalThis.document = { createElement: (tag) => ({ tagName: tag, addEventListene
 globalThis.CustomEvent = class { constructor(type, opts) { this.type = type; Object.assign(this, opts); } };
 
 const mod = await import("../custom_components/tapo_h500/www/tapo-h500-card.js");
-const { esc, ago, groupByHour, groupByFace, eventsByHour, niceMax,
+const { esc, ago, groupByHour, groupByFace, facesByCount, eventsByHour, niceMax,
         editorSchema, mergeConfig, utcDay,
         windowDates, TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
-        TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard } = mod;
+        TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard,
+        TapoH500FaceSummaryCard } = mod;
 
 let failures = 0;
 const test = (name, fn) => {
@@ -440,10 +441,88 @@ test("a cleared field is removed, not stored as empty", () => {
   assert.deepEqual(after, { type: "x" });
 });
 
+test("faces are ranked by how often they were seen", () => {
+  const items = [
+    { start_time: 30, face_ids: [7] },
+    { start_time: 20, face_ids: [9, 7] },
+    { start_time: 10, face_ids: [7, 9] },
+  ];
+  const ranked = facesByCount(items);
+  assert.deepEqual(ranked.map((f) => [f.id, f.sightings]), [["7", 3], ["9", 2]]);
+});
+
+test("a tie keeps a stable order instead of shuffling on redraw", () => {
+  // Bars swapping places between refreshes reads as the data changing.
+  const items = [{ start_time: 10, face_ids: [22, 3] }];
+  const once = facesByCount(items).map((f) => f.id);
+  const again = facesByCount([...items]).map((f) => f.id);
+  assert.deepEqual(once, again);
+  assert.deepEqual(once, ["3", "22"]);   // numeric, so 3 sorts before 22
+});
+
+test("the face chart bars are proportional to the counts", () => {
+  const card = build(TapoH500FaceSummaryCard, { days: 7 });
+  card._recordings = [
+    { start_time: 30, face_ids: [1] },
+    { start_time: 20, face_ids: [1] },
+    { start_time: 10, face_ids: [2] },
+  ];
+  const widths = [...card.body().matchAll(/class="bar"[^>]*width="([\d.]+)"/g)]
+    .map((m) => Number(m[1]));
+  assert.equal(widths.length, 2);
+  assert.ok(widths[0] > widths[1], "the face seen twice must draw the longer bar");
+});
+
+test("the face chart grows a row per face rather than clipping", () => {
+  const one = build(TapoH500FaceSummaryCard, {});
+  one._recordings = [{ start_time: 10, face_ids: [1] }];
+  const many = build(TapoH500FaceSummaryCard, {});
+  many._recordings = [{ start_time: 10, face_ids: [1, 2, 3, 4, 5] }];
+  const height = (card) => Number(card.body().match(/viewBox="0 0 \d+ (\d+)"/)[1]);
+  assert.ok(height(many) > height(one));
+});
+
+test("the face chart has a table twin, so no count is hover-only", () => {
+  const card = build(TapoH500FaceSummaryCard, {});
+  card._recordings = [{ start_time: 10, face_ids: [1] }];
+  const html = card.body();
+  assert.match(html, /<table>/);
+  assert.match(html, /Times seen/);
+});
+
+test("an unnamed face shows its id, and a named one its name", () => {
+  const card = build(TapoH500FaceSummaryCard, { names: { 1: "Alice" } });
+  card._recordings = [{ start_time: 10, face_ids: [1, 2] }];
+  const html = card.body();
+  assert.match(html, /Alice/);
+  assert.match(html, /Face 2/);
+});
+
+test("a hostile face name cannot break out of the chart markup", () => {
+  const card = build(TapoH500FaceSummaryCard,
+                     { names: { 1: '<script>alert(1)</script>' } });
+  card._recordings = [{ start_time: 10, face_ids: [1] }];
+  assert.ok(!card.body().includes("<script>"));
+});
+
+test("no faces is a message, not an empty chart", () => {
+  const card = build(TapoH500FaceSummaryCard, {});
+  card._recordings = [{ start_time: 10, face_ids: [] }];
+  const html = card.body();
+  assert.ok(!html.includes("<svg"));
+  assert.match(html, /No faces recognised/);
+});
+
+test("the face summary is offered a names map and no scroll box", () => {
+  const fields = editorSchema("tapo-h500-face-summary-card").map((f) => f.name);
+  assert.ok(fields.includes("names"), "cannot name faces on a chart of faces");
+  assert.ok(!fields.includes("max_height"), "a chart has no scrolling list");
+});
+
 test("every card type is registered exactly once", () => {
   const types = ["tapo-h500-card", "tapo-h500-hero-card", "tapo-h500-grid-card",
                  "tapo-h500-timeline-card", "tapo-h500-faces-card",
-                 "tapo-h500-summary-card"];
+                 "tapo-h500-summary-card", "tapo-h500-face-summary-card"];
   for (const type of types) assert.ok(customElements.get(type), `${type} missing`);
   assert.equal(globalThis.window.customCards.length, types.length);
 });
