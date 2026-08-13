@@ -112,3 +112,34 @@ format_hub_storage:
       required: true
       selector:
         boolean:
+
+name_face:
+  name: Name a face
+  description: >-
+    Give one of the hub's face ids a name, or clear it by leaving the name
+    empty. The hub clusters faces and hands out stable ids but will not say who
+    anyone is, so the name has to come from you. It is stored once on the hub's
+    config entry and used by every card and by the per-face sensors.
+  fields:
+    config_entry_id:
+      name: Hub
+      description: The H500 config entry.
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    face_id:
+      name: Face ID
+      description: >-
+        The number the hub uses for this person. Cards show it as "Face
+        123456789012" for anyone unnamed, and it is in an event's face_ids.
+      required: true
+      example: "123456789012"
+      selector:
+        text:
+    name:
+      name: Name
+      description: What to call them. Leave empty to remove the name.
+      example: Alice
+      selector:
+        text:

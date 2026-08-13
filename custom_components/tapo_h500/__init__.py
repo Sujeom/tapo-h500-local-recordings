@@ -26,6 +26,8 @@ from .const import (
     DATA_PREVIEW, DEFAULT_CONVERT_MP4, DOMAIN, SERVICE_DELETE_RECORDING,
     SERVICE_DOWNLOAD_RECORDING, SERVICE_FORMAT_HUB_STORAGE,
     SERVICE_LIST_RECORDINGS,
+    SERVICE_NAME_FACE,
+    CONF_FACE_NAMES,
 )
 from .coordinator import H500Coordinator
 from .media import (
@@ -59,13 +61,22 @@ DELETE_SCHEMA = vol.Schema({
     **ENTRY_SCHEMA,
     vol.Required("start_time"): NONNEGATIVE_INT,
 })
+NAME_FACE_SCHEMA = vol.Schema({
+    vol.Required("config_entry_id"): cv.string,
+    # The hub reports ids as numbers; accept either spelling and store one.
+    vol.Required("face_id"): vol.All(vol.Coerce(str), vol.Length(min=1)),
+    # Omitted or empty clears the name rather than storing a blank one.
+    vol.Optional("name", default=""): cv.string,
+})
 FORMAT_SCHEMA = vol.Schema({
     vol.Required("config_entry_id"): cv.string,
     vol.Required("confirm"): vol.All(cv.boolean, vol.Equal(True)),
 })
 
 SERVICES = (
-    SERVICE_LIST_RECORDINGS, SERVICE_DOWNLOAD_RECORDING,
+    SERVICE_LIST_RECORDINGS,
+    SERVICE_NAME_FACE,
+    CONF_FACE_NAMES, SERVICE_DOWNLOAD_RECORDING,
     SERVICE_DELETE_RECORDING, SERVICE_FORMAT_HUB_STORAGE,
 )
 
@@ -215,6 +226,9 @@ def _register_services(hass: HomeAssistant) -> None:
             scan_downloaded, hass, camera, [start for start, _, _ in clips])
         return {
             "camera": _public_camera(camera),
+            # The shared name map, so a card shows names without being told
+            # them. A card may still override it locally.
+            "face_names": coordinator.face_names,
             # So a caller can offer a camera picker without probing indexes.
             "cameras": [
                 {"index": position, **_public_camera(item)}
@@ -281,11 +295,34 @@ def _register_services(hass: HomeAssistant) -> None:
                 f"The H500 refused to format its storage: {err}") from err
         return {"formatted": True}
 
+    async def name_face(call: ServiceCall):
+        """Give a hub face id a name, or clear it by passing none.
+
+        Written to the config entry's options, which is what the per-face
+        sensors and every card read, so one edit reaches all of them. Home
+        Assistant reloads the entry on an options change, which is how a newly
+        named face gains its sensor.
+        """
+        coordinator = _coordinator(hass, call.data["config_entry_id"])
+        face_id = str(call.data["face_id"])
+        name = (call.data.get("name") or "").strip()
+        names = dict(coordinator.entry.options.get(CONF_FACE_NAMES) or {})
+        if name:
+            names[face_id] = name
+        else:
+            names.pop(face_id, None)
+        hass.config_entries.async_update_entry(
+            coordinator.entry,
+            options={**coordinator.entry.options, CONF_FACE_NAMES: names})
+        return {"face_id": face_id, "name": name or None,
+                "named": sorted(names)}
+
     for service, handler, schema in (
         (SERVICE_LIST_RECORDINGS, list_recordings, LIST_SCHEMA),
         (SERVICE_DOWNLOAD_RECORDING, download_recording, DOWNLOAD_SCHEMA),
         (SERVICE_DELETE_RECORDING, delete_recording, DELETE_SCHEMA),
         (SERVICE_FORMAT_HUB_STORAGE, format_hub_storage, FORMAT_SCHEMA),
+        (SERVICE_NAME_FACE, name_face, NAME_FACE_SCHEMA),
     ):
         hass.services.async_register(
             DOMAIN, service, handler, schema=schema,

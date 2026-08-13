@@ -10,6 +10,17 @@ SERVICE_LIST_RECORDINGS = "list_recordings"
 SERVICE_DOWNLOAD_RECORDING = "download_recording"
 SERVICE_DELETE_RECORDING = "delete_recording"
 SERVICE_FORMAT_HUB_STORAGE = "format_hub_storage"
+SERVICE_NAME_FACE = "name_face"
+
+# Face names live on the config entry, not on each card.
+#
+# The hub clusters faces and hands out stable ids but will not say who anyone
+# is -- there is no face library to look an id up in, and no request that
+# returns one. The name has to come from the owner. It used to be typed into
+# every card that showed faces, so three cards meant three copies to keep in
+# step; here one map serves every card, the per-face sensors and anything else
+# that wants it. A card may still override it locally.
+CONF_FACE_NAMES = "face_names"
 
 # Subdirectory of Home Assistant's "local" media directory that holds clips.
 MEDIA_DIR = "tapo_h500"

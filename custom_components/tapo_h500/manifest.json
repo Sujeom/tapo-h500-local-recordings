@@ -1,7 +1,7 @@
 {
   "domain": "tapo_h500",
   "name": "Tapo H500 Local Recordings",
-  "version": "0.35.0",
+  "version": "0.36.0",
   "codeowners": [],
   "config_flow": true,
   "dependencies": [

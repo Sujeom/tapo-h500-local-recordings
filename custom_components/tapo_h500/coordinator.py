@@ -12,14 +12,15 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .clips import (
-    attach_detections, detection_types, end_of, event_type, start_of,
+    attach_detections, detection_types, end_of, event_type, face_ids,
+    start_of,
 )
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
     CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL, DEFAULT_AUTO_DOWNLOAD,
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
-    CAMERAS_MAX_AGE, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING, LOOKBACK_SECONDS,
-    SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
+    CAMERAS_MAX_AGE, CONF_FACE_NAMES, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING,
+    LOOKBACK_SECONDS, SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
 )
 from .media import async_download_clip, async_prune, existing_clip
 from .status import hub_readings
@@ -53,6 +54,46 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
+
+    @property
+    def face_names(self) -> dict[str, str]:
+        """Owner-supplied names, keyed by the id the hub invented.
+
+        Keys are normalised to strings because the hub reports ids as numbers
+        while YAML and the services API hand them over as either, and a map
+        that answers to 123 but not "123" looks empty for no visible reason.
+        """
+        stored = self.entry.options.get(CONF_FACE_NAMES) or {}
+        return {str(key): str(value) for key, value in stored.items()}
+
+    def faces_seen(self, index: int | None = None) -> dict[str, dict]:
+        """Every face in the current window, newest sighting first.
+
+        Mirrors the cards' own grouping so a sensor and a card never disagree
+        about how many times someone has been seen.
+        """
+        indexes = range(len(self.cameras)) if index is None else [index]
+        faces: dict[str, dict] = {}
+        for position in indexes:
+            for clip in self.clips_for(position):
+                for face_id in face_ids(clip):
+                    key = str(face_id)
+                    seen = faces.setdefault(
+                        key, {"id": key, "sightings": 0, "last_seen": None,
+                              "cameras": set()})
+                    seen["sightings"] += 1
+                    moment = start_of(clip)
+                    if moment is not None and (seen["last_seen"] is None
+                                               or moment > seen["last_seen"]):
+                        seen["last_seen"] = moment
+                    alias = self.cameras[position].get("alias")
+                    if alias:
+                        seen["cameras"].add(alias)
+        names = self.face_names
+        for key, face in faces.items():
+            face["name"] = names.get(key)
+            face["cameras"] = sorted(face["cameras"])
+        return faces
 
     def clips_for(self, index: int) -> list[dict]:
         return (self.data or {}).get("clips", {}).get(index, [])

@@ -146,6 +146,13 @@ async def async_setup_entry(
         for index, camera in enumerate(coordinator.cameras)
         for description in CAMERA_SENSORS
     ]
+    # One per named face. Naming someone through the name_face service updates
+    # the entry's options, Home Assistant reloads it, and their sensor appears.
+    entities += [
+        H500FaceSensor(coordinator, entry, face_id, name)
+        for face_id, name in sorted(coordinator.face_names.items(),
+                                    key=lambda pair: pair[1].lower())
+    ]
     async_add_entities(entities)
 
 
@@ -187,3 +194,44 @@ def hub_device(coordinator: H500Coordinator, entry: ConfigEntry):
         model="H500",
         configuration_url=f"https://{entry.data.get('host')}",
     )
+
+
+class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
+    """When a named person was last seen, across every camera.
+
+    One per name in the shared map rather than one per id the hub has ever
+    emitted: the hub invents an id for every face it clusters, including
+    passers-by, and an entity per stranger would fill the registry with
+    numbered ghosts that never return. Naming someone is the signal that they
+    are worth tracking.
+    """
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator, entry, face_id: str, name: str) -> None:
+        super().__init__(coordinator)
+        self._face_id = str(face_id)
+        self._attr_name = name
+        self._attr_unique_id = f"{entry.entry_id}_face_{self._face_id}"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    @property
+    def _face(self) -> dict:
+        return self.coordinator.faces_seen().get(self._face_id) or {}
+
+    @property
+    def native_value(self):
+        seen = self._face.get("last_seen")
+        return dt_util.utc_from_timestamp(seen) if seen else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        face = self._face
+        return {
+            "face_id": self._face_id,
+            # Within the poll window only, which is what every other count in
+            # this integration means; a lifetime total would need a database.
+            "sightings": face.get("sightings", 0),
+            "cameras": face.get("cameras", []),
+        }

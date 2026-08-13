@@ -410,6 +410,28 @@ confirm: true
 **Destroys every recording on the hub.** `confirm: true` is required and there
 is no undo.
 
+## Face names
+
+The hub clusters faces and gives each a stable id, but will not say who anyone
+is — there is no face library to look an id up in. Names come from you:
+
+```yaml
+action: tapo_h500.name_face
+data:
+  config_entry_id: <your hub>
+  face_id: "123456789012"
+  name: Alice
+```
+
+Stored once on the config entry, so every card and every per-face sensor uses
+it. Leave `name` empty to clear it. Cards keep their own optional `names:`,
+which overrides the shared map for that card only.
+
+Naming someone creates `sensor.<name>` on the hub device, holding when they
+were last seen, with `sightings` and `cameras` attributes. Unnamed faces are
+still counted and still appear on the cards — naming decides who is worth an
+entity, not who gets tracked.
+
 ## Options
 
 

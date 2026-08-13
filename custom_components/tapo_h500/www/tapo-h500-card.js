@@ -83,6 +83,15 @@ export const groupByFace = (items, names = {}) => {
   return [...faces.values()];
 };
 
+/** The names a card should use: the hub's shared map, overridden per card.
+ *
+ * The shared map is the one edited through the name_face service and is what
+ * every card sees without being configured. A card's own `names:` takes
+ * precedence so a dashboard can relabel someone locally, and so cards written
+ * before the shared map existed behave exactly as they did.
+ */
+export const faceNames = (shared, local) => ({ ...(shared || {}), ...(local || {}) });
+
 /** Faces ranked by how often they were seen, most first.
  *
  * Sorted by count, then by name, then by id. Without the last two a redraw
@@ -300,6 +309,7 @@ class H500Base extends HTMLElement {
       this._card.addEventListener("click", (event) => this._onClick(event));
     }
     this._recordings = null;
+    this._sharedNames = {};
     this._cameras = null;
     this._error = null;
     // A pinned camera_index keeps the single-camera behaviour; without one the
@@ -361,6 +371,9 @@ class H500Base extends HTMLElement {
       });
       this._camera = response.camera;
       this._cameras = response.cameras || null;
+      // The hub's shared name map, set once via the name_face service. A
+      // card's own `names:` still wins, so an existing card keeps working.
+      this._sharedNames = response.face_names || {};
       this._recordings = response.recordings.slice().reverse();
       this._error = null;
     } catch (err) {
@@ -891,7 +904,8 @@ class TapoH500FacesCard extends H500Base {
 
   body() {
     // Only clips the hub attached a face to; motion-only ones are not people.
-    this._faces = groupByFace(this._recordings, this._config.names || {});
+    this._faces = groupByFace(this._recordings,
+      faceNames(this._sharedNames, this._config.names));
     if (!this._faces.length) {
       return `<div class="muted">No faces recognised in this period. The hub
         only reports one when its own face detection fires.</div>`;
@@ -1010,7 +1024,8 @@ class TapoH500FaceSummaryCard extends H500Base {
   }
 
   body() {
-    this._faces = facesByCount(this._recordings, this._config.names || {});
+    this._faces = facesByCount(this._recordings,
+      faceNames(this._sharedNames, this._config.names));
     if (!this._faces.length) {
       return `<div class="muted">No faces recognised in this period. The hub
         only reports one when its own face detection fires.</div>`;

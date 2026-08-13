@@ -30,7 +30,7 @@ globalThis.document = { createElement: (tag) => ({ tagName: tag, addEventListene
 globalThis.CustomEvent = class { constructor(type, opts) { this.type = type; Object.assign(this, opts); } };
 
 const mod = await import("../custom_components/tapo_h500/www/tapo-h500-card.js");
-const { esc, ago, groupByHour, groupByFace, facesByCount, eventsByHour, niceMax,
+const { esc, ago, groupByHour, groupByFace, facesByCount, faceNames, eventsByHour, niceMax,
         editorSchema, mergeConfig, utcDay,
         windowDates, TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
         TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard,
@@ -564,6 +564,27 @@ test("the face summary scrolls rather than growing without limit", () => {
   const html = card.body();
   assert.ok(html.includes('<div class="scroll">'),
             "12 faces of chart plus table would overflow the card");
+});
+
+test("the hub's shared names reach a card that was never configured", () => {
+  // The whole point of moving names off the cards: name someone once and
+  // every card shows it.
+  assert.deepEqual(faceNames({ 7: "Alice" }, undefined), { 7: "Alice" });
+});
+
+test("a card's own names still win over the shared map", () => {
+  // A dashboard may relabel someone locally, and cards written before the
+  // shared map existed must behave exactly as they did.
+  assert.deepEqual(faceNames({ 7: "Alice" }, { 7: "Mum" }), { 7: "Mum" });
+});
+
+test("shared and local names merge rather than replace", () => {
+  assert.deepEqual(faceNames({ 7: "Alice" }, { 9: "Bob" }),
+                   { 7: "Alice", 9: "Bob" });
+});
+
+test("no names anywhere is an empty map, not a crash", () => {
+  assert.deepEqual(faceNames(undefined, undefined), {});
 });
 
 test("every card type is registered exactly once", () => {
