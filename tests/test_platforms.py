@@ -1,0 +1,137 @@
+"""Diagnostics, logbook, repairs and the image platform.
+
+The logbook phrasing is pure and is exercised for real. The rest is checked
+statically, since all three import the Home Assistant runtime. What is worth
+protecting is mostly about what must NOT happen: diagnostics is a file people
+paste into public bug reports, and a repair issue that never clears is worse
+than one that never appears.
+"""
+import importlib
+import json
+import re
+import sys
+import types
+import unittest
+from pathlib import Path
+
+COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
+DIAG = (COMPONENT / "diagnostics.py").read_text()
+REPAIRS = (COMPONENT / "repairs.py").read_text()
+IMAGE = (COMPONENT / "image.py").read_text()
+INIT = (COMPONENT / "__init__.py").read_text()
+EVENT = (COMPONENT / "event.py").read_text()
+STRINGS = json.loads((COMPONENT / "translations" / "en.json").read_text())
+
+sys.path.insert(0, str(Path(__file__).parent))
+# Installs the Home Assistant stubs the component modules import.
+import test_coordinator  # noqa: E402,F401
+
+package = types.ModuleType("tapo_h500")
+package.__path__ = [str(COMPONENT)]
+sys.modules.setdefault("tapo_h500", package)
+logbook = importlib.import_module("tapo_h500.logbook")
+
+
+class Diagnostics(unittest.TestCase):
+    def test_no_credential_is_referenced_at_all(self):
+        """This file gets pasted into public bug reports."""
+        for secret in ("CONF_PASSWORD", "CONF_CLOUD_PASSWORD", "CONF_USERNAME",
+                       "CONF_HOST", "entry.data"):
+            self.assertNotIn(secret, DIAG, secret)
+
+    def test_it_allow_lists_rather_than_blocking(self):
+        """The hub's replies change between firmwares; a deny-list would leak
+        whatever the next version adds."""
+        self.assertIn("SAFE_READINGS", DIAG)
+        self.assertIn("SAFE_CAMERA", DIAG)
+        self.assertIn("for key in SAFE_READINGS", DIAG)
+
+    def test_camera_aliases_are_not_included(self):
+        """An alias is the owner's own words and can name a room or a person."""
+        self.assertNotIn('"alias"', DIAG)
+        self.assertIn('"index": index', DIAG)
+
+    def test_face_names_are_counted_not_listed(self):
+        self.assertIn('"named_faces": len(', DIAG)
+
+    def test_timestamps_are_relative(self):
+        """Absolute times would map a household's comings and goings."""
+        self.assertIn("newest_recording_age", DIAG)
+
+
+class Logbook(unittest.TestCase):
+    def test_a_press_reads_as_a_sentence(self):
+        self.assertEqual(logbook._phrase([6, 10, 17]),
+                         "someone rang the doorbell (person)")
+
+    def test_the_press_is_not_described_twice(self):
+        """10 accompanies every 17 and would contradict it, exactly as in
+        describe_detection."""
+        phrase = logbook._phrase([2, 6, 10, 17])
+        self.assertEqual(phrase.count("doorbell"), 1)
+        self.assertNotIn("missed", phrase)
+
+    def test_a_plain_detection_lists_what_fired(self):
+        self.assertEqual(logbook._phrase([2, 6]), "motion, person")
+
+    def test_an_unknown_code_shows_its_number(self):
+        self.assertIn("type 31", logbook._phrase([31]))
+
+    def test_nothing_at_all_still_reads(self):
+        self.assertEqual(logbook._phrase([]), "activity")
+
+    def test_the_integration_fires_the_event_it_describes(self):
+        """A describer with no event to describe produces nothing."""
+        self.assertIn('f"{DOMAIN}_event"', EVENT)
+        self.assertIn('f"{DOMAIN}_event"', (COMPONENT / "logbook.py").read_text())
+
+
+class Repairs(unittest.TestCase):
+    def test_both_issues_clear_as_well_as_raise(self):
+        """An issue that never clears is worse than one that never appears."""
+        self.assertEqual(REPAIRS.count("async_delete_issue"), 3)
+
+    def test_unknown_storage_is_not_treated_as_healthy(self):
+        self.assertIn("if not total or free is None:", REPAIRS)
+
+    def test_it_warns_before_the_disk_is_full(self):
+        """Loop recording does not fail at 100%, it discards the oldest footage
+        silently, so warning at 100 would be warning after the loss."""
+        percent = int(re.search(r"STORAGE_WARN_PERCENT = (\d+)", REPAIRS).group(1))
+        self.assertLess(percent, 100)
+        self.assertGreater(percent, 80)
+
+    def test_both_issues_have_text(self):
+        for key in ("storage_nearly_full", "hub_unreachable"):
+            self.assertIn(key, STRINGS["issues"])
+            self.assertIn("title", STRINGS["issues"][key])
+            self.assertIn("description", STRINGS["issues"][key])
+
+    def test_a_failed_poll_cannot_break_the_poll(self):
+        coordinator = (COMPONENT / "coordinator.py").read_text()
+        block = coordinator.split("from .repairs import async_check", 1)[1][:300]
+        self.assertIn("except Exception", block)
+
+
+class Image(unittest.TestCase):
+    def test_the_platform_is_registered(self):
+        self.assertIn("Platform.IMAGE", INIT)
+
+    def test_it_stamps_when_an_event_lands(self):
+        """Without a changed timestamp the frontend never re-fetches."""
+        self.assertIn("_attr_image_last_updated = dt_util.utcnow()", IMAGE)
+
+    def test_it_is_driven_by_the_event_signal(self):
+        self.assertIn('self.coordinator.signal("event", self.index)', IMAGE)
+
+    def test_the_camera_entity_is_kept(self):
+        """Removing it would break existing picture cards."""
+        self.assertIn("Platform.CAMERA", INIT)
+        self.assertTrue((COMPONENT / "camera.py").is_file())
+
+    def test_it_has_a_label(self):
+        self.assertIn("latest_event", STRINGS["entity"]["image"])
+
+
+if __name__ == "__main__":
+    unittest.main()

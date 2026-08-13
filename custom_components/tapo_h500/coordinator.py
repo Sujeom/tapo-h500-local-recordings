@@ -156,6 +156,13 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 _LOGGER.debug("Hub status unavailable: %s", err)
         self._polls += 1
         self._primed = True
+        # Raise or clear the repair issues. Called every poll rather than only
+        # on failure, because an issue that never clears is worse than none.
+        try:
+            from .repairs import async_check
+            async_check(self.hass, self.entry.entry_id, self)
+        except Exception as err:  # noqa: BLE001 - never fail a poll over this
+            _LOGGER.debug("Could not update repair issues: %s", err)
         return {"clips": clips_by_camera, "hub": self.readings}
 
     def _fresh(self, index, entries, seen_map, window,

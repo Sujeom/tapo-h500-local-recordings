@@ -197,6 +197,11 @@
       "siren_duration": {
         "name": "Siren duration"
       }
+    },
+    "image": {
+      "latest_event": {
+        "name": "Latest event"
+      }
     }
   },
   "device_automation": {
@@ -210,6 +215,16 @@
       "theft": "{entity_name} reported tampering",
       "unknown_face": "{entity_name} saw an unfamiliar face",
       "vehicle": "{entity_name} detected a vehicle"
+    }
+  },
+  "issues": {
+    "storage_nearly_full": {
+      "title": "H500 storage is {used}% full",
+      "description": "The hub is about to start overwriting its oldest recordings to make room. Loop recording does not stop at full -- it discards the oldest footage silently. Download anything worth keeping, or format the hub storage once you have."
+    },
+    "hub_unreachable": {
+      "title": "H500 is not responding",
+      "description": "The hub has stopped answering, so nothing is being recorded to Home Assistant and every entity is showing its last known value. Check that it is powered and on the network. If the username is a TP-Link email rather than a local account, the hub refuses it with an error indistinguishable from being offline."
     }
   }
 }

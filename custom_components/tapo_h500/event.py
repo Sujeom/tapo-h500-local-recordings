@@ -84,4 +84,18 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # the file, and the URL is good for 12 hours.
             "image": self._own_frame(start_time),
         })
+        # Also on the event bus, which is what the logbook can describe and
+        # what an automation can trigger on without naming an entity. The
+        # entity remains the primary surface; this carries the same facts.
+        self.hass.bus.async_fire(f"{DOMAIN}_event", {
+            "entity_id": self.entity_id,
+            # The camera's own alias, which the entity already holds. Reading
+            # it back off the device registry would be the same string by a
+            # longer route, and None before the registry has caught up.
+            "name": self.camera.get("alias") or "Camera",
+            "type": kind,
+            "detection_types": detection_types(entry),
+            "detection": describe_detection(entry),
+            "start_time": start_time,
+        })
         self.async_write_ha_state()

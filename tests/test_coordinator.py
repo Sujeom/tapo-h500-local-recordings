@@ -47,6 +47,11 @@ def _install_stubs():
         setattr(module, attr[0], attr[1])
         sys.modules[path] = module
 
+    core = sys.modules["homeassistant.core"]
+    core.callback = lambda fn: fn          # a no-op decorator here
+    core.Event = type("Event", (), {})
+    core.CALLBACK_TYPE = object
+
     dispatcher = types.ModuleType("homeassistant.helpers.dispatcher")
     dispatcher.sent = []
     dispatcher.async_dispatcher_send = lambda hass, signal, *a: (
