@@ -63,9 +63,10 @@ Three of these contradict assumptions the integration shipped with:
 - **`snapshot` v2 exists.** Thumbnails are currently ffmpeg frame extractions
   from downloaded clips.
 
-There is **no** `live`, `preview`, or `stream` module. Live view is likely not a
-hub module at all — plausibly camera-direct after a `preWakeUp`, or not exposed
-locally. Unproven either way.
+There is **no** `live`, `preview`, or `stream` module. That turned out not to
+matter: live view is not a hub *module* at all, it is a port-8800 media session
+like a download, and one is now known to open. See *Live view: the session
+opens*.
 
 ## The empty nonce
 
@@ -128,6 +129,112 @@ Two things worth keeping in mind:
   port-8800 probe has never validly tested, because the run where `preview`
   returned HTTP 401 had its `type=download` control return 401 too.
 
+### Live view: the session opens
+
+**Confirmed on firmware 1.3.20.** The shape came from pytapo's hub-child code
+path and was then verified against the hub. What is confirmed is that the hub
+*accepts* a live request and allocates a session; whether video frames follow
+is still open — see the end of this section.
+
+pytapo keeps a separate code path for a child device, taken whenever `childID`
+is set. `Tapo.getMediaSession(StreamType.Stream)` builds the query string:
+
+```python
+{"deviceId": childID, "playerId": playerID, "type": "video"}   # no media_type
+```
+
+and `Streamer._build_preview_payload()` sends a **`preview`** block:
+
+```json
+{"type":"request","seq":1,"params":{"method":"get","preview":{
+  "audio":["default"],"channels":[0],"resolutions":["HD"],"deviceId":"..."}}}
+```
+
+Three things follow, and each contradicts how live has been probed so far:
+
+- **The query type and the payload block name differ.** Live is query
+  `type=video` carrying a `preview` block. Every previous run varied both
+  together as one word, so this combination was never sent — which is why the
+  live attempts read as inconclusive rather than as negatives.
+- **No `media_type` on a live query.** The download query needs it; this one
+  does not.
+- **The child download type is `sdvod`, not `download`.** The H500 nonetheless
+  accepts `download`, which is the verified path, so this is noted only because
+  it shows the hub tolerates more than one spelling.
+
+#### What the hub actually answered
+
+| Query type | Payload block | Identity | Result |
+| --- | --- | --- | --- |
+| `video` | `preview` | `dev_id`+`mac` | `error_code: 0`, `session_id: "10"` |
+| `video` | `preview` | `deviceId` | `error_code: 0`, `session_id: "11"` |
+| `preview` | `preview` | `dev_id`+`mac` | `HTTP ERROR 401` |
+| *(any, after the 401)* | | | port 8800 refusing TCP |
+
+So **query `type=video` carrying a `preview` block is accepted**, and the hub
+allocates a live session for it. Two further things fall out:
+
+- **Identity does not matter.** Both conventions were accepted, so the hub
+  resolves the camera either way. The integration can keep using the inline
+  `dev_id` + `mac` form it already uses for downloads.
+- **The query type is what gets authenticated.** `type=preview` never reached
+  the payload — it failed at the HTTP layer with a 401, and port 8800 then
+  refused TCP, which is the documented wedge. Nothing but `type=video` should
+  ever be sent again; the other spellings cost a wedged hub to learn nothing.
+  `tools/probe_live.py` no longer offers them.
+
+#### The session opens, talks, and then sends no video
+
+Measured after fixing the probe — it used to return on the first non-video
+response, so it stopped at the success acknowledgement and reported an accepted
+session as a dead one, the same acknowledgement `iter_recording` has always
+looped straight past. With the read continuing:
+
+| Query type | Block | Result |
+| --- | --- | --- |
+| `video` | `preview` | opens, then `channel_lens_mask_info` notification, **no video in 90s** |
+| `video` | `video` | no response at all, times out |
+
+So `preview` is the right block — it is the only one the hub answers — and the
+hub is engaged, not ignoring us: after the `error_code: 0` acknowledgement it
+volunteers a real live-session notification,
+
+```json
+{"type":"notification","params":{"event_type":"channel_lens_mask_info",
+ "channels":0,"enabled":"off"}}
+```
+
+and then goes quiet. Ninety seconds is far past any plausible wake, so this is
+not a slow camera.
+
+Three explanations have been eliminated:
+
+- **Not the wake verb.** Every `preWakeUp` spelling returns `-40106` in the
+  *direct* form too — `{"method":"get","preWakeUp":{"name":"config"}}` and
+  variants, plus `pre_wake_up`, `wake_up`, `battery` and `power`. The earlier
+  negatives were all `multipleRequest` method names, so this closes the other
+  half of that question. There is no locally reachable wake.
+- **Not the channel.** The paired-camera records carry **no** `channel_id`
+  field at all, so both cameras are channel 0 and are told apart by `dev_id`.
+  `channels: [0]` is correct, which is also why downloads work for both.
+- **Not the identity convention.** Both were accepted.
+
+What remains is that a hub-attached battery TD21 does not appear to stream to a
+local client at all — the hub takes the session and the camera never wakes for
+it. Downloads work against a sleeping camera precisely because the hub serves
+them from its own disk and the camera is not involved.
+
+The next real evidence would be an app capture of the window between the
+acknowledgement and the first video frame: whatever the app sends there is the
+missing step, and port 8800 is raw AES rather than TLS, so it decrypts offline
+with pytapo's own crypto.
+
+Re-run with a held login — a fresh login per attempt is what wedges the hub,
+and check `probe_live.py --check` first if a 401 has just happened:
+
+    tools/h500_session.py --host <ip> &
+    tools/h500_session.py --live --camera 1
+
 ## Detections and AI classification
 
 The hub does not expose them. Tested on firmware 1.3.20:
@@ -146,6 +253,36 @@ The hub does not expose them. Tested on firmware 1.3.20:
 - Person, pet and vehicle config getters are camera-level, and a camera child
   cannot be addressed (see `controlChild` above).
 
+One thing worth ruling out before calling `searchDetectionList` dead. pytapo
+does not pass it UTC: `getEvents` shifts the window by a *clock correction*,
+
+    timeCorrection = host_now - hub["system"]["clock_status"]["seconds_from_1970"]
+
+and applies it to that call **and to nothing else** — the video searches get raw
+UTC, which is why `searchVideoWithUTC` works here while this one returns `{}`.
+So the two calls may simply not share a time base, and the integration passes
+both the same UTC window.
+
+**Measured, and it is not the answer.** `getTime` returns
+
+```json
+{"system": {"basic": {"timing_mode": "ntp", "epoch_sec": 1786585040}}}
+```
+
+which was **20 seconds** behind the host — the hub runs NTP and keeps good
+time. No offset of that size moves a seven-day window, so the time base is
+ruled out and `searchDetectionList` really does yield nothing here. The
+integration is right to pass UTC and right to disable the call after one
+rejection.
+
+A clock this accurate also means clip timestamps and the media browser's date
+folders can be trusted.
+
+`getTime` returns `system.basic.epoch_sec`, which is *not* the
+`system.clock_status.seconds_from_1970` that pytapo's `getTimeCorrection` looks
+for — but `getClockStatus` is a separate working method that returns exactly
+that, plus `local_time`. See *The method sweep, done properly*.
+
 The cameras report `ai_camera_support: 15` and `ai_hub_support: 15`, a bitmask
 for four AI features, so the classification happens on the device. The hub just
 never hands it to a local client.
@@ -153,6 +290,135 @@ never hands it to a local client.
 This is why the coordinator treats `searchDetectionList` as best-effort: it
 tries once, gets a non-list back, disables itself and polls the clip index
 instead.
+
+## The method sweep, done properly
+
+The earlier sweep sent `{}` for params, which gets the envelope rejected with
+`40210` before the method is ever evaluated — so it proved nothing, as noted
+above. pytapo carries the real param shape for every method it implements, so
+the sweep was redone with params the hub actually parses: 76 read methods plus
+55 direct-form namespace probes, over one held login.
+
+**28 methods answer.** The ones the integration did not already use:
+
+| Method | Params | Returns |
+| --- | --- | --- |
+| `getSirenConfig` | `{"siren":{}}` | `{"siren_type":"Doorbell Ring 5","volume":"8","duration":300}` |
+| `getSirenTypeList` | `{"siren":{}}` | 19 sounds: Doorbell Ring 1-10, Phone Ring, Dripping Tap, Alarm 1-5, Connection 1-2 |
+| `setSirenStatus` | `{"siren":{"status":"on"\|"off"}}` | accepted, `error_code 0` |
+| `setSirenConfig` | `{"siren":{"volume":"8",…}}` | accepted; volume **1-10**, 0 and 11 give `-40209` |
+| `getClockStatus` | `{"system":{"name":"clock_status"}}` | `seconds_from_1970` **and** `local_time` |
+| `getTimezone` | — | `{"zone_id":"America/New_York","timezone":"UTC-05:00"}` |
+| `getDstRule` | — | full DST rule |
+| `getReboot` | — | scheduled reboot: `{"enabled":"off","day":"0","time":"03:00:00"}` |
+| `getFirmwareAutoUpgradeConfig` | — | `{"enabled":"on","time":"03:00"}` |
+| `getDiagnoseMode` | — | `{"diagnose_mode":"off"}` |
+| `getDeviceInfo` | `{"device_info":{"name":["basic_info"]}}` | model, `sw_version`, hardware |
+
+Three methods are **present but want different params**: `getDayNightModeConfig`
+(`60805`), `getRecordPlan` (`-60305`), `getUserID` (`60705`). A non-`-40106`
+code means the method exists, so these are shapes worth revisiting.
+
+`getClockStatus` supersedes the note above about pytapo's `getTimeCorrection`:
+this hub *does* expose `system.clock_status.seconds_from_1970`, it is simply not
+what `getTime` returns.
+
+### Which setters the hub accepts
+
+Proven without changing anything: read the current value, write that exact
+value back, read again. `error_code 0` proves the setter exists and is
+accepted; the re-read proves nothing moved.
+
+| Setter | Params | Result |
+| --- | --- | --- |
+| `setLedStatus` | `{"led":{"config":{"enabled":"on"}}}` | accepted |
+| `setCircularRecordingConfig` | `{"harddisk_manage":{"harddisk":{"loop":"on"}}}` | accepted |
+| `setDiagnoseMode` | `{"system":{"sys":{"diagnose_mode":"off"}}}` | accepted |
+| `setFirmwareAutoUpgradeConfig` | `{"auto_upgrade":{"common":{…}}}` | accepted |
+| `setSirenStatus` | `{"siren":{"status":"off"}}` | accepted |
+| `setSirenConfig` | `{"siren":{"volume":"8"}}` | accepted; volume 1-10 |
+| `getCoverConfig` / `setRecordAudio` | — | getter absent, so not writable here |
+
+`setFirmwareAutoUpgradeConfig` replaces the whole `common` block, so a toggle
+must send back the `time` and `random_range` it is not changing or the schedule
+is wiped. `status.auto_upgrade_config` exists for exactly that and is tested.
+
+Three were **not** probed, on purpose. `setReboot` is in the probe's
+`NEVER_SEND` list and its params (`timing_reboot`) are ambiguous between
+scheduling a reboot and performing one; a wrong guess reboots the hub mid-write.
+`setMediaEncrypt` would break the download path that took the empty-nonce work
+to get right. `setTimezone` would shift every clip timestamp and the folder
+names derived from them.
+
+### The control surface is now fully mapped
+
+Re-run keeping every result and cross-referenced against pytapo's setter table:
+**every method that answers and has a setter is either exposed in the
+integration or excluded above.** There is no remaining reachable control.
+
+The 22 methods that answer: `getChildDeviceList`,
+`getChildDeviceComponentList`, `getCircularRecordingConfig`, `getClockStatus`,
+`getDeviceInfo`, `getDeviceIpAddress`, `getDiagnoseMode`, `getDstRule`,
+`getFirmwareAutoUpgradeConfig`, `getFirmwareUpdateStatus`, `getLedStatus`,
+`getMediaEncrypt`, `getReboot`, `getSdCardStatus`, `getSirenConfig`,
+`getSirenStatus`, `getSirenTypeList`, `getThirdAccount`, `getTimezone`,
+`searchDateWithVideo`, `searchDetectionList`, `searchVideoWithUTC`.
+
+Corrections to the earlier count, both from a sweep classifier that read a
+direct-form reply as a success: `getAudioConfig` is **absent** — its raw reply
+is `{"method":"get","error_code":-40106}` — so there is no speaker volume or
+record-audio control. And the five `msg_alarm` "hits" were namespace probes,
+not methods.
+
+Three getters answer with no setter worth having: `getDstRule` and
+`getThirdAccount` are read-only (the latter returns the cloud account's
+username and public key and should not be surfaced as an entity), and
+`getFirmwareUpdateStatus` is a status.
+
+Two methods exist but their feature does not:
+
+- `getRecordPlan` returns `-60305` and `getDayNightModeConfig` returns `60805`
+  **for every param shape tried**, including a bare name. A constant code
+  regardless of params is not a wrong-shape complaint, so there is no schedule
+  or night-vision control to find here.
+- Both are camera-level features, and this hub has no addressable camera child:
+  `getChildDeviceList` answers `{"start_index":0,"sum":0}`. **Zero children.**
+  That is the real reason `controlChild` returns `-50021` — the cameras live in
+  `general_camera_manage`, not in `childControl` at all.
+
+### The components that are advertised but unreachable
+
+`playbackDelete`, `snapshot`, `eventCenter` and `ringLog` all appear in
+`app_component_list`, and **none of them can be reached**. Every namespace was
+probed in the direct form that works for `app_component` and
+`general_camera_manage`, across five section spellings (`config`, `info`,
+`status`, `list`, and the namespace's own name):
+
+    playback_delete  snapshot  event_center  ring_log
+    hub_record  hub_playback  record_download  aov_storage  ring  event
+
+Every one returned `-40106`. pytapo has no delete-recording and no snapshot
+method at all to borrow a shape from, and the method-name route was already
+exhausted (`getRingLog`, `searchRingLog`, `getEventList`, `searchEventList`,
+`getSnapshotUrl`, `getSnapshotList` are all absent).
+
+`msg_alarm` is the one exception: it is a real namespace — it does not
+`-40106` — but every section returns `{}`, the same accepted-and-empty pattern
+as `searchDetectionList`.
+
+So the conclusions the integration shipped with stand, now for a much better
+reason than pytapo's silence:
+
+- **No per-clip hub deletion.** `playbackDelete` exists as a component and is
+  not addressable, so `delete_recording` removing the downloaded copy remains
+  correct.
+- **No hub snapshot.** Thumbnails stay ffmpeg frame extractions.
+- **No faster event source.** `eventCenter` and `ringLog` are unreachable, so
+  polling the clip index remains the only path.
+
+A delete verb was deliberately **not** brute-forced. Any probe specific enough
+to prove one exists is specific enough to erase a recording, and hub footage
+cannot be recovered.
 
 ## What has not worked
 
@@ -162,6 +428,30 @@ instead.
   returned exactly one hit (`harddisk_manage`). The space is too large to
   search blind.
 - `getWakeUpConfig`, `getComponentList` on the hub: genuine `-40106`.
+
+## Previews without downloading
+
+The `snapshot` component is unreachable, so there is no hub-side still image.
+There is a cheaper route to the same result: the download session takes a
+`start_time`/`end_time` window, so asking for the first couple of seconds and
+abandoning the stream yields enough MPEG-TS to decode one frame.
+
+Measured on firmware 1.3.20, camera index 1:
+
+| Window | Fetched | Elapsed | Result |
+| --- | --- | --- | --- |
+| 2s | 232,368 B | 2.2s | 640x360 JPEG, 27 KB |
+| 5s | 232,368 B | 4.0s | identical |
+
+Both stopped at the byte cap rather than the window, so the **byte bound is
+what actually binds** — which is why the integration bounds on both. For scale,
+a full 15-second clip is 3,398,852 bytes, so a preview costs roughly 7% of a
+download.
+
+Breaking out of `iter_recording` early is clean: closing the async generator
+raises `GeneratorExit` at the `yield`, which unwinds the `async with` for both
+the media session and the client lock. The `IncompleteRecordingError` at the end
+is never reached, so an abandoned preview does not surface as a failed download.
 
 ## Operational limits
 
@@ -181,7 +471,13 @@ entry, so the integration itself does not have this problem.
 
 ## Where to go next
 
-Blind probing has stopped paying. Two routes remain, in order of cost:
+Blind probing has stopped paying, but one targeted probe is now worth more than
+any amount of it:
+
+Blind probing is finished for live view. The verb is known — query `type=video`
+with a `preview` block opens a session — and the remaining gap is that the
+camera never streams into it, with no locally reachable wake to fix that. See
+*Live view: the session opens*. Two routes remain, in order of cost:
 
 1. **Firmware strings.** TP-Link publishes H500 firmware. `binwalk` plus
    `strings` over the extracted filesystem should yield the method and
