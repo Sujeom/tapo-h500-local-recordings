@@ -387,3 +387,33 @@ confirm: true
 
 **Destroys every recording on the hub.** `confirm: true` is required and there
 is no undo.
+
+## Options
+
+
+**Settings → Devices & services → Tapo H500 → Configure**
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| Seconds between activity checks | `2` | The whole notification delay — nothing arrives sooner than the next check. A check costs the hub about 40ms, so `1` is allowed. |
+| Download new recordings automatically | Every new recording | `Never`, `Doorbell presses only`, or `Every new recording`. |
+| Downloaded clips to keep per camera | `0` | `0` keeps everything. Any other number prunes the oldest automatic downloads. Manual downloads are never pruned. |
+| Convert downloads to MP4 | On | Off keeps the hub's original MPEG-TS. |
+
+## Media layout
+
+```
+<media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.mp4
+<media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.jpg
+```
+
+Names come from the clip's start time in Home Assistant's local timezone, so
+"is this already downloaded" is a path check rather than a stored index.
+
+## Security notes
+
+- Passwords are kept in the Home Assistant config entry.
+- Device IDs and MAC addresses are not returned by service actions.
+- Clip and thumbnail URLs handed to the dashboard are signed and expire after
+  12 hours; the media directory stays behind Home Assistant auth.
+- Do not expose TCP port `8800` to the internet.

@@ -183,22 +183,21 @@ behind each code, including the one that is still deliberately unnamed.
 
 ## Artwork
 
-`brand/` holds the icon and the header lockup, as SVG sources plus rendered PNGs
-(`icon.png` 512, `icon@2x.png` 1024, `logo.png`, `logo@2x.png`). Re-render after
-editing a source with:
+`brand/` holds the project's original icon and logo. The copies that Home
+Assistant actually serves live in `custom_components/tapo_h500/brand/`.
 
-```
-rsvg-convert -w 512 -h 512 brand/icon.svg -o brand/icon.png
-```
+Since Home Assistant 2026.3 a custom integration ships its own brand images
+from a `brand/` directory beside `manifest.json`, served through
+`/api/brands/integration/<domain>/<image>`, and local images take priority over
+the CDN. Nothing is declared in `manifest.json` -- the domain determines the
+path. The `custom_integrations/` folder in home-assistant/brands is now legacy
+and auto-closes pull requests pointing at it, so there is nothing to submit.
 
-**This does not change the icon Home Assistant shows for the integration.** That
-one is fetched from `brands.home-assistant.io`, and there is no entry for this
-domain — `https://brands.home-assistant.io/tapo_h500/icon.png` returns 404, so
-Home Assistant falls back to its own placeholder. The only way to change it is a
-pull request to [home-assistant/brands](https://github.com/home-assistant/brands)
-adding `custom_integrations/tapo_h500/` with `icon.png` (512x512) and
-`icon@2x.png` (1024x1024). The files in `brand/` are already those sizes.
+Sizes are fixed and a wrong one fails silently, so `tests/test_brand.py`
+asserts them: icons exactly 256x256 and 512x512; logos measured on their
+shortest side, 128-256 and 256-512.
 
-The header image above uses an absolute `raw.githubusercontent.com` URL rather
-than a relative path, because a relative `<img src>` resolves against whatever
-page is doing the rendering — it works on GitHub and breaks inside HACS.
+**HACS may still show a blank icon.** Its dashboard fetches from
+`data-v2.hacs.xyz`, which has no entry for integrations that only ship local
+brand assets. Home Assistant's own Integrations and device pages are unaffected.
+See hacs/integration issues #5171 and #5223.
