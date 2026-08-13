@@ -42,7 +42,8 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Notifications:** copy
   [`examples/notify-person-pet-doorbell.yaml`](examples/notify-person-pet-doorbell.yaml)
   and change the notify service. Fires only for a person, an animal or the
-  doorbell, and says which happened where.
+  doorbell, says which happened where, then replaces itself with the picture
+  once the hub has finished the recording.
 - **Cards:** add a card, search **Tapo**. All six have a visual editor.
 - **Clips:** **Media → Tapo H500**, by camera and date.
 - **Settings:** the integration's **Configure** page.

@@ -11,7 +11,9 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .clips import attach_detections, end_of, event_type, start_of
+from .clips import (
+    attach_detections, detection_types, end_of, event_type, start_of,
+)
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
     CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL, DEFAULT_AUTO_DOWNLOAD,
@@ -115,21 +117,46 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._primed = True
         return {"clips": clips_by_camera, "hub": self.readings}
 
-    def _fresh(self, index, entries, seen_map, window) -> list[dict]:
+    def _fresh(self, index, entries, seen_map, window,
+               revisions: bool = False) -> list[dict]:
+        """New detections, and detections the hub has since revised.
+
+        The hub revises an entry in place while an event unfolds: someone
+        approaches and the entry is motion and a person, then they press the
+        doorbell and the same entry -- same start time -- gains the doorbell
+        code. Keying only on the start time dropped that second version, so a
+        press that followed motion never raised a ring event at all. Polling
+        every 2s made this the normal case rather than a rare one; at 20s the
+        event was usually over before the first poll saw it.
+
+        So with revisions=True the key is the start time AND what fired. A
+        revision is a genuinely new fact and is announced; an unchanged entry
+        is still ignored however many times it is polled.
+
+        Downloads pass revisions=False and stay keyed on the start time alone.
+        A clip carries whatever detection was attached to it, so keying those
+        on the codes too would make a revised detection look like a new clip
+        and start the download again.
+        """
         seen = seen_map.setdefault(index, set())
         fresh = []
         for entry in entries:
             moment = start_of(entry)
-            if moment is None or moment in seen:
+            if moment is None:
                 continue
-            seen.add(moment)
+            key = (moment, tuple(detection_types(entry))) if revisions else (moment,)
+            if key in seen:
+                continue
+            seen.add(key)
             fresh.append((moment, entry))
         # Forget anything the poll window can no longer return.
-        seen_map[index] = {t for t in seen if t >= window - LOOKBACK_SECONDS}
-        return [entry for _, entry in sorted(fresh)]
+        seen_map[index] = {
+            k for k in seen if k[0] >= window - LOOKBACK_SECONDS}
+        return [entry for _, entry in sorted(fresh, key=lambda pair: pair[0])]
 
     def _fire(self, index, entries, seen_map, window) -> None:
-        for entry in self._fresh(index, entries, seen_map, window):
+        for entry in self._fresh(index, entries, seen_map, window,
+                                 revisions=True):
             if not self._primed:
                 continue
             async_dispatcher_send(

@@ -117,9 +117,11 @@ class _Client:
         self.calls.append("recent")
         return []
 
+    next_detections: list = []
+
     def detections(self, camera, start, end):
         self.calls.append("detections")
-        return []
+        return list(self.next_detections)
 
     def hub_status(self):
         self.calls.append("hub_status")
@@ -175,6 +177,58 @@ class PollOrdering(unittest.TestCase):
         client.hub_status = boom
         result = asyncio.run(coord._async_update_data())
         self.assertIn("clips", result)
+
+
+class RevisedDetections(unittest.TestCase):
+    """The hub rewrites an entry in place while an event is still happening."""
+
+    @staticmethod
+    def _events(coord, client, sequence):
+        """Run one poll per detection-list in sequence; return codes announced."""
+        DISPATCHER.sent.clear()
+        fired = []
+        for detections in sequence:
+            client.next_detections = detections
+            asyncio.run(coord._async_update_data())
+            for signal, args in DISPATCHER.sent:
+                if "event" in signal:
+                    fired.append(tuple(args[1].get("events_1_codes", ())))
+            DISPATCHER.sent.clear()
+        return fired
+
+    def test_a_press_after_motion_still_raises_an_event(self):
+        """The reported bug. Someone walks up (motion, person), then presses
+        the doorbell and the SAME entry gains code 17. Keyed on start time
+        alone the press was dropped and no ring ever reached the phone.
+        """
+        coord, client = _build()
+        coord._primed = True
+        # Inside the poll window, or `seen` discards it before the next poll.
+        at = 1_786_600_000 - 10
+        approach = [{"start_time": at, "events_1": 0b100010}]        # 2, 6
+        press = [{"start_time": at, "events_1": 0b1_0000_0010_0010}]  # 2, 6, 17
+        fired = self._events(coord, client, [approach, press])
+        self.assertEqual(len(fired), 2, "the revised entry was dropped")
+
+    def test_an_unchanged_entry_is_not_announced_twice(self):
+        """Polling every 2s sees the same entry many times over."""
+        coord, client = _build()
+        coord._primed = True
+        same = [{"start_time": 1_786_600_000 - 10, "events_1": 0b100010}]
+        fired = self._events(coord, client, [same, same, same, same])
+        self.assertEqual(len(fired), 1)
+
+    def test_downloads_are_not_restarted_by_a_revision(self):
+        """Clips stay keyed on start time; a revised detection attached to a
+        clip must not make it look like a new clip."""
+        coord, client = _build()
+        coord._primed = True
+        clip = {"startTime": 1000, "endTime": 1015}
+        first = coord._fresh(0, [dict(clip, events_1=0b10)], coord._seen_clips, 0)
+        second = coord._fresh(0, [dict(clip, events_1=0b1_0000_0010_0010)],
+                              coord._seen_clips, 0)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [], "a revision restarted the download")
 
 
 class CameraList(unittest.TestCase):

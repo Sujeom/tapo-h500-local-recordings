@@ -46,6 +46,12 @@ actions:
            | replace('_activity', '') }}
       # "Front Doorbell Activity" -> "Front Doorbell"
       where: "{{ trigger.to_state.name | replace(' Activity', '') }}"
+      # event.front_doorbell_activity -> sensor.front_doorbell_last_activity
+      activity: >-
+        {{ trigger.entity_id | replace('event.', 'sensor.')
+           | replace('_activity', '_last_activity') }}
+      # This event's own timestamp, to compare against that sensor.
+      moment: "{{ trigger.to_state.state | as_timestamp | int }}"
       when: >-
         {{ (trigger.to_state.state | as_datetime | as_local)
            .strftime('%-I:%M %p') }}
@@ -68,6 +74,15 @@ actions:
           {{ ns.parts | join }}
         {%- endif -%}
 
+  # Sent twice on purpose, and the second replaces the first.
+  #
+  # At this moment no picture of THIS event exists anywhere. The hub only
+  # indexes a recording once it has finished, the integration downloads it
+  # after that, and the camera entity serves the newest thumbnail on disk --
+  # which is still the PREVIOUS event. Attaching it here is how the wrong
+  # photo ends up on the phone. So the first notification carries no image
+  # and arrives immediately; the second carries the real frame and, sharing
+  # the same tag, takes its place rather than adding a second alert.
   - action: notify.mobile_app_phone      # <- your notify service
     data:
       # Headline: the single most important thing, and which camera. Most
@@ -85,10 +100,6 @@ actions:
       # Body: everything else that fired, and when.
       message: "Saw {{ seen }}, {{ when }}"
       data:
-        # The camera entity serves the newest event's own frame, so the
-        # notification arrives with the picture rather than only a description.
-        # Tap the picture itself to enlarge it.
-        image: /api/camera_proxy/{{ camera }}
         tag: tapo-h500-{{ camera }}      # a new alert replaces the old one
 
         # Tapping the notification body opens that camera's own dialog, with
@@ -105,6 +116,37 @@ actions:
         # it, so a direct video URL would be dead on arrival. Recordings opens
         # the media browser, where the clip appears once it lands -- usually
         # within a minute. The Tapo H500 cards are the other way in.
+        actions:
+          - action: URI
+            title: Camera
+            uri: /lovelace/0?more-info-entity-id={{ camera }}
+          - action: URI
+            title: Recordings
+            uri: /media-browser/local/tapo_h500
+
+  # Wait for this event's own clip to be indexed. last_activity holds the start
+  # time of the newest recording, so it passing the event's own timestamp is
+  # what says "the clip for this is in". Give up rather than send a stale photo.
+  - wait_template: >-
+      {{ as_timestamp(states(activity), 0) | int >= moment }}
+    timeout: "00:03:00"
+    continue_on_timeout: false
+  # Indexed is not yet downloaded, and the thumbnail is written by the
+  # download. A short pause covers the gap; the wait above did the real work.
+  - delay: "00:00:08"
+  - action: notify.mobile_app_phone      # <- same service as above
+    data:
+      title: >-
+        {% if 17 in codes %}Someone rang the {{ where }}
+        {% elif 6 in codes %}Person at {{ where }}
+        {% else %}Animal at {{ where }}{% endif %}
+      message: "Saw {{ seen }}, {{ when }}"
+      data:
+        # Now this is genuinely the frame from the event that triggered it.
+        image: /api/camera_proxy/{{ camera }}
+        tag: tapo-h500-{{ camera }}      # same tag: replaces, never duplicates
+        clickAction: /lovelace/0?more-info-entity-id={{ camera }}
+        url: /lovelace/0?more-info-entity-id={{ camera }}
         actions:
           - action: URI
             title: Camera
