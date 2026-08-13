@@ -846,7 +846,15 @@ class TapoH500SummaryCard extends H500Base {
       <div class="muted total">${total} event${total === 1 ? "" : "s"} over
         ${Number(this._config.days)} day${this._config.days === 1 ? "" : "s"}${
         peak > 0 ? `, busiest around ${pad(busiest)}:00` : ""}</div>
-      ${this._showTable ? this._table(hours) : this._chart(hours)}
+      ${this._showTable
+        // 24 rows and a header are far taller than the chart this card is
+        // sized for. Unwrapped, the table pushed itself past the card's
+        // height -- over whatever sat below it -- and carried the button
+        // that switches back out of view with it, so the view could not be
+        // undone. .scroll makes it the flex child that gives way, which
+        // keeps the button on screen and the overflow inside the card.
+        ? `<div class="scroll">${this._table(hours)}</div>`
+        : this._chart(hours)}
       <button data-action="view">${this._showTable ? "Chart" : "Table"}</button>`;
   }
 }
@@ -1014,13 +1022,21 @@ class TapoH500FaceSummaryCard extends H500Base {
          this card: <code>${esc(unnamed[0].id)}: Alice</code></div>`
       : "";
     // The chart has a table twin, so no value is available only on hover.
+    //
+    // Chart, table and hint stacked together are taller than the card is
+    // sized for as soon as there are a few faces, and the same unbounded
+    // stack is what pushed the summary card over its neighbours. The scroll
+    // wrapper is the flex child that gives way, so the overflow stays inside
+    // this card however many faces the hub has seen.
     return `
       <div class="total muted">${this._faces.length} face${
         this._faces.length === 1 ? "" : "s"}, ${total} sighting${
         total === 1 ? "" : "s"}</div>
-      ${this._chart(this._faces)}
-      ${this._table(this._faces)}
-      ${hint}`;
+      <div class="scroll">
+        ${this._chart(this._faces)}
+        ${this._table(this._faces)}
+        ${hint}
+      </div>`;
   }
 }
 

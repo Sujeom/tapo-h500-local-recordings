@@ -519,6 +519,53 @@ test("the face summary is offered a names map and no scroll box", () => {
   assert.ok(!fields.includes("max_height"), "a chart has no scrolling list");
 });
 
+test("the summary table scrolls inside the card instead of over its neighbours", () => {
+  // 24 rows and a header are far taller than the chart the card is sized for.
+  // Unwrapped it grew past the card, covered whatever sat below, and took the
+  // button that switches back off screen with it.
+  const card = build(TapoH500SummaryCard, { days: 7 });
+  card._showTable = true;
+  const html = card.body();
+  const table = html.indexOf("<table>");
+  const wrap = html.lastIndexOf('<div class="scroll">', table);
+  assert.ok(wrap !== -1, "the table is not inside a scroll container");
+});
+
+test("the summary keeps its switch-back button reachable in table view", () => {
+  const card = build(TapoH500SummaryCard, { days: 7 });
+  card._showTable = true;
+  const html = card.body();
+  // The button must exist AND sit outside the scrolling area, or it scrolls
+  // away with the rows it is meant to escape.
+  assert.ok(html.includes('data-action="view"'), "no way back to the chart");
+  // Take the scroll box's own contents -- from its opening tag to the next
+  // closing div, since the table it holds contains no divs -- and require the
+  // button to be outside it. Inside, it scrolls away with the rows it exists
+  // to escape.
+  const open = html.indexOf('<div class="scroll">');
+  const inside = html.slice(open, html.indexOf("</div>", open));
+  assert.ok(!inside.includes('data-action="view"'),
+            "the button is inside the scroll box and will scroll out of reach");
+  assert.match(html, /Chart<\/button>/);
+});
+
+test("the chart view is not wrapped in a scroll box", () => {
+  // It is a fixed-ratio SVG that already fits; a scroll box would only add a
+  // stray scrollbar.
+  const card = build(TapoH500SummaryCard, { days: 7 });
+  card._showTable = false;
+  assert.ok(!card.body().includes('<div class="scroll">'));
+});
+
+test("the face summary scrolls rather than growing without limit", () => {
+  const card = build(TapoH500FaceSummaryCard, {});
+  card._recordings = Array.from({ length: 12 }, (_, i) => (
+    { start_time: 1000 + i, face_ids: [i] }));
+  const html = card.body();
+  assert.ok(html.includes('<div class="scroll">'),
+            "12 faces of chart plus table would overflow the card");
+});
+
 test("every card type is registered exactly once", () => {
   const types = ["tapo-h500-card", "tapo-h500-hero-card", "tapo-h500-grid-card",
                  "tapo-h500-timeline-card", "tapo-h500-faces-card",
