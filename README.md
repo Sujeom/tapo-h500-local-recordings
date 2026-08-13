@@ -39,11 +39,14 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 
 ## Then what
 
-- **Notifications:** copy
-  [`examples/notify-person-pet-doorbell.yaml`](examples/notify-person-pet-doorbell.yaml)
-  and change the notify service. Fires only for a person, an animal or the
-  doorbell, says which happened where, then replaces itself with the picture
-  once the hub has finished the recording.
+- **Notifications:** import the
+  [blueprint](blueprints/automation/tapo_h500/notify_on_detection.yaml) —
+  **Settings → Automations → Blueprints → Import**, then paste its URL. Pick
+  your cameras, your notify service, and which detections matter. It says what
+  happened and where, then replaces itself with that event's photograph once
+  the hub has finished recording. A plain YAML version is in
+  [`examples/`](examples/notify-person-pet-doorbell.yaml) if you would rather
+  edit it directly.
 - **Automations:** the doorbells appear under **Device** triggers — *When a
   person is detected*, *was rung*, *saw an unfamiliar face* — so no templates
   are needed.
