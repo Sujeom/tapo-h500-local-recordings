@@ -17,12 +17,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .clips import detection_types, unusually_busy
 from .const import (
-    DATA_HUBS, DETECTION_HOLD, DETECTION_NAMES, DOMAIN, LOOKBACK_SECONDS,
-    UNUSUAL_FLOOR, UNUSUAL_MULTIPLIER,
+    DATA_HUBS, DETECTION_HOLD, DETECTION_NAMES, DOMAIN, FACE_PRESENCE_WINDOW,
+    LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED, UNUSUAL_FLOOR, UNUSUAL_MULTIPLIER,
 )
 from .coordinator import H500Coordinator
 from .entity import H500Entity
 from .sensor import hub_device
+
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -101,6 +102,25 @@ async def async_setup_entry(
         for code in DETECTION_NAMES
     ]
     async_add_entities(entities)
+
+    # One per named face, added as names appear rather than on a reload, the
+    # same way the face sensors are.
+    added: set[str] = set()
+
+    @callback
+    def _sync_faces() -> None:
+        fresh = [face_id for face_id in sorted(coordinator.face_names)
+                 if face_id not in added]
+        if not fresh:
+            return
+        added.update(fresh)
+        async_add_entities(
+            H500FaceSeenRecently(coordinator, entry, face_id)
+            for face_id in fresh)
+
+    _sync_faces()
+    entry.async_on_unload(async_dispatcher_connect(
+        hass, f"{SIGNAL_FACES_CHANGED}_{entry.entry_id}", _sync_faces))
 
 
 class H500HubFlag(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
@@ -232,3 +252,40 @@ class H500UnusualActivity(H500Entity, BinarySensorEntity):
             "typical_per_hour": round(
                 hourly_baseline(clips, now, LOOKBACK_SECONDS), 2),
         }
+
+
+class H500FaceSeenRecently(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
+    """Whether this person was seen in the last few minutes.
+
+    Named "seen recently" rather than "home", and deliberately not a
+    device_tracker, because the honest claim is much weaker than presence. A
+    camera watches a doorstep, not a house: someone indoors is invisible to
+    it, and so is someone who left through a door with no camera on it. Off
+    means "not seen", which is not the same as "away", and building an
+    occupancy automation on it would be building on a guess.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "face_present"
+
+    def __init__(self, coordinator, entry, face_id: str) -> None:
+        super().__init__(coordinator)
+        self.face_id = str(face_id)
+        self._attr_unique_id = f"{entry.entry_id}_face_{self.face_id}_recent"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    @property
+    def name(self) -> str:
+        who = self.coordinator.face_names.get(self.face_id) \
+            or f"Face {self.face_id}"
+        return f"{who} seen recently"
+
+    @property
+    def is_on(self) -> bool:
+        from homeassistant.util import dt as dt_util
+        face = self.coordinator.faces_seen().get(self.face_id) or {}
+        last = face.get("last_seen")
+        if last is None:
+            return False
+        now = int(dt_util.utcnow().timestamp())
+        return (now - last) <= FACE_PRESENCE_WINDOW

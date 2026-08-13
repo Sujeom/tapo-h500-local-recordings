@@ -16,7 +16,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .clips import events_since
+from .clips import (
+    busiest_hour, events_since, unique_faces, unknown_face_count,
+)
 from .const import DATA_HUBS, DOMAIN, SIGNAL_FACES_CHANGED
 from .coordinator import H500Coordinator
 from .entity import H500Entity
@@ -96,6 +98,17 @@ HUB_SENSORS: tuple[HubSensor, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda r: r.get("custom_sounds"),
     ),
+    # Health, so a hub that is quietly struggling is visible before it stops.
+    # Assembled from readings already collected rather than new calls.
+    HubSensor(
+        key="hub_health", translation_key="hub_health",
+        value=lambda r: (
+            "unreachable" if not r else
+            "storage full" if (r.get("storage_used_percent") or 0) >= 99 else
+            "storage failing" if r.get("storage_healthy") is False else
+            "clock drifted" if abs(r.get("clock_offset") or 0) > 60 else
+            "ok"),
+    ),
     HubSensor(
         key="ip_address", translation_key="ip_address",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -123,6 +136,25 @@ CAMERA_SENSORS: tuple[CameraSensor, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="recordings",
         value=lambda c, i, cam: len(c.clips_for(i)),
+    ),
+    # Statistics, all with a state class so the recorder keeps them for the
+    # long-term graphs. They are computed from the polled window rather than
+    # stored: the window is a day, and anything longer is the recorder's job.
+    CameraSensor(
+        key="busiest_hour", translation_key="busiest_hour",
+        value=lambda c, i, cam: busiest_hour(c.clips_for(i)),
+    ),
+    CameraSensor(
+        key="people_seen", translation_key="people_seen",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="people",
+        value=lambda c, i, cam: unique_faces(c.clips_for(i)),
+    ),
+    CameraSensor(
+        key="unknown_faces", translation_key="unknown_faces",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="recordings",
+        value=lambda c, i, cam: unknown_face_count(c.clips_for(i)),
     ),
     CameraSensor(
         key="ai_enhance", translation_key="ai_enhance",

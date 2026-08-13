@@ -188,6 +188,31 @@ class Tracking(unittest.TestCase):
                       SENSOR)
 
 
+class SeenRecently(unittest.TestCase):
+    """Presence, framed honestly: a camera watches a doorstep, not a house."""
+
+    def test_it_is_not_a_device_tracker(self):
+        """Off means "not seen", which is not "away". Modelling it as presence
+        would invite occupancy automations built on a guess."""
+        BS = (COMPONENT / "binary_sensor.py").read_text()
+        self.assertIn("class H500FaceSeenRecently", BS)
+        self.assertNotIn("device_tracker", BS)
+
+    def test_its_name_says_what_it_means(self):
+        BS = (COMPONENT / "binary_sensor.py").read_text()
+        self.assertIn('return f"{who} seen recently"', BS)
+
+    def test_never_seen_is_off_not_unknown(self):
+        BS = (COMPONENT / "binary_sensor.py").read_text()
+        body = BS.split("class H500FaceSeenRecently", 1)[1]
+        self.assertIn("if last is None:\n            return False", body)
+
+    def test_the_window_is_minutes(self):
+        const_mod = importlib.import_module("tapo_h500.const")
+        self.assertLessEqual(const_mod.FACE_PRESENCE_WINDOW, 3600)
+        self.assertGreaterEqual(const_mod.FACE_PRESENCE_WINDOW, 60)
+
+
 class NamingDoesNotReload(unittest.TestCase):
     """The reported crash: the card asked for a name, the integration reloaded
     underneath it, and the next request found no coordinator."""

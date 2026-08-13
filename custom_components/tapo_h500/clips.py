@@ -325,3 +325,35 @@ def notable(entry: dict, hour: int, start: int, end: int) -> bool:
     widening it is how a signal becomes noise and gets muted.
     """
     return 22 in detection_types(entry) and in_night(hour, start, end)
+
+
+def busiest_hour(clips: list[dict]) -> int | None:
+    """The local hour with the most recordings, or None if there are none.
+
+    Ties go to the earlier hour. Deliberately: a quiet camera has many hours
+    holding one event each, and picking the latest would make the answer jump
+    around as the day filled up.
+    """
+    hours = [0] * 24
+    for clip in clips:
+        moment = start_of(clip)
+        if moment is None:
+            continue
+        hours[_local_hour(moment)] += 1
+    peak = max(hours)
+    return hours.index(peak) if peak else None
+
+
+def _local_hour(moment: int) -> int:
+    from homeassistant.util import dt as dt_util
+    return dt_util.as_local(dt_util.utc_from_timestamp(moment)).hour
+
+
+def unique_faces(clips: list[dict]) -> int:
+    """How many distinct people the hub recognised, named or not."""
+    return len({face for clip in clips for face in face_ids(clip)})
+
+
+def unknown_face_count(clips: list[dict]) -> int:
+    """Recordings carrying a face the hub could not match to anyone."""
+    return sum(1 for clip in clips if 22 in detection_types(clip))

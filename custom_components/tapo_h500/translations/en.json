@@ -133,6 +133,18 @@
       },
       "recordings_1h": {
         "name": "Recordings in the last hour"
+      },
+      "busiest_hour": {
+        "name": "Busiest hour"
+      },
+      "people_seen": {
+        "name": "People seen"
+      },
+      "unknown_faces": {
+        "name": "Unfamiliar face recordings"
+      },
+      "hub_health": {
+        "name": "Health"
       }
     },
     "binary_sensor": {
@@ -183,6 +195,9 @@
       },
       "unusual_activity": {
         "name": "Unusual activity"
+      },
+      "face_present": {
+        "name": "Seen recently"
       }
     },
     "siren": {

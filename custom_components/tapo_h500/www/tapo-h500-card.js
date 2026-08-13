@@ -104,6 +104,33 @@ export const facesByCount = (items, names = {}) =>
     || String(a.name ?? "").localeCompare(String(b.name ?? ""))
     || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
 
+/** Recordings grouped by who is in them, most recently seen first.
+ *
+ * The other cards group by camera and by time, which answers "what happened"
+ * but never "when was Alice last here". Clips with nobody recognised in them
+ * are left out rather than lumped into an "unknown" pile: that pile would be
+ * most of them, and it is what every other card already shows.
+ */
+export const groupByPerson = (items, names = {}) => {
+  const people = new Map();
+  for (const item of items) {
+    for (const id of item.face_ids || []) {
+      const key = String(id);
+      if (!people.has(key)) {
+        people.set(key, { id: key, name: names[key], items: [] });
+      }
+      people.get(key).items.push(item);
+    }
+  }
+  return [...people.values()].sort((a, b) => {
+    // Named people first -- they are the ones worth scanning for -- then by
+    // how recently each was seen.
+    const named = Boolean(b.name) - Boolean(a.name);
+    if (named) return named;
+    return (b.items[0]?.start_time || 0) - (a.items[0]?.start_time || 0);
+  });
+};
+
 /** 24 counts, one per hour of the local day. */
 export const eventsByHour = (items) => {
   const hours = new Array(24).fill(0);
@@ -174,8 +201,8 @@ const LABELS = {
 export const editorSchema = (type) => {
   const scrolls = !["tapo-h500-hero-card", "tapo-h500-summary-card",
                     "tapo-h500-face-summary-card"].includes(type);
-  const faces = ["tapo-h500-faces-card",
-                 "tapo-h500-face-summary-card"].includes(type);
+  const faces = ["tapo-h500-faces-card", "tapo-h500-face-summary-card",
+                 "tapo-h500-people-card"].includes(type);
   return [FIELD.days, FIELD.camera_index,
           ...(scrolls ? [FIELD.max_height] : []),
           ...(faces ? [FIELD.names] : []), FIELD.entry_id];
@@ -1083,6 +1110,64 @@ class TapoH500FaceSummaryCard extends H500Base {
   }
 }
 
+class TapoH500PeopleCard extends H500Base {
+  static grid = { rows: 6, min_rows: 3, columns: 12, min_columns: 4 };
+  static defaults = { days: 7, max_height: 0 };
+  static style = `
+    .person { margin-bottom: 12px; }
+    .who { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+    .who .label { font-size: 1rem; color: var(--primary-text-color); }
+    .who .label.unnamed { font-family: monospace; font-size: 0.85rem;
+                          color: var(--secondary-text-color); }
+    .strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+    .strip button { flex: 0 0 auto; padding: 0; border-radius: 6px;
+      overflow: hidden; line-height: 0; background: var(--secondary-background-color); }
+    .strip img, .strip .blank { width: 96px; aspect-ratio: 16 / 9;
+      object-fit: cover; display: block; }
+    .stamp { display: block; padding: 2px 4px; line-height: 1.2;
+             font-size: 0.72rem; color: var(--secondary-text-color); }
+  `;
+
+  getCardSize() {
+    return 3 + (this._people || []).length * 2;
+  }
+
+  body() {
+    this._people = groupByPerson(this._recordings,
+      faceNames(this._sharedNames, this._config.names));
+    if (!this._people.length) {
+      return `<div class="muted">Nobody has been recognised in this period.
+        Clips with no face in them are on the other cards.</div>`;
+    }
+    const playing = this._recordings.find((item) => this._isPlaying(item));
+    const rows = this._people.map((person) => {
+      const named = person.name !== undefined && person.name !== null;
+      const strip = person.items.map((item) => `
+        <button data-action="play" data-start="${item.start_time}"
+          ${item.downloaded ? "" : "disabled"}>
+          ${this._image(item)}
+          <span class="stamp">${esc(ago(item.start_time))}</span>
+        </button>`).join("");
+      return `
+        <div class="person">
+          <div class="who">
+            <span class="label${named ? "" : " unnamed"}">${
+              esc(named ? person.name : `Face ${person.id}`)}</span>
+            <span class="muted">${person.items.length} recording${
+              person.items.length === 1 ? "" : "s"}</span>
+            <button data-action="name" data-face="${esc(person.id)}"
+              data-name="${esc(named ? person.name : "")}"
+              >${named ? "Rename" : "Name"}</button>
+          </div>
+          <div class="strip">${strip}</div>
+        </div>`;
+    }).join("");
+    return `
+      <div class="scroll"${this._maxHeight()}>${rows}</div>
+      ${playing ? this._player(playing) : ""}`;
+  }
+}
+
 // Defined only once each. The same file can legitimately be loaded more than
 // once -- the integration registers a dashboard resource, a user may have added
 // another by hand, and differing URLs count as separate modules. A second
@@ -1106,10 +1191,12 @@ register("tapo-h500-faces-card", TapoH500FacesCard, "Tapo H500 Faces",
   "Who the hub has recognised, with the names it will not supply itself.");
 register("tapo-h500-summary-card", TapoH500SummaryCard, "Tapo H500 Summary",
   "Events by hour of day, as a bar chart.");
+register("tapo-h500-people-card", TapoH500PeopleCard, "Tapo H500 People",
+  "Recordings grouped by who is in them.");
 register("tapo-h500-face-summary-card", TapoH500FaceSummaryCard,
   "Tapo H500 Face Summary",
   "How often each face was seen, as a bar chart.");
 
 export { H500Base, TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
          TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard,
-         TapoH500FaceSummaryCard };
+         TapoH500FaceSummaryCard, TapoH500PeopleCard };

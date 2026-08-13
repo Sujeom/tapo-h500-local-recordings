@@ -30,11 +30,12 @@ globalThis.document = { createElement: (tag) => ({ tagName: tag, addEventListene
 globalThis.CustomEvent = class { constructor(type, opts) { this.type = type; Object.assign(this, opts); } };
 
 const mod = await import("../custom_components/tapo_h500/www/tapo-h500-card.js");
-const { esc, ago, groupByHour, groupByFace, facesByCount, faceNames, eventsByHour, niceMax,
+const { esc, ago, groupByHour, groupByFace, facesByCount, faceNames,
+        groupByPerson, eventsByHour, niceMax,
         editorSchema, mergeConfig, utcDay,
         windowDates, TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
         TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard,
-        TapoH500FaceSummaryCard } = mod;
+        TapoH500FaceSummaryCard, TapoH500PeopleCard } = mod;
 
 let failures = 0;
 // Async tests are collected and awaited before the summary. Calling fn()
@@ -676,10 +677,52 @@ test("an empty answer clears the name deliberately", async () => {
   assert.equal(calls[0][1].name, "");
 });
 
+test("recordings group by who is in them", () => {
+  const items = [{ start_time: 30, face_ids: [7] },
+                 { start_time: 20, face_ids: [7, 9] }];
+  const people = groupByPerson(items, { 7: "Alice" });
+  assert.equal(people.length, 2);
+  assert.equal(people[0].name, "Alice");
+  assert.equal(people[0].items.length, 2);
+});
+
+test("clips with nobody recognised are left out", () => {
+  // That pile would be most of them, and every other card already shows it.
+  assert.deepEqual(groupByPerson([{ start_time: 10, face_ids: [] }]), []);
+});
+
+test("named people sort ahead of numbered ones", () => {
+  const items = [{ start_time: 90, face_ids: [9] },
+                 { start_time: 10, face_ids: [7] }];
+  const people = groupByPerson(items, { 7: "Alice" });
+  assert.equal(people[0].name, "Alice", "a name is what you scan for");
+});
+
+test("the people card renders and offers naming", () => {
+  const card = build(TapoH500PeopleCard, {});
+  card._recordings = [{ start_time: 10, face_ids: [7], downloaded: true }];
+  const html = card.body();
+  assert.match(html, /data-action="name"/);
+  assert.match(html, /Face 7/);
+});
+
+test("nobody recognised is a message, not an empty card", () => {
+  const card = build(TapoH500PeopleCard, {});
+  card._recordings = [{ start_time: 10, face_ids: [] }];
+  assert.match(card.body(), /Nobody has been recognised/);
+});
+
+test("a hostile name cannot break out of the people card", () => {
+  const card = build(TapoH500PeopleCard, { names: { 7: "<script>x</script>" } });
+  card._recordings = [{ start_time: 10, face_ids: [7], downloaded: true }];
+  assert.ok(!card.body().includes("<script>"));
+});
+
 test("every card type is registered exactly once", () => {
   const types = ["tapo-h500-card", "tapo-h500-hero-card", "tapo-h500-grid-card",
                  "tapo-h500-timeline-card", "tapo-h500-faces-card",
-                 "tapo-h500-summary-card", "tapo-h500-face-summary-card"];
+                 "tapo-h500-summary-card", "tapo-h500-face-summary-card",
+                 "tapo-h500-people-card"];
   for (const type of types) assert.ok(customElements.get(type), `${type} missing`);
   assert.equal(globalThis.window.customCards.length, types.length);
 });

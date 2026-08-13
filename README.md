@@ -85,7 +85,10 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Automations:** the doorbells appear under **Device** triggers — *When a
   person is detected*, *was rung*, *saw an unfamiliar face* — so no templates
   are needed.
-- **Cards:** add a card, search **Tapo**. All seven have a visual editor.
+- **Cards:** add a card, search **Tapo**. All eight have a visual editor,
+  including one grouped by person rather than by camera.
+- **Statistics:** busiest hour, people seen and unfamiliar-face counts per
+  camera, plus a hub health sensor — all recorded for long-term graphs.
 - **Clips:** **Media → Tapo H500**, by camera and date.
 - **Settings:** the integration's **Configure** page.
 

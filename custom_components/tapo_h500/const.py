@@ -249,6 +249,14 @@ SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
 # update, and an uncapped one would grow with the poll window.
 FACE_TRAIL_MAX = 20
 
+# How recently someone must have been seen to count as "here".
+#
+# Weaker than it sounds and named accordingly: not being seen is not evidence
+# of absence. A camera watches a doorstep, not a house, so someone indoors is
+# invisible to it. This answers "was seen just now", which is true or false,
+# rather than "is home", which this hardware cannot know.
+FACE_PRESENCE_WINDOW = 600
+
 # How many times an unnamed face must be seen before the integration suggests
 # naming them.
 #
