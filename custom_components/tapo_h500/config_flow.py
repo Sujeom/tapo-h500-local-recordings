@@ -13,7 +13,7 @@ from .media import clip_path, signed_url
 from .const import (
     AUTO_DOWNLOAD_MODES, CONF_AUTO_DOWNLOAD, CONF_CLOUD_PASSWORD, CONF_FACE_NAMES,
     DATA_HUBS,
-    CONF_CONVERT_MP4, CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS,
+    CONF_CAMERA_ORDER, CONF_CONVERT_MP4, CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS,
     CONF_POLL_INTERVAL,
     DEFAULT_AUTO_DOWNLOAD, DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     DEFAULT_KEEP_RINGS,
@@ -93,8 +93,8 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
     """Two screens: how the integration behaves, and who the faces are."""
 
     async def async_step_init(self, user_input=None):
-        return self.async_show_menu(step_id="init",
-                                    menu_options=["settings", "faces"])
+        return self.async_show_menu(
+            step_id="init", menu_options=["settings", "faces", "layout"])
 
     def _merged(self, user_input: dict) -> dict:
         """Options are replaced wholesale on save, so anything the current form
@@ -198,6 +198,36 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             # anything that resolves it against the origin, so offer it rather
             # than nothing.
             return signed
+
+    async def async_step_layout(self, user_input=None):
+        """Say where each camera sits between the street and the door.
+
+        This is the one thing the integration cannot work out for itself. The
+        hub reports no geometry, and the order cameras appear in the paired
+        list is the order they were added, which means nothing. Without it a
+        trail is a list of places; with it, the same trail says whether
+        someone is walking towards the door or away from it.
+        """
+        ranks = dict(self.config_entry.options.get(CONF_CAMERA_ORDER) or {})
+        if user_input is not None:
+            keep = {name: int(value) for name, value in user_input.items()
+                    if value is not None}
+            return self.async_create_entry(
+                data={**self.config_entry.options, CONF_CAMERA_ORDER: keep})
+
+        coordinator = self.hass.data[DOMAIN][DATA_HUBS][self.config_entry.entry_id]
+        names = [camera.get("alias") for camera in coordinator.cameras
+                 if camera.get("alias")]
+        if len(names) < 2:
+            # Direction needs two places to be between.
+            return self.async_abort(reason="one_camera")
+
+        schema = vol.Schema({
+            vol.Optional(name, default=ranks.get(name, 0)):
+                vol.All(vol.Coerce(int), vol.Range(min=0, max=20))
+            for name in names
+        })
+        return self.async_show_form(step_id="layout", data_schema=schema)
 
     async def async_step_settings(self, user_input=None):
         if user_input is not None:

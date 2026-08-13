@@ -12,15 +12,15 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .clips import (
-    attach_detections, detection_types, end_of, event_type, face_ids,
-    start_of,
+    attach_detections, detection_types, direction, end_of, event_type,
+    face_ids, start_of,
 )
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
     CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL, DEFAULT_AUTO_DOWNLOAD,
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS,
-    FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING,
+    CONF_CAMERA_ORDER, DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING,
     LOOKBACK_SECONDS, SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
 )
 from .media import async_download_clip, async_prune, existing_clip
@@ -67,6 +67,23 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         stored = self.entry.options.get(CONF_FACE_NAMES) or {}
         return {str(key): str(value) for key, value in stored.items()}
 
+    @property
+    def camera_ranks(self) -> dict[str, int]:
+        """Camera name to its distance from the street, where set.
+
+        Keyed by name rather than index because a trail records names, and
+        because the paired-list index shifts if a camera is removed while a
+        name does not.
+        """
+        stored = self.entry.options.get(CONF_CAMERA_ORDER) or {}
+        ranks: dict[str, int] = {}
+        for key, value in stored.items():
+            try:
+                ranks[str(key)] = int(value)
+            except (TypeError, ValueError):
+                continue
+        return ranks
+
     def faces_seen(self, index: int | None = None) -> dict[str, dict]:
         """Every face in the current window, newest sighting first.
 
@@ -112,6 +129,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             # Where they are now, as far as the hub knows.
             face["last_camera"] = (face["trail"][0]["camera"]
                                    if face["trail"] else None)
+            # ...and which way they were going, when that is actually known.
+            face["direction"] = direction(
+                face["trail"], self.camera_ranks, DIRECTION_WINDOW)
         return faces
 
     def clips_for(self, index: int) -> list[dict]:

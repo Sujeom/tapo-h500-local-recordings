@@ -248,6 +248,26 @@ FACE_TRAIL_MAX = 20
 # the two without guessing.
 NAME_PROMPT_SIGHTINGS = 5
 
+# Where each camera sits between the street and the door, so a trail can be
+# read as a direction.
+#
+# Stored per camera as a rank: lower is nearer the street, higher is nearer
+# the door. A gate camera might be 0 and a doorbell 1. The integration cannot
+# work this out for itself -- the hub reports no geometry, and camera order in
+# the paired list is the order they were added, which means nothing.
+#
+# Unset means unknown, and an unknown rank produces no direction at all
+# rather than a guessed one.
+CONF_CAMERA_ORDER = "camera_order"
+
+# How long two sightings can be apart and still count as one journey.
+#
+# Someone walking from the gate to the door takes a few seconds. Two sightings
+# ten minutes apart are two visits, and calling that "approaching" would be
+# an invention. Measured against nothing in particular -- there is no data on
+# walking speed here -- so this is a judgement, and a generous one.
+DIRECTION_WINDOW = 180
+
 # Options that actually change how the integration talks to the hub. A change
 # to one of these needs a reload; a change to anything else does not.
 #

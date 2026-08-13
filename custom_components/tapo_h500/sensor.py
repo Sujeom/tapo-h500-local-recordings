@@ -321,6 +321,9 @@ class H500FaceLocationSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
             "face_id": self.face_id,
             "cameras": face.get("cameras", []),
             "sightings": face.get("sightings", 0),
+            # "approaching", "leaving", or absent when it is not known --
+            # which is the usual case until cameras are given an order.
+            "direction": face.get("direction"),
             # Newest first: camera and when, so a history of one person moving
             # between doors is readable without joining anything up by hand.
             "trail": [{"camera": hop["camera"],

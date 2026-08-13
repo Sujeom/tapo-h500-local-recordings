@@ -453,6 +453,22 @@ both doorbells — so the same number really does follow one person from door to
 door. Its `trail` attribute lists recent sightings newest first, each with a
 camera and a time, capped at 20.
 
+### Arriving or leaving
+
+**Configure → Camera layout** gives each camera a number for how close it is to
+your door — 0 for the one nearest the street, higher as they approach. With
+that set, the location sensor's `direction` attribute reads `approaching` or
+`leaving`.
+
+It is the one thing the integration cannot work out for itself: the hub reports
+no geometry, and the order cameras appear in the paired list is the order they
+were added. Leave every camera on the same number to turn it off.
+
+No direction is reported unless it is genuinely known — one sighting, unranked
+cameras, two sightings more than three minutes apart, or a move between
+cameras at the same distance all produce nothing rather than a guess.
+"Approaching the door" is the kind of signal people wire a siren to.
+
 It reports where the hub last **saw** someone, which is not where they are.
 Nobody is tracked between sightings, and a quiet camera means nothing was
 detected rather than that the person left — the state simply stops changing.

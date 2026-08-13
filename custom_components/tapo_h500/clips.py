@@ -267,3 +267,36 @@ def summarise(per_camera: dict[str, list[dict]], now: int,
         detail = ", ".join(f"{count} {label}" for label, count in ranked)
         lines.append(f"{name}: {len(recent)} recordings ({detail})")
     return "; ".join(lines) if lines else "nothing"
+
+
+def direction(trail: list[dict], ranks: dict[str, int],
+              window: int) -> str | None:
+    """Whether a trail reads as approaching, leaving, or neither.
+
+    `trail` is newest first, as faces_seen builds it. `ranks` maps a camera
+    name to its distance from the street: lower is nearer the street, higher
+    nearer the door.
+
+    None whenever the answer is not actually known -- one sighting, cameras
+    with no rank, two sightings too far apart to be one journey, or a move
+    between cameras at the same rank. A guessed direction is worse than none,
+    because "someone is approaching the door" is the kind of thing people
+    build a siren automation on.
+    """
+    ranked = [hop for hop in trail if hop.get("camera") in ranks]
+    if len(ranked) < 2:
+        return None
+    newest, previous = ranked[0], ranked[1]
+    # Both times are required rather than defaulted. Treating a missing one as
+    # zero makes two undated hops look simultaneous, which passes the window
+    # check and invents a direction -- and "approaching" is what people wire a
+    # siren to.
+    when, before_when = newest.get("at"), previous.get("at")
+    if when is None or before_when is None:
+        return None
+    if when - before_when > window:
+        return None
+    here, before = ranks[newest["camera"]], ranks[previous["camera"]]
+    if here == before:
+        return None
+    return "approaching" if here > before else "leaving"

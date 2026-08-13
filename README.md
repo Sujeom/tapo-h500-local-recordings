@@ -56,6 +56,9 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   they were last seen and at which camera. The hub keeps one id per person
   across every camera, so a trail of sightings follows them from door to door.
   There is a `tapo_h500.name_face` action too, for automations.
+- **Direction:** tell it which camera is nearest the street
+  (**Configure → Camera layout**) and a recognised person moving between
+  cameras reads as *approaching* or *leaving* — warning before the doorbell.
 - **Prompts:** a face the hub keeps seeing but you have not named turns up as a
   repair notice, so regulars get named instead of staying numbers.
 - **Ask it:** "who was at the door?" and "what happened today?" work in Assist.
