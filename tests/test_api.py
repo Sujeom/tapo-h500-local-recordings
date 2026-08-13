@@ -653,6 +653,15 @@ class DetectionTest(unittest.TestCase):
         self.assertEqual(set(clips.detection_types({"events_1": 2097314})) - base, {8})
         self.assertEqual(set(clips.detection_types({"events_1": 2097442})) - base, {9})
 
+    def test_lifting_the_camera_off_its_mount_is_a_theft_event(self):
+        # The front camera was removed at 11:16:16 on 2026-08-13. Person and
+        # face ride along because someone was standing there doing it.
+        theft = {"alarm_type": 19, "events_1": 786464}
+        self.assertEqual(clips.detection_types(theft), [6, 19, 20])
+        self.assertEqual(clips.describe_detection(theft), "person + theft + face")
+        # A tamper alarm is not a doorbell press.
+        self.assertEqual(clips.event_type(theft), "motion")
+
     def test_unattributed_codes_are_still_shown_as_numbers(self):
         # 22 is common but nothing observed says what it means; naming it would
         # print a guess onto every recording that carries it.

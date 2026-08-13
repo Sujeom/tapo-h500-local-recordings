@@ -215,6 +215,17 @@ Code 20 (a face) accompanies 6 in all 5 of its detections but 22 only once, and
 a face is a person; and the confirmed press carried 6 but not 22, and someone
 pressed it. So **6 is person**.
 
+A tamper alarm named the last of the rare codes. The front camera was lifted
+off its mount at 11:16:16 on 2026-08-13:
+
+```
+alarm_type=19  events_1=786464  types=[6, 19, 20]
+```
+
+**19 is theft** — person and face ride along because someone was standing there
+doing it. It is also one of only two codes ever seen *alone*, which fits an
+alarm that can fire with nobody recognised.
+
 22 remains unnamed: it occurs 18 times and always alongside 6, so it is some
 subset of person events that nothing observed distinguishes.
 

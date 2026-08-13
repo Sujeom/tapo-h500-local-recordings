@@ -134,7 +134,7 @@ against a real one: the front doorbell was rung at 14:42:25 on 2026-08-13 and
 that was the only event on that camera in six hours. Presses now classify as
 `ring`, so the presses-only download mode works and the cards badge them.
 
-What each code means. Six of the nine are named, each against something
+What each code means. Seven of the nine are named, each against something
 observed rather than guessed:
 
 | Code | Meaning | How it was established |
@@ -144,10 +144,10 @@ observed rather than guessed:
 | 8 | **vehicle** | the only code the app's "car" event added |
 | 9 | **pet** | the only code the app's "dog" event added |
 | 17 | **doorbell press** | a real press, the only event on that camera in six hours |
+| 19 | **theft** | the camera was lifted off its mount, and this is what fired |
 | 20 | **face** | all 5 of its detections carried a `face_id`; no other code ever did |
 | 10 | unknown | only ever appears beside 17, so part of the doorbell signal |
 | 22 | unknown | common (18), but always alongside 6 |
-| 19 | unknown | rare and unattributed |
 
 Vehicle and pet fell out of three events the Tapo app had labelled, which
 differ by exactly one code each:

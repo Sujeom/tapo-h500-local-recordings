@@ -55,7 +55,7 @@ EVENT_TYPES = [EVENT_RING, EVENT_MOTION]
 # matches and the detection log below is what actually classifies.
 RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 
-# alarm_type codes from searchDetectionList on firmware 1.3.20. Six of the nine
+# alarm_type codes from searchDetectionList on firmware 1.3.20. Seven of the nine
 # are now named, each against something observed rather than guessed.
 #
 # The Tapo app labelled three side-doorbell events, and they differ by exactly
@@ -72,21 +72,26 @@ RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 # is person, and 2 is motion -- it is set on 31 of 35 detections, the base
 # signal nearly everything carries.
 #
-#   17  doorbell. The front doorbell was rung at 14:42:25 on 2026-08-13 and it
+#   17  doorbell. The front doorbell was rung at 10:42:25 on 2026-08-13 and it
 #       was the only event on that camera in six hours.
+#   19  theft. The front camera was lifted off its mount at 11:16:16 the same
+#       morning: alarm_type 19, alongside person and face because someone was
+#       standing there doing it. It is also one of only two codes ever seen
+#       alone, which fits an alarm that can fire with nobody recognised.
 #   20  face. All 5 of its detections carried a face_id; no other code ever did.
 #
-# Still unnamed, on purpose: 22 occurs 18 times and always alongside 6, so it
-# is some subset of person events that nothing observed distinguishes; 10 has
-# only ever appeared beside 17, so it is part of the doorbell signal; 19 is
-# rare and unattributed. They display as their number, because a confident
-# wrong label on a recording is worse than an honest "type 22".
+# Two remain unnamed, on purpose: 22 occurs 18 times and always alongside 6,
+# so it is some subset of person events that nothing observed distinguishes,
+# and 10 has only ever appeared beside 17, so it is part of the doorbell
+# signal rather than a thing of its own. Both display as their number,
+# because a confident wrong label on a recording is worse than "type 22".
 DETECTION_NAMES = {
     2: "motion",
     6: "person",
     8: "vehicle",
     9: "pet",
     17: "doorbell",
+    19: "theft",
     20: "face",
 }
 
