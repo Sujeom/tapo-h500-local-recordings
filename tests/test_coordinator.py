@@ -7,6 +7,7 @@ detection lookups, which put a round trip in front of every notification.
 """
 import asyncio
 import importlib
+import re
 import sys
 import types
 import unittest
@@ -97,7 +98,9 @@ class _Hass:
 
 class _Entry:
     entry_id = "test"
-    options: dict = {}
+
+    def __init__(self, interval):
+        self.options = {"poll_interval": interval}
 
 
 class _Client:
@@ -123,9 +126,11 @@ class _Client:
         return {}
 
 
-def _build():
+def _build(interval=20):
+    """A 20s interval by default: STATUS_MAX_AGE 60 / 20 makes status every 3rd
+    poll, which keeps the cadence assertions short and readable."""
     client = _Client()
-    coord = coordinator_mod.H500Coordinator(_Hass(), _Entry(), client)
+    coord = coordinator_mod.H500Coordinator(_Hass(), _Entry(interval), client)
     # The download path is out of scope; neutralise it.
     coord._download_new = lambda *a, **k: None
     return coord, client
@@ -172,10 +177,64 @@ class PollOrdering(unittest.TestCase):
         self.assertIn("clips", result)
 
 
+class CameraList(unittest.TestCase):
+    def test_the_camera_list_is_not_refetched_every_poll(self):
+        """58ms, more than the detection lookups it precedes, for a list that
+        changes only when a camera is paired or removed."""
+        coord, client = _build(interval=20)   # 300 / 20 -> every 15th poll
+        for _ in range(6):
+            asyncio.run(coord._async_update_data())
+        self.assertEqual(client.calls.count("cameras"), 1)
+        # ...but the detections still happen on every one of those polls.
+        self.assertEqual(client.calls.count("detections"), 6)
+
+    def test_a_failed_refresh_keeps_the_cached_list(self):
+        """Losing a refresh must not blind the integration to its cameras."""
+        coord, client = _build(interval=20)
+        asyncio.run(coord._async_update_data())
+
+        def boom():
+            raise RuntimeError("hub busy")
+        client.cameras = boom
+        coord._polls = 0                       # force a refresh attempt
+        asyncio.run(coord._async_update_data())
+        self.assertEqual(len(coord.cameras), 1)
+
+    def test_failing_with_nothing_cached_is_still_fatal(self):
+        """A first poll that cannot list cameras has no data to work from."""
+        coord, client = _build()
+
+        def boom():
+            raise RuntimeError("hub unreachable")
+        client.cameras = boom
+        with self.assertRaises(Exception):
+            asyncio.run(coord._async_update_data())
+
+
 class PollInterval(unittest.TestCase):
     def test_default_interval_is_short_enough_to_notify_promptly(self):
-        """The interval is the entire notification latency budget."""
-        self.assertLessEqual(const.DEFAULT_POLL_INTERVAL, 10)
+        """The interval is the entire notification latency budget. The hub
+        answers a detection lookup in 19ms, so seconds here are all ours."""
+        self.assertLessEqual(const.DEFAULT_POLL_INTERVAL, 3)
+
+    def test_the_default_interval_is_one_the_options_form_accepts(self):
+        """The form once enforced min=5 while the default was 2, so the
+        default could not be re-saved. Read the bound out of config_flow.py
+        rather than restating it, or the two drift apart again.
+        """
+        source = (COMPONENT / "config_flow.py").read_text()
+        bound = re.search(r"vol\.Range\(min=(\d+), max=(\d+)\)", source)
+        low, high = int(bound.group(1)), int(bound.group(2))
+        self.assertGreaterEqual(const.DEFAULT_POLL_INTERVAL, low)
+        self.assertLessEqual(const.DEFAULT_POLL_INTERVAL, high)
+
+    def test_refresh_ages_survive_a_changed_interval(self):
+        """Status every Nth poll must track the configured interval, not a
+        fixed count -- otherwise a 60s interval means status every 30min."""
+        fast, _ = _build(interval=2)
+        slow, _ = _build(interval=60)
+        self.assertEqual(fast._status_every, round(const.STATUS_MAX_AGE / 2))
+        self.assertEqual(slow._status_every, 1)
 
 
 if __name__ == "__main__":

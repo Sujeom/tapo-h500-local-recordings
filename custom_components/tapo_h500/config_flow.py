@@ -69,7 +69,10 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             vol.Required(
                 CONF_POLL_INTERVAL,
                 default=options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
-            ): vol.All(vol.Coerce(int), vol.Range(min=5, max=600)),
+            # 1s floor, not 5s: a poll is ~40ms of hub time, so the old floor
+            # was ten times slower than anything the hardware required -- and
+            # it sat above the default, which would have rejected it outright.
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=600)),
             vol.Required(
                 CONF_AUTO_DOWNLOAD,
                 default=options.get(CONF_AUTO_DOWNLOAD, DEFAULT_AUTO_DOWNLOAD),

@@ -115,7 +115,7 @@ The same is true of the other advertised-but-unreachable components:
 **Event latency.** The hub's detection log works and is what classifies each
 recording, but events still come from the indexed clip list, and a clip is only
 indexed once the hub has finished writing it — so an event trails the actual
-doorbell press by the poll interval plus the clip length.
+doorbell press by the poll interval plus the clip length. Events themselves do not wait for the clip: the detection log is read first and is what raises the event.
 
 **Recordings are classified, but not every code is named yet.** Every clip is
 labelled `video_type` `"2"` whatever triggered it, so the clip index itself
@@ -252,7 +252,7 @@ recording downloads.
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| Seconds between activity checks | `20` | How often the hub is polled. |
+| Seconds between activity checks | `2` | How often the hub is polled. This is the whole notification delay: nothing reaches Home Assistant sooner than the next poll. A poll costs about 40ms of hub time, so 2s uses a few percent of what is available; 1s is allowed. |
 | Download new recordings automatically | Every new recording | `Never`, `Doorbell presses only`, or `Every new recording`. See the note below before choosing presses-only. |
 | Downloaded clips to keep per camera | `0` | `0` keeps everything. Any other number prunes the oldest automatic downloads once a camera holds more than that, so set `5` and the sixth arrival evicts the oldest. Manual downloads are never pruned. |
 | Convert downloads to MP4 | On | Off keeps the hub's original MPEG-TS. |
@@ -315,7 +315,7 @@ timezone (changing it would shift every clip timestamp).
 | `sensor.<name>_ai_enhance`, `_network_mode`, `_model` | Diagnostics. |
 | `binary_sensor.<name>_hub_storage`, `_24_7_recording`, `_ai_enhance_enabled`, `_wifi_backup` | Diagnostics. |
 
-Everything above comes from one extra `multipleRequest` per poll, batched into a
+Everything above comes from one extra `multipleRequest`, batched into a
 single round trip because this hub is easy to overload.
 
 **No battery level.** None of the battery getters work on an H500 — the reading

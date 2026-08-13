@@ -26,19 +26,33 @@ AUTO_DOWNLOAD_ALL = "all"
 AUTO_DOWNLOAD_MODES = [AUTO_DOWNLOAD_OFF, AUTO_DOWNLOAD_RINGS, AUTO_DOWNLOAD_ALL]
 
 # How often to poll. This is the entire notification latency budget: nothing
-# the hub sees can reach Home Assistant sooner than the next poll, so 20s meant
-# a person was announced 10s after the fact on average and 20s at worst.
+# the hub sees can reach Home Assistant sooner than the next poll.
 #
-# Halving it is safe because every call reuses the one authenticated session
-# opened by connect(). A poll costs the hub ordinary requests, not logins, and
-# it is repeated logins -- not request volume -- that wedges an H500.
-DEFAULT_POLL_INTERVAL = 10
+# Measured against the hub on firmware 1.3.20, held session, median of five:
+#
+#     detections()  per camera      19ms
+#     recent()      per camera      17ms
+#     cameras()                     58ms
+#     hub_status()  14 batched     430ms
+#
+# So the work that actually matters -- the detection log for two cameras -- is
+# about 40ms. The old 20s interval was not a hub limit at all; the device
+# answers roughly five hundred times faster than it was being asked. At 2s a
+# poll uses a few percent of the time available, and an event is announced
+# within a second of the hub seeing it.
+#
+# Safe because every call reuses the one authenticated session opened by
+# connect(). A poll costs ordinary requests, not logins, and it is repeated
+# logins -- not request volume -- that wedges an H500.
+DEFAULT_POLL_INTERVAL = 2
 
-# Hub status is LED state, siren config, storage and firmware. None of it
-# changes between two polls, but fetching it cost a round trip in front of
-# every detection lookup, delaying the one thing that is time critical. Fetch
-# it every Nth poll instead, and after the events rather than before them.
-STATUS_EVERY_N_POLLS = 3
+# Two things do not belong on that hot path. Hub status is LED state, siren
+# config, storage and firmware, and at 430ms it is by far the most expensive
+# call the integration makes. The camera list only changes when a camera is
+# paired or removed. Both are refreshed on an age in seconds rather than a
+# poll count, so they stay correct if the interval is changed in options.
+STATUS_MAX_AGE = 60
+CAMERAS_MAX_AGE = 300
 # An H500 with TD21 doorbells labels every clip video_type "2", so ring-only
 # filtering matches nothing and downloads nothing. Defaulting to rings made the
 # feature a silent no-op; default to all until the ring code is identified.

@@ -16,8 +16,8 @@ from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
     CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL, DEFAULT_AUTO_DOWNLOAD,
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
-    DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING, LOOKBACK_SECONDS, SIGNAL_NEW_CLIP,
-    STATUS_EVERY_N_POLLS,
+    CAMERAS_MAX_AGE, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING, LOOKBACK_SECONDS,
+    SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
 )
 from .media import async_download_clip, async_prune, existing_clip
 from .status import hub_readings
@@ -42,6 +42,12 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._seen_clips: dict[int, set[int]] = {}
         self._primed = False
         self._polls = 0
+        # Turn "refresh this every N seconds" into a poll count once, here, so
+        # a longer interval configured in options does not silently turn into
+        # a much longer refresh age.
+        interval = entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
+        self._status_every = max(1, round(STATUS_MAX_AGE / interval))
+        self._cameras_every = max(1, round(CAMERAS_MAX_AGE / interval))
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
@@ -55,11 +61,21 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         return max(moments) if moments else None
 
     async def _async_update_data(self) -> dict:
-        try:
-            cameras = await self.hass.async_add_executor_job(self.client.cameras)
-        except Exception as err:
-            raise UpdateFailed(f"Could not list H500 cameras: {err}") from err
-        self.cameras = cameras
+        # The paired camera list changes only when a camera is added or
+        # removed, and costs 58ms -- more than the detection lookups it used to
+        # precede. Fetch it on the first poll and then rarely, but never leave
+        # it empty: a failure with nothing cached is still fatal to the poll.
+        if not self.cameras or self._polls % self._cameras_every == 0:
+            try:
+                self.cameras = await self.hass.async_add_executor_job(
+                    self.client.cameras)
+            except Exception as err:
+                if not self.cameras:
+                    raise UpdateFailed(
+                        f"Could not list H500 cameras: {err}") from err
+                # A refresh failing is survivable; the cached list is still good.
+                _LOGGER.debug("Camera list refresh failed, keeping cached: %s", err)
+        cameras = self.cameras
 
         now = int(dt_util.utcnow().timestamp())
         window = now - LOOKBACK_SECONDS
@@ -88,7 +104,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # lookups, so every notification waited on a round trip fetching LED
         # state and storage figures. Poll 0 still fetches it, so nothing is
         # blank on startup.
-        if self._polls % STATUS_EVERY_N_POLLS == 0:
+        if self._polls % self._status_every == 0:
             try:
                 self.readings = hub_readings(
                     await self.hass.async_add_executor_job(self.client.hub_status))
