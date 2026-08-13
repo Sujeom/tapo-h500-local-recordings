@@ -10,7 +10,7 @@ import asyncio
 import logging
 import os
 import tempfile
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
@@ -265,11 +265,21 @@ def _videos(directory: Path) -> list[Path]:
                   if path.suffix in (".mp4", ".ts"))
 
 
-async def async_prune(hass: HomeAssistant, camera, keep: int) -> list[str]:
-    """Drop the oldest downloads once a camera holds more than `keep`."""
+async def async_prune(hass: HomeAssistant, camera, keep: int,
+                      protected: set[int] | None = None) -> list[str]:
+    """Drop the oldest downloads once a camera holds more than `keep`.
+
+    `protected` is a set of clip start times to leave alone however old they
+    are -- doorbell presses, in practice. One retention number for everything
+    meant a busy afternoon of motion could evict the press that was the whole
+    reason for keeping anything, and it would go silently.
+    """
     if keep <= 0:
         return []
     videos = await hass.async_add_executor_job(_videos, camera_dir(hass, camera))
+    if protected:
+        videos = [video for video in videos
+                  if _start_from_path(video) not in protected]
     doomed = surplus(videos, keep)
     if not doomed:
         return []
@@ -277,6 +287,21 @@ async def async_prune(hass: HomeAssistant, camera, keep: int) -> list[str]:
              for path in (video, video.with_suffix(".jpg"))]
     removed = await hass.async_add_executor_job(_delete, paths)
     return [relative(hass, path) for path in removed]
+
+
+def _start_from_path(path: Path) -> int | None:
+    """The clip start time a download's own filename encodes.
+
+    Paths are <camera>/<YYYY-MM-DD>/<HHMMSS>.mp4 in local time, which is what
+    makes "already downloaded" a path check. Reading the time back out of the
+    name avoids a second index that could disagree with the files on disk.
+    """
+    try:
+        stamp = datetime.strptime(f"{path.parent.name} {path.stem}",
+                                  "%Y-%m-%d %H%M%S")
+    except (ValueError, TypeError):
+        return None
+    return int(stamp.timestamp())
 
 
 def _newest_thumbnail(directory: Path) -> bytes | None:

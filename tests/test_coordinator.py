@@ -47,6 +47,14 @@ def _install_stubs():
         setattr(module, attr[0], attr[1])
         sys.modules[path] = module
 
+    # intent.py registers Assist handlers; a bare base class is enough here.
+    intent_mod = types.ModuleType("homeassistant.helpers.intent")
+    intent_mod.IntentHandler = type("IntentHandler", (), {})
+    intent_mod.Intent = type("Intent", (), {})
+    intent_mod.IntentResponse = type("IntentResponse", (), {})
+    intent_mod.async_register = lambda hass, handler: None
+    sys.modules["homeassistant.helpers.intent"] = intent_mod
+
     core = sys.modules["homeassistant.core"]
     core.callback = lambda fn: fn          # a no-op decorator here
     core.Event = type("Event", (), {})

@@ -17,9 +17,11 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.loader import async_get_integration
 
 from .api import H500Client
+from homeassistant.util import dt as dt_util
+
 from .clips import (
     describe_detection, detection_types, end_of, event_type, face_ids,
-    start_of,
+    start_of, summarise,
 )
 from .const import (
     CARD_URL, CONF_CLOUD_PASSWORD, CONF_CONVERT_MP4, DATA_CARD, DATA_HUBS,
@@ -27,11 +29,15 @@ from .const import (
     SERVICE_DOWNLOAD_RECORDING, SERVICE_FORMAT_HUB_STORAGE,
     SERVICE_LIST_RECORDINGS,
     SERVICE_NAME_FACE,
+    SERVICE_DESCRIBE_RECORDING,
+    SERVICE_DAILY_SUMMARY,
+    DESCRIBE_PROMPT,
     CONF_FACE_NAMES,
 )
 from .coordinator import H500Coordinator
 from .media import (
-    async_delete_clip, async_download_clip, describe, media_root, scan_downloaded,
+    async_delete_clip, async_download_clip, clip_path, describe,
+    media_content_id, media_root, scan_downloaded,
 )
 from .preview import H500PreviewView, preview_url
 
@@ -61,6 +67,21 @@ DELETE_SCHEMA = vol.Schema({
     **ENTRY_SCHEMA,
     vol.Required("start_time"): NONNEGATIVE_INT,
 })
+SUMMARY_SCHEMA = vol.Schema({
+    vol.Required("config_entry_id"): cv.string,
+    vol.Optional("hours", default=24): vol.All(vol.Coerce(int),
+                                               vol.Range(min=1, max=168)),
+})
+DESCRIBE_SCHEMA = vol.Schema({
+    **ENTRY_SCHEMA,
+    vol.Required("start_time"): NONNEGATIVE_INT,
+    # Which conversation agent or AI task entity to ask. Required rather than
+    # guessed: an installation may have several, and picking one silently
+    # would send a picture of someone's doorstep to whichever happened to be
+    # first -- possibly a cloud service.
+    vol.Required("agent_id"): cv.string,
+    vol.Optional("prompt", default=DESCRIBE_PROMPT): cv.string,
+})
 NAME_FACE_SCHEMA = vol.Schema({
     vol.Required("config_entry_id"): cv.string,
     # The hub reports ids as numbers; accept either spelling and store one.
@@ -76,6 +97,9 @@ FORMAT_SCHEMA = vol.Schema({
 SERVICES = (
     SERVICE_LIST_RECORDINGS,
     SERVICE_NAME_FACE,
+    SERVICE_DESCRIBE_RECORDING,
+    SERVICE_DAILY_SUMMARY,
+    DESCRIBE_PROMPT,
     CONF_FACE_NAMES, SERVICE_DOWNLOAD_RECORDING,
     SERVICE_DELETE_RECORDING, SERVICE_FORMAT_HUB_STORAGE,
 )
@@ -107,6 +131,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.entry_id] = coordinator
 
     await _async_register_card(hass)
+    # Spoken questions, registered once per Home Assistant rather than per hub.
+    try:
+        from .intent import async_setup_intents
+        await async_setup_intents(hass)
+    except Exception as err:  # noqa: BLE001 - voice is a bonus, never fatal
+        _LOGGER.debug("Could not register intents: %s", err)
     if not hass.data[DOMAIN].get(DATA_PREVIEW):
         hass.http.register_view(H500PreviewView())
         hass.data[DOMAIN][DATA_PREVIEW] = True
@@ -317,12 +347,82 @@ def _register_services(hass: HomeAssistant) -> None:
         return {"face_id": face_id, "name": name or None,
                 "named": sorted(names)}
 
+    async def describe_recording(call: ServiceCall):
+        """Ask a vision model what is in a recording's own frame.
+
+        Nothing is sent anywhere unless this is called with an explicit agent,
+        so an installation with no AI configured is unaffected and no picture
+        leaves the house by default.
+        """
+        coordinator, camera = await _resolve(hass, call)
+        start_time = call.data["start_time"]
+        thumbnail = clip_path(hass, camera, start_time, ".jpg")
+        if not await hass.async_add_executor_job(thumbnail.is_file):
+            raise ServiceValidationError(
+                "No thumbnail for that recording yet. The hub indexes a clip "
+                "only once it has finished, and the thumbnail is written when "
+                "it downloads.")
+
+        agent_id = call.data["agent_id"]
+        prompt = call.data["prompt"]
+        # ai_task is the current surface and conversation the older one. Try
+        # the one that matches the entity given rather than guessing, and say
+        # plainly when neither is available instead of failing obscurely.
+        domain = agent_id.split(".", 1)[0]
+        if domain == "ai_task" and hass.services.has_service("ai_task",
+                                                             "generate_data"):
+            result = await hass.services.async_call(
+                "ai_task", "generate_data",
+                {"task_name": "Describe H500 recording", "entity_id": agent_id,
+                 "instructions": prompt,
+                 "attachments": [{"media_content_id":
+                                  media_content_id(hass, thumbnail),
+                                  "media_content_type": "image/jpeg"}]},
+                blocking=True, return_response=True)
+            description = (result or {}).get("data")
+        elif hass.services.has_service("conversation", "process"):
+            result = await hass.services.async_call(
+                "conversation", "process",
+                {"agent_id": agent_id, "text": prompt},
+                blocking=True, return_response=True)
+            description = (((result or {}).get("response") or {})
+                           .get("speech", {}).get("plain", {}).get("speech"))
+        else:
+            raise HomeAssistantError(
+                "No AI service is available. Configure a conversation agent or "
+                "an AI task entity, then pass its entity id as agent_id.")
+
+        return {"start_time": start_time, "description": description,
+                "agent_id": agent_id}
+
+    async def daily_summary(call: ServiceCall):
+        """One sentence per camera for the period.
+
+        A service, not a schedule. Nothing is sent unless something calls it,
+        so the digest is off until someone builds an automation for it -- a
+        summary nobody asked for is what makes people mute an integration.
+        The phrasing is shared with the voice answer so the two cannot
+        describe the same day differently.
+        """
+        coordinator = _coordinator(hass, call.data["config_entry_id"])
+        window = call.data["hours"] * 3600
+        per_camera = {
+            (camera.get("alias") or f"Camera {index}"):
+                coordinator.clips_for(index)
+            for index, camera in enumerate(coordinator.cameras)
+        }
+        now = int(dt_util.utcnow().timestamp())
+        return {"hours": call.data["hours"],
+                "summary": summarise(per_camera, now, window)}
+
     for service, handler, schema in (
         (SERVICE_LIST_RECORDINGS, list_recordings, LIST_SCHEMA),
         (SERVICE_DOWNLOAD_RECORDING, download_recording, DOWNLOAD_SCHEMA),
         (SERVICE_DELETE_RECORDING, delete_recording, DELETE_SCHEMA),
         (SERVICE_FORMAT_HUB_STORAGE, format_hub_storage, FORMAT_SCHEMA),
         (SERVICE_NAME_FACE, name_face, NAME_FACE_SCHEMA),
+        (SERVICE_DESCRIBE_RECORDING, describe_recording, DESCRIBE_SCHEMA),
+        (SERVICE_DAILY_SUMMARY, daily_summary, SUMMARY_SCHEMA),
     ):
         hass.services.async_register(
             DOMAIN, service, handler, schema=schema,

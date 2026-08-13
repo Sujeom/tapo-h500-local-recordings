@@ -50,6 +50,11 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Faces:** name someone once with the `tapo_h500.name_face` action and every
   card shows it. Each named face also gets a sensor for when they were last
   seen, on any camera.
+- **Ask it:** "who was at the door?" and "what happened today?" work in Assist.
+- **Summaries:** call `tapo_h500.daily_summary` from an automation for a digest
+  — a service, not a schedule, so nothing arrives unless you ask for it.
+- **Captions:** `tapo_h500.describe_recording` asks a vision model what is in a
+  clip. Nothing is sent anywhere unless you name an agent.
 - **Bug reports:** the integration's three-dot menu offers **Download
   diagnostics** — hub state and detection counts, with no credentials, camera
   names or timestamps in it.

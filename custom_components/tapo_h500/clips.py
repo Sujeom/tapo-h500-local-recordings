@@ -234,3 +234,36 @@ def unusually_busy(clips: list[dict], now: int, window: int,
     # changed no behaviour, so no test could tell a broken one from a working
     # one -- the floor lives here and only here.
     return recent >= max(floor, hourly_baseline(clips, now, window) * multiplier)
+
+
+def summarise(per_camera: dict[str, list[dict]], now: int,
+              window: int = 86400) -> str:
+    """A day in one sentence per camera, for a digest or a spoken answer.
+
+    Returns prose rather than a structure because both callers want prose, and
+    a shared phrasing is what stops the digest and the voice answer describing
+    the same day differently.
+    """
+    lines = []
+    for name, clips in per_camera.items():
+        recent = [clip for clip in clips if (start_of(clip) or 0) >= now - window]
+        if not recent:
+            lines.append(f"{name}: nothing")
+            continue
+        counts: dict[str, int] = {}
+        for clip in recent:
+            for code in detection_types(clip):
+                # Motion accompanies nearly everything and would dominate a
+                # summary that is meant to say what was unusual about the day.
+                if code in (2, 10):
+                    continue
+                label = DETECTION_NAMES.get(code)
+                if label:
+                    counts[label] = counts.get(label, 0) + 1
+        if not counts:
+            lines.append(f"{name}: {len(recent)} recordings, motion only")
+            continue
+        ranked = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+        detail = ", ".join(f"{count} {label}" for label, count in ranked)
+        lines.append(f"{name}: {len(recent)} recordings ({detail})")
+    return "; ".join(lines) if lines else "nothing"

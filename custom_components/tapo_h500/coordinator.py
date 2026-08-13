@@ -19,7 +19,7 @@ from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
     CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL, DEFAULT_AUTO_DOWNLOAD,
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
-    CAMERAS_MAX_AGE, CONF_FACE_NAMES, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING,
+    CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING,
     LOOKBACK_SECONDS, SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
 )
 from .media import async_download_clip, async_prune, existing_clip
@@ -243,6 +243,16 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Only automatic downloads are pruned. A manual download is a
         # deliberate choice and is left alone.
         keep = self.entry.options.get(CONF_KEEP_DOWNLOADS, DEFAULT_KEEP_DOWNLOADS)
-        for removed in await async_prune(self.hass, camera, keep):
+        # Doorbell presses survive the cull when a separate figure is set for
+        # them: a busy afternoon of motion should not evict the press that was
+        # the reason for keeping anything.
+        keep_rings = self.entry.options.get(CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS)
+        protected: set[int] = set()
+        if keep_rings:
+            rings = [clip for clip in self.clips_for(index)
+                     if event_type(clip) == EVENT_RING]
+            protected = {start_of(clip) for clip in rings[:keep_rings]
+                         if start_of(clip) is not None}
+        for removed in await async_prune(self.hass, camera, keep, protected):
             _LOGGER.debug("Pruned %s to keep the newest %s", removed, keep)
         async_dispatcher_send(self.hass, self.signal("image", index))

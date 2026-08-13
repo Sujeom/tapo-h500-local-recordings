@@ -1,0 +1,19 @@
+# Sentences for Assist. "who was at the door" is the question people actually
+# ask; the rest are the ways they phrase the same two things.
+language: en
+intents:
+  TapoH500LastEvent:
+    data:
+      - sentences:
+          - "who was at the door"
+          - "who is at the door"
+          - "was anyone at the door"
+          - "what was the last (event|activity) [on the cameras]"
+          - "what did the (camera|cameras|doorbell) see last"
+  TapoH500Today:
+    data:
+      - sentences:
+          - "what happened today"
+          - "what did the cameras see [today]"
+          - "(summarise|summarize) [the] (camera|cameras|doorbell) activity"
+          - "was there any activity today"

@@ -10,8 +10,10 @@ from homeassistant.helpers import selector
 from .api import H500Client
 from .const import (
     AUTO_DOWNLOAD_MODES, CONF_AUTO_DOWNLOAD, CONF_CLOUD_PASSWORD,
-    CONF_CONVERT_MP4, CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL,
+    CONF_CONVERT_MP4, CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS,
+    CONF_POLL_INTERVAL,
     DEFAULT_AUTO_DOWNLOAD, DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
+    DEFAULT_KEEP_RINGS,
     DEFAULT_POLL_INTERVAL, DOMAIN,
 )
 
@@ -104,6 +106,10 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             vol.Required(
                 CONF_KEEP_DOWNLOADS,
                 default=options.get(CONF_KEEP_DOWNLOADS, DEFAULT_KEEP_DOWNLOADS),
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=500)),
+            vol.Required(
+                CONF_KEEP_RINGS,
+                default=options.get(CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS),
             ): vol.All(vol.Coerce(int), vol.Range(min=0, max=500)),
             vol.Required(
                 CONF_CONVERT_MP4,

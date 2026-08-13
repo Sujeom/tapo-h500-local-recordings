@@ -143,3 +143,65 @@ name_face:
       example: Alice
       selector:
         text:
+
+describe_recording:
+  name: Describe a recording
+  description: >-
+    Ask a vision model what is in a recording's own frame. Nothing is sent
+    anywhere unless this is called with an explicit agent, so an installation
+    with no AI configured is unaffected.
+  fields:
+    config_entry_id:
+      name: Hub
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    camera_index:
+      name: Camera
+      default: 0
+      selector:
+        number: {min: 0, max: 15, mode: box}
+    start_time:
+      name: Recording start
+      description: The clip's start time, as listed by list_recordings.
+      required: true
+      selector:
+        number: {min: 0, mode: box}
+    agent_id:
+      name: AI agent
+      description: >-
+        The conversation agent or AI task entity to ask. Required rather than
+        guessed, because picking one silently could send a picture of your
+        doorstep to a cloud service.
+      required: true
+      example: ai_task.google_ai_task
+      selector:
+        text:
+    prompt:
+      name: Prompt
+      description: >-
+        Overrides the default, which deliberately asks only for what is
+        visible and forbids speculation about intent.
+      selector:
+        text:
+          multiline: true
+
+daily_summary:
+  name: Daily summary
+  description: >-
+    One sentence per camera for the period. A service rather than a schedule:
+    nothing is sent until an automation calls it, so no digest arrives unasked.
+  fields:
+    config_entry_id:
+      name: Hub
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    hours:
+      name: Hours
+      description: How far back to summarise. Limited by what the hub still holds.
+      default: 24
+      selector:
+        number: {min: 1, max: 168, unit_of_measurement: hours, mode: box}

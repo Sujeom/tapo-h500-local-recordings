@@ -11,6 +11,24 @@ SERVICE_DOWNLOAD_RECORDING = "download_recording"
 SERVICE_DELETE_RECORDING = "delete_recording"
 SERVICE_FORMAT_HUB_STORAGE = "format_hub_storage"
 SERVICE_NAME_FACE = "name_face"
+SERVICE_DESCRIBE_RECORDING = "describe_recording"
+SERVICE_DAILY_SUMMARY = "daily_summary"
+
+# What to ask a vision model about a still from a doorbell clip.
+#
+# Deliberately narrow. A model given an open-ended prompt will speculate about
+# intent -- "a suspicious individual loitering" -- from one frame of someone
+# reading a house number, and that speculation would then be read back as if
+# the hub had reported it. The hub's own detection codes already say what was
+# there; this only adds the detail they cannot carry.
+DESCRIBE_PROMPT = (
+    "This is a single still frame from a doorbell camera recording. "
+    "Describe only what is visibly present in one or two plain sentences: "
+    "people and what they appear to be carrying or doing, vehicles, animals, "
+    "packages, and the weather or time of day if obvious. "
+    "Do not speculate about intent, identity, or whether anything is "
+    "suspicious. If the frame is too dark or blurred to tell, say so."
+)
 
 # Face names live on the config entry, not on each card.
 #
@@ -30,6 +48,16 @@ CONF_POLL_INTERVAL = "poll_interval"
 CONF_AUTO_DOWNLOAD = "auto_download"
 CONF_CONVERT_MP4 = "convert_mp4"
 CONF_KEEP_DOWNLOADS = "keep_downloads"
+# Doorbell presses are worth keeping longer than motion. One number for
+# everything meant a busy afternoon of motion could evict the press that
+# actually mattered. 0 means "same as everything else".
+CONF_KEEP_RINGS = "keep_rings"
+DEFAULT_KEEP_RINGS = 0
+
+# The daily digest is OFF unless asked for. A summary nobody requested is the
+# kind of notification people mute the whole integration over.
+CONF_DIGEST_TIME = "digest_time"
+DEFAULT_DIGEST_TIME = ""
 
 AUTO_DOWNLOAD_OFF = "off"
 AUTO_DOWNLOAD_RINGS = "rings"
