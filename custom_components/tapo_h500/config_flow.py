@@ -8,6 +8,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .api import H500Client
+from .media import clip_path, signed_url
 from .const import (
     AUTO_DOWNLOAD_MODES, CONF_AUTO_DOWNLOAD, CONF_CLOUD_PASSWORD, CONF_FACE_NAMES,
     DATA_HUBS,
@@ -136,19 +137,50 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             for face_id in face_ids
         })
         # The form labels each box with the raw id, which alone says nothing.
-        # This is where "seen 5 times, last at 10:42" goes.
-        lines = []
-        for face_id in face_ids:
-            face = seen.get(face_id)
-            if face and face.get("sightings"):
-                where = ", ".join(face.get("cameras") or []) or "a camera"
-                lines.append(f"- {face_id}: seen {face['sightings']}x today "
-                             f"on {where}")
-            else:
-                lines.append(f"- {face_id}: not seen today")
+        # A twelve-digit number cannot be matched to a person from memory, so
+        # each line carries where and how often they were seen and, where the
+        # clip has downloaded, a link to that sighting's own photograph.
+        lines = await self.hass.async_add_executor_job(
+            self._face_lines, face_ids, seen, coordinator)
         return self.async_show_form(
             step_id="faces", data_schema=schema,
             description_placeholders={"faces": "\n".join(lines)})
+
+    def _face_lines(self, face_ids, seen, coordinator) -> list[str]:
+        """One markdown line per face. Blocking: it checks files on disk."""
+        lines = []
+        for face_id in face_ids:
+            face = seen.get(face_id) or {}
+            photo = self._photo_url(face, coordinator)
+            label = f"[**{face_id}** — see photo]({photo})" if photo \
+                else f"**{face_id}**"
+            if face.get("sightings"):
+                where = ", ".join(face.get("cameras") or []) or "a camera"
+                lines.append(f"- {label}: seen {face['sightings']}x recently "
+                             f"on {where}")
+            else:
+                # Named before and quiet since. Kept so a name stays editable.
+                lines.append(f"- {label}: not seen recently")
+        return lines
+
+    def _photo_url(self, face: dict, coordinator) -> str | None:
+        """A signed link to the thumbnail of this face's newest sighting.
+
+        None unless the clip has actually downloaded: the hub indexes a
+        recording only once it has finished and the thumbnail is written by
+        the download, so linking unconditionally would offer a dead link for
+        anyone seen in the last minute.
+        """
+        index, moment = face.get("camera_index"), face.get("last_seen")
+        if index is None or moment is None or index >= len(coordinator.cameras):
+            return None
+        try:
+            path = clip_path(self.hass, coordinator.cameras[index], moment, ".jpg")
+            if not path.is_file():
+                return None
+            return signed_url(self.hass, path)
+        except Exception:  # noqa: BLE001 - a missing photo is not an error
+            return None
 
     async def async_step_settings(self, user_input=None):
         if user_input is not None:

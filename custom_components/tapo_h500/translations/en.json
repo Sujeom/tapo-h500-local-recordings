@@ -49,7 +49,7 @@
       },
       "faces": {
         "title": "Name faces",
-        "description": "The hub recognises people and gives each a number, but will not say who they are \u2014 there is no name to look up. Put a name against a number and every card and sensor uses it. Clear a box to remove a name.\n\n{faces}"
+        "description": "The hub recognises people and gives each a number, but will not say who they are \u2014 there is no name to look up. Open a face's photo to see who it is, then put a name against that number and every card and sensor uses it. Clear a box to remove a name.\n\n{faces}\n\nA face has no photo link until its recording has downloaded."
       }
     },
     "abort": {

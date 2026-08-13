@@ -80,12 +80,17 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                     key = str(face_id)
                     seen = faces.setdefault(
                         key, {"id": key, "sightings": 0, "last_seen": None,
-                              "cameras": set()})
+                              "camera_index": None, "cameras": set()})
                     seen["sightings"] += 1
                     moment = start_of(clip)
                     if moment is not None and (seen["last_seen"] is None
                                                or moment > seen["last_seen"]):
                         seen["last_seen"] = moment
+                        # Which camera saw them last, so a caller can find the
+                        # thumbnail for that sighting. A face id is a
+                        # twelve-digit number and means nothing on its own;
+                        # the picture is the only way to know who it is.
+                        seen["camera_index"] = position
                     alias = self.cameras[position].get("alias")
                     if alias:
                         seen["cameras"].add(alias)

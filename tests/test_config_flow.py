@@ -114,6 +114,24 @@ class FaceNaming(unittest.TestCase):
         self.assertIn('self.async_abort(reason="no_faces")', SOURCE)
         self.assertIn("no_faces", STRINGS["options"]["abort"])
 
+    def test_a_photo_is_linked_so_the_number_can_be_matched_to_a_person(self):
+        """The whole point: nobody can name 123456789012 from memory."""
+        self.assertIn("def _photo_url", SOURCE)
+        self.assertIn("see photo", SOURCE)
+        self.assertIn("signed_url(self.hass, path)", SOURCE)
+
+    def test_no_link_is_offered_before_the_clip_has_downloaded(self):
+        """The thumbnail is written by the download, so linking
+        unconditionally would offer a dead link for anyone seen this minute."""
+        body = SOURCE.split("def _photo_url", 1)[1].split("async def", 1)[0]
+        self.assertIn("if not path.is_file():", body)
+        self.assertIn("return None", body)
+
+    def test_the_disk_check_does_not_block_the_event_loop(self):
+        """is_file() on every face is filesystem work inside a callback."""
+        self.assertIn("async_add_executor_job(\n            self._face_lines",
+                      SOURCE)
+
     def test_the_form_says_what_each_number_is(self):
         """A column of raw ids with text boxes tells nobody anything."""
         self.assertIn("description_placeholders", SOURCE)

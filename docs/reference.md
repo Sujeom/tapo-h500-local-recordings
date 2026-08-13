@@ -417,7 +417,10 @@ is — there is no face library to look an id up in. Names come from you.
 
 **The usual way: Settings → Devices & services → Tapo H500 → Configure → Name
 faces.** Every face the hub has recognised is listed with how many times and on
-which cameras it saw them, and a box to type a name into. Clearing a box
+which cameras it saw them, a link to that sighting's own photograph, and a box
+to type a name into. Open the photo to see who the number belongs to. A face
+has no link until its recording has downloaded — the thumbnail is written by
+the download, so someone seen a minute ago will not have one yet. Clearing a box
 removes the name. Faces you have already named stay on the list even once they
 stop appearing, so a name can be corrected rather than only added.
 

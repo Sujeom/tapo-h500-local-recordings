@@ -65,6 +65,28 @@ class Sightings(unittest.TestCase):
         self.assertIn("9", faces)
         self.assertIsNone(faces["9"]["name"])
 
+    def test_it_records_which_camera_saw_them_last(self):
+        """The naming screen builds a photo link from this. Without it there
+        is no path to a thumbnail and every face is an unnamed number."""
+        coord, _ = _build()
+        _with_faces(coord, [{"startTime": 100, "event_info": [{"face_id": 7}]}])
+        self.assertEqual(coord.faces_seen()["7"]["camera_index"], 0)
+
+    def test_the_camera_index_follows_the_newest_sighting(self):
+        """Not the first one encountered: the photo should be the most recent
+        picture of them, matching last_seen."""
+        coord, _ = _build()
+        coord.cameras = [{"device_id": "a", "alias": "Front"},
+                         {"device_id": "b", "alias": "Side"}]
+        coord.entry.options = dict(coord.entry.options)
+        coord.data = {"clips": {
+            0: [{"startTime": 100, "event_info": [{"face_id": 7}]}],
+            1: [{"startTime": 900, "event_info": [{"face_id": 7}]}],
+        }, "hub": {}}
+        face = coord.faces_seen()["7"]
+        self.assertEqual(face["last_seen"], 900)
+        self.assertEqual(face["camera_index"], 1)
+
     def test_which_cameras_saw_them(self):
         coord, _ = _build()
         _with_faces(coord, [{"startTime": 100, "event_info": [{"face_id": 7}]}])

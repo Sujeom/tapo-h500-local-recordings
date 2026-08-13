@@ -48,8 +48,8 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   [`examples/`](examples/notify-person-pet-doorbell.yaml) if you would rather
   edit it directly.
 - **Faces:** **Configure → Name faces** lists every face the hub has
-  recognised, with how often and where it saw them, and a box to type a name
-  into. Names are stored on the hub, so every card and sensor uses them, and
+  recognised, with a link to their photo so you can see who the number is, how
+  often and where it saw them, and a box to type a name into. Names are stored on the hub, so every card and sensor uses them, and
   each named face gets a last-seen sensor. There is a `tapo_h500.name_face`
   action too, for automations.
 - **Ask it:** "who was at the door?" and "what happened today?" work in Assist.
