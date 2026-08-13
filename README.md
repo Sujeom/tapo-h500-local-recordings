@@ -44,6 +44,9 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   and change the notify service. Fires only for a person, an animal or the
   doorbell, says which happened where, then replaces itself with the picture
   once the hub has finished the recording.
+- **Automations:** the doorbells appear under **Device** triggers — *When a
+  person is detected*, *was rung*, *saw an unfamiliar face* — so no templates
+  are needed.
 - **Cards:** add a card, search **Tapo**. All seven have a visual editor.
 - **Clips:** **Media → Tapo H500**, by camera and date.
 - **Settings:** the integration's **Configure** page.

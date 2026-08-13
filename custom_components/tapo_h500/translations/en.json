@@ -165,5 +165,18 @@
         "name": "Siren duration"
       }
     }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "doorbell": "{entity_name} was rung",
+      "face": "{entity_name} recognised a face",
+      "missed_doorbell": "{entity_name} was rung and not answered",
+      "motion": "{entity_name} detected motion",
+      "person": "{entity_name} detected a person",
+      "pet": "{entity_name} detected an animal",
+      "theft": "{entity_name} reported tampering",
+      "unknown_face": "{entity_name} saw an unfamiliar face",
+      "vehicle": "{entity_name} detected a vehicle"
+    }
   }
 }
