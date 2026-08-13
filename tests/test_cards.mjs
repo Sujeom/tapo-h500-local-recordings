@@ -25,7 +25,7 @@ globalThis.customElements = { _defined: new Map(),
 globalThis.window = {};
 
 const mod = await import("../custom_components/tapo_h500/www/tapo-h500-card.js");
-const { esc, ago, groupByHour, utcDay, TapoH500Card, TapoH500HeroCard,
+const { esc, ago, groupByHour, utcDay, windowDates, TapoH500Card, TapoH500HeroCard,
         TapoH500GridCard, TapoH500TimelineCard } = mod;
 
 let failures = 0;
@@ -77,6 +77,32 @@ test("hour grouping separates the same hour on different days", () => {
 
 test("utcDay formats the window the service expects", () => {
   assert.equal(utcDay(new Date(Date.UTC(2026, 7, 3))), "20260803");
+});
+
+test("a local evening is not dropped by asking for the UTC day alone", () => {
+  // Regression: on a UTC-4 machine, 21:16 local on the 12th is 01:16 UTC on
+  // the 13th. Asking only for utcDay(now) covered the 13th and lost the whole
+  // local day; asking only for the local date lost the clip itself. The range
+  // has to span both.
+  const evening = new Date("2026-08-13T01:16:23Z");   // 21:16 local at UTC-4
+  const range = windowDates(1, evening);
+  const localDate = `${evening.getFullYear()}` +
+    `${String(evening.getMonth() + 1).padStart(2, "0")}` +
+    `${String(evening.getDate()).padStart(2, "0")}`;
+  assert.ok(range.start_date <= localDate,
+    `range starts at ${range.start_date}, after the local day ${localDate}`);
+  assert.ok(range.end_date >= utcDay(evening),
+    "range must reach the UTC date the clip actually falls on");
+});
+
+test("more days widens backwards, never forwards", () => {
+  const now = new Date("2026-08-13T12:00:00Z");
+  const one = windowDates(1, now);
+  const three = windowDates(3, now);
+  assert.equal(three.end_date, one.end_date, "must not ask for the future");
+  assert.ok(three.start_date < one.start_date, "three days must reach back further");
+  assert.equal(windowDates(0, now).start_date, one.start_date,
+    "a nonsense day count must not invert the range");
 });
 
 // --- card bodies -----------------------------------------------------------

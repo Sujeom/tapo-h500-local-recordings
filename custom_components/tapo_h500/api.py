@@ -5,7 +5,7 @@ import asyncio
 import json
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator
 
 
@@ -163,26 +163,27 @@ class H500Client:
                 raise ValueError(f"{label} must use YYYYMMDD") from err
         if start_date > end_date:
             raise ValueError("start_date must not be after end_date")
-        with self._hub_lock:
-            dates = self._hub.executeFunction(
-                "searchDateWithVideo",
-                {"playback": {"search_year_utility": {
-                    "channel": [0], "child_device_id": camera["device_id"],
-                    "child_device_mac": camera["mac"], "start_date": start_date,
-                    "end_date": end_date,
-                }}},
-            )
-        found = []
-        for result in dates.get("playback", {}).get("search_results", []):
-            for value in result.values():
-                if "date" not in value:
-                    continue
-                day = datetime.strptime(value["date"], "%Y%m%d").replace(
-                    tzinfo=timezone.utc)
-                for clip in self._search_videos(
-                        camera, day.timestamp(), day.timestamp() + 86399):
-                    clip["date"] = value["date"]
-                    found.append(clip)
+        # Search the range that was asked for, as one epoch window.
+        #
+        # This used to ask searchDateWithVideo which dates held video and then
+        # search each one. The hub answers with dates in its OWN local time and
+        # ignores the range it was given -- asked for 20260813 it returns
+        # 20260811 and 20260812 -- and those were read back as UTC dates. On a
+        # hub at UTC-4 that silently dropped every clip between 8pm and
+        # midnight local, because those sit on the next UTC date, which the hub
+        # never names. searchVideoWithUTC takes plain epoch seconds and spans
+        # days happily, so the date lookup bought a round trip and a bug.
+        first = datetime.strptime(start_date, "%Y%m%d").replace(
+            tzinfo=timezone.utc)
+        last = datetime.strptime(end_date, "%Y%m%d").replace(
+            tzinfo=timezone.utc) + timedelta(days=1)
+        found = self._search_videos(
+            camera, first.timestamp(), last.timestamp() - 1)
+        for clip in found:
+            moment = start_of(clip)
+            if moment is not None:
+                clip["date"] = datetime.fromtimestamp(
+                    moment, timezone.utc).strftime("%Y%m%d")
         # One detection lookup over the whole range rather than one per day:
         # a seven-day window answers fine, and this hub is easy to overload.
         if found:

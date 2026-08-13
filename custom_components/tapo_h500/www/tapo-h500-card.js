@@ -31,6 +31,21 @@ export const esc = (value) =>
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[character]));
 
+/** The UTC dates to ask for so that N *local* days are covered.
+ *
+ * A local day is not a UTC day. West of UTC, today starts on yesterday's UTC
+ * date, so asking for utcDay(now) alone drops everything before local 20:00 --
+ * an 8pm doorbell press would simply not be listed. Widening to whichever UTC
+ * dates the local window touches over-fetches by a few hours at the far end,
+ * which the list shows happily; under-fetching loses events silently.
+ */
+export const windowDates = (days, now = new Date()) => {
+  const first = new Date(now);
+  first.setHours(0, 0, 0, 0);
+  first.setDate(first.getDate() - (Math.max(1, days) - 1));
+  return { start_date: utcDay(first), end_date: utcDay(now) };
+};
+
 /** "2 minutes ago". Floors rather than rounds, so it never reads ahead of itself. */
 export const ago = (startSeconds, now = Date.now()) => {
   const delta = Math.floor((now - startSeconds * 1000) / 1000);
@@ -156,12 +171,10 @@ class H500Base extends HTMLElement {
     if (!this._hass || this._busy) return;
     this._busy = true;
     try {
-      const now = new Date();
       const response = await this._call("list_recordings", {
         config_entry_id: await this._entryId(),
         camera_index: this._index,
-        start_date: utcDay(new Date(now.getTime() - (this._config.days - 1) * 86400000)),
-        end_date: utcDay(now),
+        ...windowDates(this._config.days),
       });
       this._camera = response.camera;
       this._cameras = response.cameras || null;

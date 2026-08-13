@@ -420,6 +420,75 @@ class SirenTest(unittest.TestCase):
             self.assertIsNone(readings[key])
 
 
+class RecordingWindowTest(unittest.TestCase):
+    """The requested range must be searched, whatever dates the hub volunteers.
+
+    Regression for evening clips vanishing from the card. The hub reports the
+    dates it holds video for in its OWN local time, and those were being read
+    back as UTC dates and turned into UTC midnight windows. On a hub at UTC-4
+    that loses every clip between 8pm and midnight local, because they fall on
+    the next UTC date -- one the hub never names.
+    """
+
+    # 21:16 on a UTC-4 hub. The clip the user noticed was missing.
+    EVENING_CLIP = 1786583783            # 2026-08-13 01:16:23 UTC
+
+    class _Hub:
+        """Answers like the real hub: local dates, and clips by epoch."""
+
+        def __init__(self, clips):
+            self.clips = clips
+            self.searched = []
+
+        def executeFunction(self, method, params):
+            if method == "searchDateWithVideo":
+                # Verbatim behaviour: its own local dates, and it ignores the
+                # range it was asked for.
+                return {"playback": {"search_results": [
+                    {"r1": {"date": "20260811"}}, {"r2": {"date": "20260812"}}]}}
+            if method == "searchVideoWithUTC":
+                block = params["playback"]["search_video_with_utc"]
+                low, high = int(block["start_time"]), int(block["end_time"])
+                self.searched.append((low, high))
+                return {"playback": {"search_video_results": [
+                    {f"r{i}": {"startTime": t, "endTime": t + 15}}
+                    for i, t in enumerate(self.clips) if low <= t <= high]}}
+            return {}
+
+    def _client(self):
+        client = H500Client("host", "admin", "local", "cloud")
+        client._hub = self._Hub([1786520000, self.EVENING_CLIP])
+        client.cameras = lambda: [{"device_id": "c", "mac": "m"}]
+        client.camera_at = lambda index: {"device_id": "c", "mac": "m"}
+        client.detections = lambda *a, **k: []
+        return client
+
+    def test_an_evening_clip_is_not_lost(self):
+        _, found = self._client().recordings(0, "20260813", "20260813")
+        starts = [clips.start_of(clip) for clip in found]
+        self.assertIn(self.EVENING_CLIP, starts,
+                      "a 21:16 local clip fell outside every searched window")
+
+    def test_the_whole_requested_range_is_searched(self):
+        client = self._client()
+        client.recordings(0, "20260812", "20260813")
+        covered = client._hub.searched
+        self.assertTrue(covered, "nothing was searched at all")
+        low = min(a for a, _ in covered)
+        high = max(b for _, b in covered)
+        # 20260812 00:00:00 UTC through the last second of 20260813.
+        self.assertLessEqual(low, 1786492800)
+        self.assertGreaterEqual(high, 1786665599)
+
+    def test_the_hubs_own_date_list_does_not_narrow_the_search(self):
+        # The hub only ever names 0811 and 0812; asking for 0813 must still
+        # search 0813.
+        client = self._client()
+        client.recordings(0, "20260813", "20260813")
+        self.assertTrue(any(b >= self.EVENING_CLIP for _, b in client._hub.searched),
+                        "the search stopped short of the requested date")
+
+
 class DetectionTest(unittest.TestCase):
     """What actually triggered a recording.
 
