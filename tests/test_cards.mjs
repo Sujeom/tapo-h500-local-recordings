@@ -351,6 +351,28 @@ test("a dragged height is not then capped by the default max_height", () => {
   assert.ok(explicit._maxHeight().includes("200px"));
 });
 
+test("a narrow timeline keeps the time readable", () => {
+  // Regression: .at was flex:1 with min-width:0, so the time was the one
+  // element that absorbed every narrow layout and lost its seconds. The
+  // detection label made it far worse, being much longer than "motion".
+  const css = TapoH500TimelineCard.style.replace(/\s+/g, " ");
+  const at = css.match(/\.event \.at \{([^}]*)\}/)[1];
+  assert.ok(/flex:\s*none/.test(at), "the time must not shrink");
+  assert.ok(/white-space:\s*nowrap/.test(at), "the time must not wrap mid-value");
+  const badge = css.match(/\.event \.badge \{([^}]*)\}/)[1];
+  assert.ok(/text-overflow:\s*ellipsis/.test(badge),
+    "the long detection label is what should give way instead");
+  assert.ok(/flex-wrap:\s*wrap/.test(css), "the row should wrap, not crush");
+});
+
+test("an ellipsized badge still carries its full label", () => {
+  const card = build(TapoH500TimelineCard, {});
+  card._recordings = [{ ...CLIPS[0], detection: "motion + person + vehicle + type 22" }];
+  const html = card.body();
+  assert.ok(html.includes('title="motion + person + vehicle + type 22"'),
+    "the hidden half of a truncated badge must be reachable on hover");
+});
+
 test("every card offers a visual editor", () => {
   // Without getConfigElement, Home Assistant reports "no visual editor
   // available" and the card can only be configured in YAML.

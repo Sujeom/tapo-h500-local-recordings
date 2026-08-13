@@ -399,8 +399,10 @@ class H500Base extends HTMLElement {
    */
   _badge(item) {
     const label = item.detection || item.event_type;
+    // The title carries the full label, because a narrow card ellipsizes the
+    // badge and the hidden half is exactly the part worth reading.
     return `<span class="badge ${esc(item.event_type)}"
-      title="${esc(item.event_type)}">${esc(label)}</span>`;
+      title="${esc(label)}">${esc(label)}</span>`;
   }
 
   /** The thumbnail, or a placeholder that keeps the layout from jumping. */
@@ -655,6 +657,9 @@ class TapoH500TimelineCard extends H500Base {
     .event {
       display: flex; align-items: center; gap: 10px; padding: 4px 0 4px 6px;
       border-left: 2px solid var(--divider-color); margin-left: 4px;
+      /* Narrow cards drop the tail of the row onto a second line rather than
+         crushing everything on one. */
+      flex-wrap: wrap;
     }
     .event .dot {
       width: 8px; height: 8px; border-radius: 50%; flex: none;
@@ -665,7 +670,21 @@ class TapoH500TimelineCard extends H500Base {
       width: 64px; height: 36px; object-fit: cover; border-radius: 3px;
       background: var(--secondary-background-color); flex: none;
     }
-    .event .at { flex: 1; min-width: 0; font-size: 0.9rem; }
+    /* The time is the point of a timeline, so it never shrinks. It used to be
+       flex:1 with min-width:0, which made it the one thing that absorbed every
+       narrow layout and clipped the seconds off. tabular-nums lines the times
+       up down the column, which is most of why a timeline is scannable. */
+    .event .at {
+      flex: none; white-space: nowrap; font-size: 0.9rem;
+      font-variant-numeric: tabular-nums;
+    }
+    /* The detection label is the long and variable part -- "motion + person +
+       vehicle + type 22" -- so it is what gives way instead. */
+    .event .badge {
+      flex: 1 1 auto; min-width: 0; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .event .muted { flex: none; }
   `;
 
   getCardSize() {
