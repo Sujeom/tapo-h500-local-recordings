@@ -252,7 +252,7 @@ recording downloads.
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| Seconds between activity checks | `2` | How often the hub is polled. This is the whole notification delay: nothing reaches Home Assistant sooner than the next poll. A poll costs about 40ms of hub time, so 2s uses a few percent of what is available; 1s is allowed. |
+| Seconds between activity checks | `2` | Also asked for when the hub is first added. How often the hub is polled. This is the whole notification delay: nothing reaches Home Assistant sooner than the next poll. A poll costs about 40ms of hub time, so 2s uses a few percent of what is available; 1s is allowed. |
 | Download new recordings automatically | Every new recording | `Never`, `Doorbell presses only`, or `Every new recording`. See the note below before choosing presses-only. |
 | Downloaded clips to keep per camera | `0` | `0` keeps everything. Any other number prunes the oldest automatic downloads once a camera holds more than that, so set `5` and the sixth arrival evicts the oldest. Manual downloads are never pruned. |
 | Convert downloads to MP4 | On | Off keeps the hub's original MPEG-TS. |

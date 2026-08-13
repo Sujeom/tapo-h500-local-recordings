@@ -16,6 +16,14 @@ from .const import (
 )
 
 
+# Defined once and used by both forms. A poll is about 40ms of hub time, so the
+# 1s floor is far above anything the hardware needs; the ceiling only stops a
+# typo turning the integration off for a day. Two copies of this drifted apart
+# once already -- the floor sat above the default, so the default could not be
+# saved -- so there is deliberately only one.
+POLL_INTERVAL = vol.All(vol.Coerce(int), vol.Range(min=1, max=600))
+
+
 class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
@@ -45,16 +53,32 @@ class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     await self.async_set_unique_id(user_input[CONF_HOST])
                     self._abort_if_unique_id_configured(
                         updates={CONF_HOST: user_input[CONF_HOST]})
+                    # The interval goes to options, not data. Options is where
+                    # the coordinator reads it and where the options flow later
+                    # writes it; left in data it would be recorded, ignored,
+                    # and silently replaced by the default.
+                    interval = user_input.pop(
+                        CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
                     return self.async_create_entry(
                         title=f"Tapo H500 ({user_input[CONF_HOST]})",
                         data=user_input,
+                        options={CONF_POLL_INTERVAL: interval},
                     )
 
+        # Keep whatever was typed when the form comes back with an error, so a
+        # wrong password does not also cost the host and the interval.
+        previous = user_input or {}
         schema = vol.Schema({
-            vol.Required(CONF_HOST): str,
-            vol.Required(CONF_USERNAME, default="admin"): str,
+            vol.Required(CONF_HOST,
+                         default=previous.get(CONF_HOST, vol.UNDEFINED)): str,
+            vol.Required(CONF_USERNAME,
+                         default=previous.get(CONF_USERNAME, "admin")): str,
             vol.Required(CONF_PASSWORD): str,
             vol.Required(CONF_CLOUD_PASSWORD): str,
+            vol.Required(
+                CONF_POLL_INTERVAL,
+                default=previous.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
+            ): POLL_INTERVAL,
         })
         return self.async_show_form(
             step_id="user", data_schema=schema, errors=errors)
@@ -69,10 +93,7 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             vol.Required(
                 CONF_POLL_INTERVAL,
                 default=options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
-            # 1s floor, not 5s: a poll is ~40ms of hub time, so the old floor
-            # was ten times slower than anything the hardware required -- and
-            # it sat above the default, which would have rejected it outright.
-            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=600)),
+            ): POLL_INTERVAL,
             vol.Required(
                 CONF_AUTO_DOWNLOAD,
                 default=options.get(CONF_AUTO_DOWNLOAD, DEFAULT_AUTO_DOWNLOAD),

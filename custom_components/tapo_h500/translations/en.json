@@ -9,7 +9,11 @@
           "host": "H500 IP address",
           "username": "Camera account username",
           "password": "Camera account password",
-          "cloud_password": "TP-Link cloud account password"
+          "cloud_password": "TP-Link cloud account password",
+          "poll_interval": "Seconds between activity checks"
+        },
+        "data_description": {
+          "poll_interval": "How quickly activity reaches Home Assistant. This is the whole notification delay -- nothing arrives sooner than the next check. A check costs the hub about 40ms, so 2 seconds is comfortable and 1 is allowed. Changeable later under Configure."
         }
       }
     },
@@ -30,7 +34,8 @@
         },
         "data_description": {
           "convert_mp4": "MP4 plays in the browser; turn this off to keep the hub's original MPEG-TS.",
-          "keep_downloads": "0 keeps everything. Any other number prunes the oldest automatic downloads once a camera holds more than that. Manual downloads are never pruned."
+          "keep_downloads": "0 keeps everything. Any other number prunes the oldest automatic downloads once a camera holds more than that. Manual downloads are never pruned.",
+          "poll_interval": "The whole notification delay: nothing reaches Home Assistant sooner than the next check. About 40ms of hub time per check, so low values are cheap."
         }
       }
     }
