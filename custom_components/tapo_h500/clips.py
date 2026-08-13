@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 
-from .const import EVENT_MOTION, EVENT_RING, RING_HINTS
+from .const import (
+    DETECTION_NAMES, EVENT_MOTION, EVENT_RING, RING_ALARM_TYPES, RING_HINTS,
+)
 
 # Fields the hub has been seen to label activity with, most specific first.
 TYPE_FIELDS = ("video_type", "detection_type", "event_type", "type")
@@ -45,19 +47,98 @@ def hub_label(entry: dict) -> str | None:
     return None
 
 
+def detection_types(entry: dict) -> list[int]:
+    """Every alarm type in one detection, lowest first.
+
+    searchDetectionList carries two related fields, and across every detection
+    observed on firmware 1.3.20 `alarm_type` was exactly the highest set bit of
+    `events_1` plus one:
+
+        alarm_type  2 -> events_1 bit 1     alarm_type 17 -> bit 16
+        alarm_type  6 -> bit 5              alarm_type 19 -> bit 18
+        alarm_type  8 -> bit 7              alarm_type 20 -> bit 19
+        alarm_type  9 -> bit 8              alarm_type 22 -> bit 21
+
+    So the mask is the richer field: it lists everything that fired at once,
+    where alarm_type reports only the most significant. The mask is preferred
+    and alarm_type is the fallback for a detection that carries no mask.
+    """
+    mask = _as_int(entry.get("events_1"))
+    if mask is not None and mask > 0:
+        return [bit + 1 for bit in range(mask.bit_length()) if mask >> bit & 1]
+    alarm = _as_int(entry.get("alarm_type"))
+    return [alarm] if alarm else []
+
+
+def primary_type(entry: dict) -> int | None:
+    """The most significant alarm type, which is what alarm_type reports."""
+    alarm = _as_int(entry.get("alarm_type"))
+    if alarm:
+        return alarm
+    types = detection_types(entry)
+    return types[-1] if types else None
+
+
+def describe_detection(entry: dict) -> str | None:
+    """A short phrase for what the hub says triggered this recording.
+
+    Unnamed codes are shown as their number rather than guessed at, so an
+    unfamiliar code reads as "type 22" instead of silently becoming "motion".
+    """
+    types = detection_types(entry)
+    if not types:
+        return None
+    named = [DETECTION_NAMES[code] for code in types if code in DETECTION_NAMES]
+    unknown = [f"type {code}" for code in types if code not in DETECTION_NAMES]
+    return " + ".join(named + unknown) or None
+
+
 def event_type(entry: dict) -> str:
     """Classify one clip or detection as a doorbell press or motion.
 
-    ponytail: an H500 with TD21 doorbells reports numeric labels — every clip
-    observed came back video_type "2" — and which code means a press is not
-    known, so nothing is classified as a ring yet. The raw label rides along on
-    the event as hub_type; once a real press is seen with a different code, add
-    it here. Until then treat "ring" as unreachable rather than trusted.
+    The hub's per-clip `video_type` is "2" for everything, so it classifies
+    nothing; the detection log is what carries the real type. Which alarm_type
+    means a doorbell press has not been captured yet, so RING_ALARM_TYPES is
+    empty and nothing claims to be a ring — add the code there once a real
+    press has been seen and every path picks it up.
     """
+    for code in detection_types(entry):
+        if code in RING_ALARM_TYPES:
+            return EVENT_RING
     label = (hub_label(entry) or "").lower()
     if label and any(hint in label for hint in RING_HINTS):
         return EVENT_RING
     return EVENT_MOTION
+
+
+# Detections and clips are separate lookups. Every clip observed had a
+# detection starting at the same second, but a second of slack costs nothing
+# and covers a clock that rounds.
+MATCH_SECONDS = 2
+
+
+def attach_detections(clips: list[dict], detections) -> list[dict]:
+    """Copy each clip's detection fields onto it, so one record carries both."""
+    by_time = {}
+    for detection in detections or []:
+        moment = start_of(detection)
+        if moment is not None:
+            by_time[moment] = detection
+    if not by_time:
+        return clips
+    for clip in clips:
+        moment = start_of(clip)
+        if moment is None:
+            continue
+        match = by_time.get(moment) or next(
+            (found for when, found in by_time.items()
+             if abs(when - moment) <= MATCH_SECONDS), None)
+        if match is None:
+            continue
+        for field in ("alarm_type", "events_1", "event_info"):
+            if match.get(field) is not None:
+                clip[field] = match[field]
+    return clips
 
 
 def flatten_clips(result: dict) -> list[dict]:

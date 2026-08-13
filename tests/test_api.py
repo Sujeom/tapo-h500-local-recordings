@@ -420,6 +420,96 @@ class SirenTest(unittest.TestCase):
             self.assertIsNone(readings[key])
 
 
+class DetectionTest(unittest.TestCase):
+    """What actually triggered a recording.
+
+    Every record below is verbatim from an H500 on firmware 1.3.20. The clip
+    index classifies nothing -- video_type is "2" for all 26 clips in a
+    three-day window -- and the detection log is what carries the type.
+    """
+
+    # Real detections, straight off the hub.
+    REAL = [
+        {"alarm_type": 2, "events_1": 2, "start_time": 1786553183},
+        {"alarm_type": 6, "events_1": 34, "start_time": 1786553786},
+        {"alarm_type": 8, "events_1": 130, "start_time": 1786570673},
+        {"alarm_type": 9, "events_1": 256, "start_time": 1786570846},
+        {"alarm_type": 17, "events_1": 66050, "start_time": 1786583783},
+        {"alarm_type": 19, "events_1": 262178, "start_time": 1786552988},
+        {"alarm_type": 20, "events_1": 524450, "start_time": 1786542131,
+         "event_info": [{"face_bitmap": 0, "face_id": 272465657857}]},
+        {"alarm_type": 22, "events_1": 2097442, "start_time": 1786570781},
+    ]
+
+    def test_alarm_type_is_the_highest_bit_of_the_mask_plus_one(self):
+        # This is the whole basis for reading events_1 as a bitmask, so it is
+        # asserted against every record rather than assumed.
+        for record in self.REAL:
+            self.assertEqual(
+                clips.detection_types(record)[-1], record["alarm_type"],
+                f"events_1={record['events_1']}")
+
+    def test_the_mask_lists_everything_that_fired_at_once(self):
+        # 2097442 = bits 1, 5, 8 and 21.
+        self.assertEqual(
+            clips.detection_types({"events_1": 2097442, "alarm_type": 22}),
+            [2, 6, 9, 22])
+
+    def test_a_detection_with_no_mask_falls_back_to_alarm_type(self):
+        self.assertEqual(clips.detection_types({"alarm_type": 22}), [22])
+        self.assertEqual(clips.detection_types({}), [])
+
+    def test_unknown_codes_are_shown_not_guessed(self):
+        # Naming an unproven code would put a confident wrong label on a
+        # recording, which is worse than showing the number.
+        self.assertEqual(
+            clips.describe_detection({"events_1": 2097442, "alarm_type": 22}),
+            "motion + type 6 + type 9 + type 22")
+        self.assertEqual(clips.describe_detection({"events_1": 2}), "motion")
+        self.assertIsNone(clips.describe_detection({}))
+
+    def test_the_only_code_seen_with_a_face_id_is_named_face(self):
+        face = next(r for r in self.REAL if r["alarm_type"] == 20)
+        self.assertIn("face", clips.describe_detection(face))
+
+    def test_nothing_claims_to_be_a_ring_until_a_press_is_captured(self):
+        for record in self.REAL:
+            self.assertEqual(clips.event_type(record), "motion")
+
+    def test_adding_the_ring_code_classifies_every_path_at_once(self):
+        with patch.object(clips, "RING_ALARM_TYPES", {17}):
+            ring = next(r for r in self.REAL if r["alarm_type"] == 17)
+            other = next(r for r in self.REAL if r["alarm_type"] == 22)
+            self.assertEqual(clips.event_type(ring), "ring")
+            self.assertEqual(clips.event_type(other), "motion")
+
+    def test_detections_are_matched_to_clips_by_start_time(self):
+        clip_list = [{"startTime": 1786553183, "endTime": 1786553199},
+                     {"startTime": 1786542132, "endTime": 1786542147}]
+        clips.attach_detections(clip_list, self.REAL)
+        self.assertEqual(clip_list[0]["alarm_type"], 2)
+        # One second out still matches: the clip index and the detection log
+        # are separate lookups and need not agree to the second.
+        self.assertEqual(clip_list[1]["alarm_type"], 20)
+
+    def test_a_clip_with_no_detection_is_left_alone(self):
+        clip_list = [{"startTime": 1, "endTime": 2}]
+        clips.attach_detections(clip_list, self.REAL)
+        self.assertNotIn("alarm_type", clip_list[0])
+        clips.attach_detections(clip_list, [])
+        clips.attach_detections(clip_list, None)
+        self.assertNotIn("alarm_type", clip_list[0])
+
+    def test_an_empty_window_must_not_disable_the_call(self):
+        """The bug that made this look dead for the life of a session."""
+        client = H500Client("host", "admin", "local", "cloud")
+        client._hub = _FakeHub({})          # a quiet window answers {}
+        self.assertEqual(client.detections({"device_id": "c", "mac": "m"}, 0, 1), [])
+        self.assertTrue(client._detection_supported, "one quiet poll disabled it")
+        client._hub = _FakeHub({"playback": {"search_detection_list": self.REAL}})
+        self.assertEqual(len(client.detections({"device_id": "c", "mac": "m"}, 0, 1)), 8)
+
+
 class HubSettingsTest(unittest.TestCase):
     """Writable hub settings.
 

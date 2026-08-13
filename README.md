@@ -115,10 +115,22 @@ back to polling the indexed clip list after one attempt. A clip appears only
 once the hub has finished writing it, so an event trails the actual doorbell
 press by the poll interval plus the clip length.
 
-**No AI classification.** The hub exposes no face, person, pet or vehicle
-detection to a local client, and every clip is labelled `video_type` `"2"`
-whatever triggered it. The cameras do the classification — `ai_camera_support`
-is a non-zero bitmask — but the result is not retrievable. See
+**Recordings are classified, but not every code is named yet.** Every clip is
+labelled `video_type` `"2"` whatever triggered it, so the clip index itself
+classifies nothing. The hub's *detection log* does: on firmware `1.3.20` every
+clip in a three-day window had a matching detection carrying an `alarm_type`
+and an `events_1` bitmask of everything that fired at once, and one code even
+carries a face ID.
+
+Cards and the event entity show what the hub reported — `motion`,
+`motion + face`, and unnamed codes as `type 22` rather than a guess. Eight
+codes have been seen (2, 6, 8, 9, 17, 19, 20, 22) and only two are named, since
+the hub cannot name them either.
+
+**Doorbell presses are still not identified.** Which `alarm_type` means a press
+has not been captured, so `RING_ALARM_TYPES` in `const.py` is empty and nothing
+claims to be a ring. Press the doorbell, find the code on the resulting event,
+and adding it there classifies every path at once. See
 `docs/protocol-notes.md`.
 
 The protocol is undocumented. Pinning the H500 to a stable LAN address is
@@ -250,11 +262,22 @@ lives on the camera, and the hub exposes no way to address a camera child. See
 Cameras are enumerated when the config entry loads. Pair a new camera, then
 reload the integration to pick it up.
 
-**Doorbell presses are not distinguishable yet.** An H500 with TD21 doorbells
-labels every clip `video_type` `"2"`, so nothing classifies as a `ring` and the
-presses-only download mode would match nothing. The raw label is exposed as the
-`hub_type` event attribute; if you see a press arrive with a different code,
-that code is the missing piece.
+**Doorbell presses are not distinguishable yet, but finding the code is now a
+one-minute job.** Nothing classifies as a `ring`, so the presses-only download
+mode still matches nothing.
+
+Every event and every listed recording now carries what the hub reported:
+
+| Attribute | Example |
+| --- | --- |
+| `detection` | `motion + face`, or `type 22` for a code with no name |
+| `alarm_type` | `22` — the most significant code |
+| `detection_types` | `[2, 6, 9, 22]` — everything that fired at once |
+
+To pin the press: press the doorbell, look at `alarm_type` on the
+`event.<camera>_activity` entity that follows, and add that number to
+`RING_ALARM_TYPES` in `const.py`. The event entity, the presses-only download
+filter and all four cards read the same list, so one number fixes every path.
 
 ### Doorbell automation
 

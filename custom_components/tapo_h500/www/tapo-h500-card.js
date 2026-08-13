@@ -215,6 +215,20 @@ class H500Base extends HTMLElement {
     }
   }
 
+  /** What the hub says triggered this recording.
+   *
+   * `detection` comes from the hub's detection log and names what fired --
+   * "motion", "motion + face", or an unnamed code as "type 22". `event_type`
+   * is only the ring/motion class, and every clip's own video_type is "2", so
+   * the detection is the specific one. The class stays event_type so a ring
+   * keeps its highlight.
+   */
+  _badge(item) {
+    const label = item.detection || item.event_type;
+    return `<span class="badge ${esc(item.event_type)}"
+      title="${esc(item.event_type)}">${esc(label)}</span>`;
+  }
+
   /** The thumbnail, or a placeholder that keeps the layout from jumping. */
   _image(item, className = "") {
     return item.thumbnail
@@ -322,7 +336,7 @@ class TapoH500Card extends H500Base {
         <div class="info">
           <div class="when">${esc(label)}</div>
           <div class="muted">
-            <span class="badge ${esc(item.event_type)}">${esc(item.event_type)}</span>
+            ${this._badge(item)}
             ${Number(item.duration)}s
           </div>
         </div>
@@ -379,7 +393,7 @@ class TapoH500HeroCard extends H500Base {
            ${item.downloaded ? "" : "disabled"}>
            ${this._image(item)}
            ${item.downloaded ? `<span class="play">&#9654;</span>` : ""}
-           <span class="badge ${esc(item.event_type)}">${esc(item.event_type)}</span>
+           ${this._badge(item)}
          </button>`;
     return `
       ${frame}
@@ -425,7 +439,7 @@ class TapoH500GridCard extends H500Base {
         aria-pressed="${this._isPlaying(item)}" ${item.downloaded ? "" : "disabled"}>
         ${this._image(item)}
         <span class="when">${esc(when.toLocaleTimeString())}</span>
-        <span class="badge ${esc(item.event_type)}">${esc(item.event_type)}</span>
+        ${this._badge(item)}
       </button>`;
   }
 
@@ -479,6 +493,7 @@ class TapoH500TimelineCard extends H500Base {
         <span class="dot"></span>
         <span class="at">${esc(when.toLocaleTimeString())}</span>
         ${this._image(item)}
+        ${this._badge(item)}
         <span class="muted">${Number(item.duration)}s</span>
         ${this._actions(item)}
       </div>

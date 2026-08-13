@@ -14,7 +14,7 @@ from pytapo.media_stream import session as media_session
 from pytapo.media_stream.crypto import AESHelper
 from pytapo.media_stream.session import HttpMediaSession
 
-from .clips import flatten_clips
+from .clips import attach_detections, flatten_clips, start_of
 from .status import HUB_STATUS_REQUESTS, unpack_multiple
 
 
@@ -183,6 +183,14 @@ class H500Client:
                         camera, day.timestamp(), day.timestamp() + 86399):
                     clip["date"] = value["date"]
                     found.append(clip)
+        # One detection lookup over the whole range rather than one per day:
+        # a seven-day window answers fine, and this hub is easy to overload.
+        if found:
+            moments = [start_of(clip) for clip in found]
+            moments = [moment for moment in moments if moment is not None]
+            if moments:
+                attach_detections(found, self.detections(
+                    camera, min(moments) - 60, max(moments) + 60))
         return camera, found
 
     def recent(self, camera, start_time, end_time):
@@ -190,11 +198,16 @@ class H500Client:
         return self._search_videos(camera, start_time, end_time)
 
     def detections(self, camera, start_time, end_time):
-        """Hub-side detection log, which lands before a clip is indexed.
+        """Hub-side detection log: what actually triggered each recording.
 
-        ponytail: unverified on H500 firmware. The first rejection disables it
-        for the rest of the session and the poller falls back to the indexed
-        clip list, which is the path verified against real hardware.
+        Verified on firmware 1.3.20 -- every clip in a three-day window had a
+        detection whose start_time matched it exactly, carrying an alarm_type
+        and an events_1 bitmask.
+
+        An empty reply means "nothing in this window", which is the normal
+        state of a quiet camera. Treating it as "unsupported" is what made this
+        look dead: one quiet poll disabled the call for the rest of the session
+        and it was never retried, so the classification never arrived.
         """
         if not self._detection_supported:
             return None
@@ -214,10 +227,9 @@ class H500Client:
             self._detection_supported = False
             return None
         detections = result.get("playback", {}).get("search_detection_list")
-        if not isinstance(detections, list):
-            self._detection_supported = False
-            return None
-        return detections
+        # A quiet window is {} rather than an empty list. That is an answer,
+        # not a refusal, so it must not disable the call.
+        return detections if isinstance(detections, list) else []
 
     def hub_status(self):
         """Every hub-level reading in a single round trip.

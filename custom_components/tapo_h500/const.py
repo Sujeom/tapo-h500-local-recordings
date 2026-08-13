@@ -50,8 +50,26 @@ EVENT_MOTION = "motion"
 EVENT_TYPES = [EVENT_RING, EVENT_MOTION]
 
 # The hub reports a free-form video_type per clip. Anything matching these
-# substrings counts as a doorbell press; everything else is motion.
+# substrings counts as a doorbell press; everything else is motion. Kept as a
+# fallback: on firmware 1.3.20 video_type is "2" for every clip, so it never
+# matches and the detection log below is what actually classifies.
 RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
+
+# alarm_type codes from searchDetectionList, seen on firmware 1.3.20:
+# 2, 6, 8, 9, 17, 19, 20 and 22. Only two are named, and only where the
+# evidence supports it -- 2 is set on nearly every detection, and 20 is the
+# only code observed carrying a face_id in event_info. The rest are real,
+# unnamed, and displayed as their number rather than guessed at.
+DETECTION_NAMES = {
+    2: "motion",
+    20: "face",
+}
+
+# Which codes mean a doorbell press. Empty until a real press is captured:
+# naming one on a hunch would put a confident wrong label on every recording,
+# which is worse than the honest "type 22". Add the code here and the event
+# entity, the download filter and every card pick it up at once.
+RING_ALARM_TYPES: set[int] = set()
 
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
 

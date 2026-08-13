@@ -17,7 +17,9 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.loader import async_get_integration
 
 from .api import H500Client
-from .clips import end_of, event_type, start_of
+from .clips import (
+    describe_detection, detection_types, end_of, event_type, start_of,
+)
 from .const import (
     CARD_URL, CONF_CLOUD_PASSWORD, CONF_CONVERT_MP4, DATA_CARD, DATA_HUBS,
     DATA_PREVIEW, DEFAULT_CONVERT_MP4, DOMAIN, SERVICE_DELETE_RECORDING,
@@ -224,6 +226,11 @@ def _register_services(hass: HomeAssistant) -> None:
                     "duration": end - start,
                     "event_type": event_type(clip),
                     "video_type": clip.get("video_type"),
+                    # What the hub says actually triggered it. video_type is
+                    # "2" for everything, so this is the useful one.
+                    "detection": describe_detection(clip),
+                    "alarm_type": clip.get("alarm_type"),
+                    "detection_types": detection_types(clip),
                     "downloaded": start in on_disk,
                     # A clip still only on the hub gets a preview URL rather
                     # than nothing. It is generated when something actually

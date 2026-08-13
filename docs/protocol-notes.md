@@ -237,14 +237,77 @@ and check `probe_live.py --check` first if a 401 has just happened:
 
 ## Detections and AI classification
 
-The hub does not expose them. Tested on firmware 1.3.20:
+**This section was wrong, and the correction is the most useful thing in this
+file.** `searchDetectionList` works, returns a type for every recording, and
+even carries face IDs. What follows is what it actually does; the old negative
+findings are kept below it because they explain how the mistake was made.
+
+### searchDetectionList classifies every clip
+
+Verified on firmware 1.3.20 over a three-day window: **26 clips, 26 matching
+detections, none unmatched.** The join key is exact — the detection's
+`start_time` equals the clip's `startTime`.
+
+```json
+{"alarm_type": 20, "device_mac": "", "end_time": 1786542147,
+ "event_start_time": 1786542131, "events_1": 524450, "start_time": 1786542131,
+ "event_info": [{"face_bitmap": 0, "face_id": 272465657857}]}
+```
+
+`events_1` is a **bitmask of everything that fired at once**, and `alarm_type`
+is always its highest set bit plus one — checked against every observed record:
+
+| alarm_type | events_1 | highest bit | | alarm_type | events_1 | highest bit |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2 | 2 | 1 | | 17 | 66050 | 16 |
+| 6 | 34 | 5 | | 19 | 262178 | 18 |
+| 8 | 130 | 7 | | 20 | 524450 | 19 |
+| 9 | 256 | 8 | | 22 | 2097442 | 21 |
+
+So the mask is the richer field: `2097442` is bits 1, 5, 8 and 21 — four
+concurrent detections where `alarm_type` reports only the last.
+
+**Only two codes are named**, and only where the evidence carries: `2` is set
+on nearly every detection, and `20` is the only code observed carrying a
+`face_id`. The rest are real and unnamed, and are displayed as `type 22` rather
+than guessed at. The hub cannot name them either — `getAlertTypeList` is
+`-40106` and `getAlertConfig` returns `{}`.
+
+**Which code means a doorbell press is still unknown.** `RING_ALARM_TYPES` in
+`const.py` is deliberately empty; add the code there once a real press has been
+captured and the event entity, the download filter and every card pick it up at
+once.
+
+### Why it looked dead for so long
+
+Two mistakes, one in the notes and one in the code:
+
+- **The window was blamed wrongly.** A seven-day window returns 26 detections
+  here. Window size was never the problem.
+- **The integration disabled the call on its first quiet poll.** A window with
+  no detections answers `{}`, not an empty list, so
+  `result["playback"]["search_detection_list"]` came back `None`, failed the
+  `isinstance(..., list)` check, and set `_detection_supported = False` for the
+  rest of the session. One quiet startup poll turned the feature off
+  permanently and nothing ever retried it. An empty reply is an answer, not a
+  refusal — it is now treated as one.
+
+The lesson is narrower than "the hub hides this": a self-disabling fallback
+turned a working call into a permanent negative, and the negative got written
+down as a property of the hardware.
+
+### The old negative findings
+
+These were real observations and are kept for the record, but note that the
+`searchDetectionList` line below is the one now known to be wrong. Tested on
+firmware 1.3.20:
 
 - `faceDetection` and `faceTracking` are components, but every plausible method
   is absent (`-40106`): `getFaceDetectionConfig`, `getFaceTrackingConfig`,
   `getFaceList`, `getFaceInfo`, `getAIEnhanceConfig`, `getLocalSmartConfig`,
   `getSmartDetectionConfig`, `getPersonDetectionConfig`, `getDetectionConfig`,
   `getAlertEventType`.
-- `searchDetectionList` is accepted — `error_code: 0` — but returns `{}` for
+- ~~`searchDetectionList`~~ **(wrong — see above)** is accepted — `error_code: 0` — but returns `{}` for
   both cameras across a seven-day window, with and without child addressing.
   It is a live method that yields nothing here.
 - Every clip is `video_type: "2"`, whatever triggered it. There is no per-clip

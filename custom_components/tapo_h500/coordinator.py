@@ -11,7 +11,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .clips import end_of, event_type, start_of
+from .clips import attach_detections, end_of, event_type, start_of
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
     CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL, DEFAULT_AUTO_DOWNLOAD,
@@ -77,6 +77,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                     self.client.detections, camera, window, now + 60)
             except Exception as err:
                 raise UpdateFailed(f"Could not poll H500 activity: {err}") from err
+            # One record per clip carrying both what was recorded and what
+            # triggered it, so every consumer classifies the same way.
+            attach_detections(clips, detections)
             clips_by_camera[index] = clips
 
             # The detection log lands before a clip is indexed, so prefer it as

@@ -7,7 +7,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .clips import end_of, hub_label, start_of
+from .clips import (
+    describe_detection, detection_types, end_of, hub_label, start_of,
+)
 from .const import DATA_HUBS, DOMAIN, EVENT_TYPES
 from .entity import H500Entity
 
@@ -47,5 +49,10 @@ class H500ActivityEvent(H500Entity, EventEntity):
             if start_time is not None and end_time is not None else None,
             # The hub's own label, kept raw so unrecognised types stay visible.
             "hub_type": hub_label(entry),
+            # From the detection log: what actually triggered the recording.
+            # hub_type is "2" for everything, so these are the useful ones.
+            "detection": describe_detection(entry),
+            "alarm_type": entry.get("alarm_type"),
+            "detection_types": detection_types(entry),
         })
         self.async_write_ha_state()
