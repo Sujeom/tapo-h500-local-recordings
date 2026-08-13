@@ -37,9 +37,28 @@ const { esc, ago, groupByHour, groupByFace, facesByCount, faceNames, eventsByHou
         TapoH500FaceSummaryCard } = mod;
 
 let failures = 0;
+// Async tests are collected and awaited before the summary. Calling fn()
+// without awaiting reported every async test as "ok" the instant it was
+// started -- its assertions had not run yet, and a failure became an
+// unhandled rejection nobody looked at. Three tests passed that way.
+const pending = [];
 const test = (name, fn) => {
-  try { fn(); console.log(`  ok   ${name}`); }
-  catch (err) { failures += 1; console.log(`  FAIL ${name}\n       ${err.message}`); }
+  const done = (err) => {
+    if (err) {
+      failures += 1;
+      console.log(`  FAIL ${name}\n       ${err.message}`);
+    } else {
+      console.log(`  ok   ${name}`);
+    }
+  };
+  try {
+    const result = fn();
+    if (result && typeof result.then === "function") {
+      pending.push(result.then(() => done(), done));
+    } else {
+      done();
+    }
+  } catch (err) { done(err); }
 };
 
 // --- pure helpers ----------------------------------------------------------
@@ -587,6 +606,76 @@ test("no names anywhere is an empty map, not a crash", () => {
   assert.deepEqual(faceNames(undefined, undefined), {});
 });
 
+test("each face offers a way to name it", () => {
+  // Naming belongs where the faces are actually looked at, not only in a
+  // settings screen two menus away.
+  const card = build(TapoH500FacesCard, {});
+  card._recordings = [{ start_time: 10, face_ids: [7], downloaded: true }];
+  const html = card.body();
+  assert.match(html, /data-action="name"/);
+  assert.match(html, /data-face="7"/);
+  assert.match(html, /Name this face/);
+});
+
+test("an already-named face offers a rename, seeded with the name", () => {
+  const card = build(TapoH500FacesCard, { names: { 7: "Alice" } });
+  card._recordings = [{ start_time: 10, face_ids: [7], downloaded: true }];
+  const html = card.body();
+  assert.match(html, /Rename/);
+  assert.match(html, /data-name="Alice"/);
+});
+
+test("a hostile face name cannot break out of the name button", () => {
+  const card = build(TapoH500FacesCard,
+                     { names: { 7: '"><script>alert(1)</script>' } });
+  card._recordings = [{ start_time: 10, face_ids: [7], downloaded: true }];
+  assert.ok(!card.body().includes("<script>"));
+});
+
+// Drives _onClick directly with a fake button, so the naming branch is
+// exercised rather than only its markup.
+const clickName = async (card, answer, face = "7", current = "") => {
+  const calls = [];
+  card._error = null;
+  card._call = async (service, data) => { calls.push([service, data]); };
+  card._entryId = async () => "entry";
+  card._load = async () => {};
+  globalThis.window.prompt = () => answer;
+  const button = { dataset: { action: "name", face, name: current },
+                   disabled: false };
+  await card._onClick({ target: { closest: () => button } });
+  return calls;
+};
+
+test("cancelling the name prompt changes nothing", async () => {
+  // window.prompt returns null on Cancel. Treating that as an empty answer
+  // would DELETE the name the user was only looking at.
+  const card = build(TapoH500FacesCard, {});
+  const calls = await clickName(card, null, "7", "Alice");
+  assert.deepEqual(calls, []);
+  // ...and it must RETURN, not throw. Without the guard, null.trim() raises
+  // and the handler's catch swallows it: no service call either way, so
+  // asserting on calls alone passes for entirely the wrong reason.
+  assert.equal(card._error, null, `cancel raised: ${card._error}`);
+});
+
+test("naming a face calls the integration, not the card config", async () => {
+  const card = build(TapoH500FacesCard, {});
+  const calls = await clickName(card, "Alice");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "name_face");
+  assert.equal(calls[0][1].face_id, "7");
+  assert.equal(calls[0][1].name, "Alice");
+});
+
+test("an empty answer clears the name deliberately", async () => {
+  // Distinct from Cancel: the user emptied the box on purpose.
+  const card = build(TapoH500FacesCard, {});
+  const calls = await clickName(card, "   ", "7", "Alice");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][1].name, "");
+});
+
 test("every card type is registered exactly once", () => {
   const types = ["tapo-h500-card", "tapo-h500-hero-card", "tapo-h500-grid-card",
                  "tapo-h500-timeline-card", "tapo-h500-faces-card",
@@ -595,5 +684,6 @@ test("every card type is registered exactly once", () => {
   assert.equal(globalThis.window.customCards.length, types.length);
 });
 
+await Promise.all(pending);
 console.log(failures ? `\n${failures} failure(s)` : "\nall card tests passed");
 process.exit(failures ? 1 : 0);

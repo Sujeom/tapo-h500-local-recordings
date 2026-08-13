@@ -424,6 +424,11 @@ the download, so someone seen a minute ago will not have one yet. Clearing a box
 removes the name. Faces you have already named stay on the list even once they
 stop appearing, so a name can be corrected rather than only added.
 
+**From the faces card:** every face has a **Name this face** button under it
+(**Rename** once named). It writes to the same place the options screen does,
+so the two never disagree. Cancelling changes nothing; emptying the box clears
+the name.
+
 For automations, the same thing as an action:
 
 ```yaml

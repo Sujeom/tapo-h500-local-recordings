@@ -414,6 +414,27 @@ class H500Base extends HTMLElement {
           end_time: Number(end),
         });
         await this._load();
+      } else if (action === "name") {
+        // Naming happens here rather than only in the options screen because
+        // this is where the faces are actually looked at. The prompt is
+        // seeded with the current name so it edits rather than retypes, and
+        // an empty answer clears the name -- the same rule the options form
+        // and the service both use.
+        const faceId = button.dataset.face;
+        const current = button.dataset.name || "";
+        const answer = window.prompt(
+          `Name for face ${faceId}\n\nLeave empty to remove the name.`,
+          current);
+        // null is Cancel, which must not be read as "clear it".
+        if (answer === null) return;
+        await this._call("name_face", {
+          config_entry_id: await this._entryId(),
+          face_id: String(faceId),
+          name: answer.trim(),
+        });
+        // The name lives on the config entry, so Home Assistant reloads the
+        // integration; reloading the list is what picks the new name up.
+        await this._load();
       } else if (action === "delete") {
         await this._call("delete_recording", {
           config_entry_id: await this._entryId(),
@@ -886,6 +907,8 @@ class TapoH500FacesCard extends H500Base {
   static style = `
     .faces { display: grid; gap: 8px;
       grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    .facewrap { display: flex; flex-direction: column; }
+    .facewrap .name { align-self: flex-start; }
     .face { position: relative; padding: 0; border-radius: 6px; overflow: hidden;
       line-height: 0; background: var(--secondary-background-color);
       text-align: left; }
@@ -913,6 +936,7 @@ class TapoH500FacesCard extends H500Base {
     const tiles = this._faces.map((face) => {
       const named = face.name !== undefined && face.name !== null;
       return `
+        <div class="facewrap">
         <button class="face" data-action="play"
           data-start="${face.newest.start_time}"
           ${face.newest.downloaded ? "" : "disabled"}>
@@ -921,7 +945,11 @@ class TapoH500FacesCard extends H500Base {
             esc(named ? face.name : `Face ${face.id}`)}</span>
           <span class="seen muted">${esc(ago(face.newest.start_time))}
             · ${Number(face.sightings)} seen</span>
-        </button>`;
+        </button>
+        <button class="name" data-action="name" data-face="${esc(face.id)}"
+          data-name="${esc(named ? face.name : "")}"
+          >${named ? "Rename" : "Name this face"}</button>
+        </div>`;
     }).join("");
     const playing = this._recordings.find((item) => this._isPlaying(item));
     // Without the map every tile reads as a number, so say where names come
