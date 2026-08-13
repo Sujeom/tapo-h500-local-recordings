@@ -397,6 +397,7 @@ available in the card picker. They show the same recordings different ways:
 | `custom:tapo-h500-hero-card` | Only the newest event, large, with "2 minutes ago" and a tap to play. For a wall tablet or the top of a dashboard. |
 | `custom:tapo-h500-grid-card` | Every clip as a thumbnail tile. Fits far more events on screen for scanning a busy day. |
 | `custom:tapo-h500-timeline-card` | Clips grouped under hour headings, so the gaps in a day are visible. |
+| `custom:tapo-h500-faces-card` | One tile per person the hub recognised, with their newest picture, how many times they were seen, and the name you give them. |
 
 Add a manual card:
 
@@ -405,6 +406,30 @@ type: custom:tapo-h500-card
 days: 2
 max_height: 400
 ```
+
+### The faces card
+
+The local answer to the app's recognised-faces summary. The hub recognises but
+will not identify — it assigns a stable id per person and keeps the name and
+photo in TP-Link's cloud, where no local call reaches them. This supplies the
+missing half: the picture comes from that person's newest clip, and the name
+comes from you.
+
+```yaml
+type: custom:tapo-h500-faces-card
+days: 7
+names:
+  272465657857: Alice
+  1969491410946: Courier
+```
+
+Without a `names` map every tile reads as `Face 272465657857`, and the card
+tells you which id to add. Build the map by watching which id appears when you
+know who was there. Ids not in the map still appear — they are simply unnamed,
+so a stranger is never hidden.
+
+Only recordings the hub attached a face to are listed; motion-only clips are
+not people.
 
 They take the same options — `days`, `camera_index`, `entry_id`, and
 `max_height` for the three scrolling ones. The hero card ignores `max_height`,

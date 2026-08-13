@@ -25,8 +25,9 @@ globalThis.customElements = { _defined: new Map(),
 globalThis.window = {};
 
 const mod = await import("../custom_components/tapo_h500/www/tapo-h500-card.js");
-const { esc, ago, groupByHour, utcDay, windowDates, TapoH500Card, TapoH500HeroCard,
-        TapoH500GridCard, TapoH500TimelineCard } = mod;
+const { esc, ago, groupByHour, groupByFace, utcDay, windowDates, TapoH500Card,
+        TapoH500HeroCard, TapoH500GridCard, TapoH500TimelineCard,
+        TapoH500FacesCard } = mod;
 
 let failures = 0;
 const test = (name, fn) => {
@@ -105,13 +106,53 @@ test("more days widens backwards, never forwards", () => {
     "a nonsense day count must not invert the range");
 });
 
+test("faces group by id, newest sighting first", () => {
+  // Cards hold recordings newest-first, so the first hit for an id is the
+  // newest and is what supplies the picture.
+  const clips = [
+    { start_time: 300, face_ids: [7] },
+    { start_time: 200, face_ids: [7, 9] },
+    { start_time: 100, face_ids: [] },
+  ];
+  const faces = groupByFace(clips, {});
+  assert.equal(faces.length, 2, "two distinct people, one motion-only clip");
+  const seven = faces.find((f) => f.id === "7");
+  assert.equal(seven.sightings, 2);
+  assert.equal(seven.newest.start_time, 300, "must show the newest sighting");
+  assert.equal(faces.find((f) => f.id === "9").sightings, 1);
+});
+
+test("a face with no name is not silently blank", () => {
+  // The hub supplies no names, so an unconfigured face must still be
+  // identifiable enough to add to the map.
+  const [face] = groupByFace([{ start_time: 1, face_ids: [42] }], {});
+  assert.equal(face.name, undefined);
+  assert.equal(face.id, "42");
+});
+
+test("names are matched by string id, whatever the config used", () => {
+  // YAML gives a huge id as a number; the hub sends a number too. Both have to
+  // land on the same key or every tile reads as unnamed.
+  const clips = [{ start_time: 1, face_ids: [272465657857] }];
+  assert.equal(groupByFace(clips, { 272465657857: "Alice" })[0].name, "Alice");
+  assert.equal(groupByFace(clips, { "272465657857": "Alice" })[0].name, "Alice");
+});
+
+test("no faces at all is an empty summary, not a crash", () => {
+  assert.deepEqual(groupByFace([], {}), []);
+  assert.deepEqual(groupByFace([{ start_time: 1 }], {}), []);
+  assert.deepEqual(groupByFace([{ start_time: 1, face_ids: null }], {}), []);
+});
+
 // --- card bodies -----------------------------------------------------------
 
 const CLIPS = [
   { start_time: Math.floor(Date.now() / 1000) - 120, end_time: 0, duration: 15,
-    event_type: "ring", downloaded: true, thumbnail: "/t/1.jpg", url: "/v/1.mp4" },
+    event_type: "ring", downloaded: true, thumbnail: "/t/1.jpg", url: "/v/1.mp4",
+    face_ids: [272465657857] },
   { start_time: Math.floor(Date.now() / 1000) - 7200, end_time: 0, duration: 8,
-    event_type: "motion", downloaded: false, thumbnail: "/t/2.jpg" },
+    event_type: "motion", downloaded: false, thumbnail: "/t/2.jpg",
+    face_ids: [272465657857] },
 ];
 
 const build = (Cls, config = {}) => {
@@ -124,7 +165,8 @@ const build = (Cls, config = {}) => {
 
 for (const [name, Cls] of [["list", TapoH500Card], ["hero", TapoH500HeroCard],
                            ["grid", TapoH500GridCard],
-                           ["timeline", TapoH500TimelineCard]]) {
+                           ["timeline", TapoH500TimelineCard],
+                           ["faces", TapoH500FacesCard]]) {
   test(`${name} card renders without throwing`, () => {
     const html = build(Cls).body();
     assert.ok(html.length > 0);
@@ -137,7 +179,7 @@ test("an undownloaded clip is never offered a player", () => {
   // Selection outlives a reload, so every card must cope with the selected id
   // pointing at a clip that has no url -- otherwise <video src="undefined">.
   for (const Cls of [TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
-                     TapoH500TimelineCard]) {
+                     TapoH500TimelineCard, TapoH500FacesCard]) {
     // The undownloaded clip is put first as well, so the hero is genuinely
     // exercised rather than passing because it only ever shows [0].
     for (const order of [CLIPS, [CLIPS[1], CLIPS[0]]]) {
@@ -184,7 +226,7 @@ test("a hostile camera alias cannot break out of the markup", () => {
 
 test("every card type is registered exactly once", () => {
   const types = ["tapo-h500-card", "tapo-h500-hero-card", "tapo-h500-grid-card",
-                 "tapo-h500-timeline-card"];
+                 "tapo-h500-timeline-card", "tapo-h500-faces-card"];
   for (const type of types) assert.ok(customElements.get(type), `${type} missing`);
   assert.equal(globalThis.window.customCards.length, types.length);
 });

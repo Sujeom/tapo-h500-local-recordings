@@ -1,19 +1,21 @@
 /**
  * Tapo H500 dashboard cards.
  *
- * Four ways to look at the same recordings, all fed by the integration's own
+ * Five ways to look at the same recordings, all fed by the integration's own
  * response services, so none of them needs extra API surface:
  *
  *   custom:tapo-h500-card            list, with download/play/delete
  *   custom:tapo-h500-hero-card       the newest event, large
  *   custom:tapo-h500-grid-card       every event as a tile
  *   custom:tapo-h500-timeline-card   events grouped by hour
+ *   custom:tapo-h500-faces-card      who has been recognised, with names
  *
  * Shared options:
  *   days: 1              # how many days back to list
  *   camera_index: 0      # optional; omit to get a picker for every paired camera
  *   entry_id: abc123     # optional; the first H500 entry is used by default
- *   max_height: 400      # list/grid/timeline only; 0 to grow unbounded
+ *   max_height: 400      # list/grid/timeline/faces only; 0 to grow unbounded
+ *   names: {id: Alice}   # faces card only; the hub supplies no names
  *
  * One file on purpose: it is the single resource the integration registers, so
  * splitting the shared engine into a second module would need a second
@@ -54,6 +56,29 @@ export const ago = (startSeconds, now = Date.now()) => {
     if (count >= 1) return `${count} ${name}${count === 1 ? "" : "s"} ago`;
   }
   return "just now";
+};
+
+/** One entry per recognised face, newest sighting first.
+ *
+ * The hub assigns a stable id per person and refuses to say who they are —
+ * there is no face library to look the number up in. So the summary is built
+ * from the sightings themselves: the newest clip supplies the picture, and the
+ * name comes from the card's own `names` map.
+ *
+ * `items` must be newest-first, which is the order the cards already hold.
+ */
+export const groupByFace = (items, names = {}) => {
+  const faces = new Map();
+  for (const item of items) {
+    for (const id of item.face_ids || []) {
+      const key = String(id);
+      if (!faces.has(key)) {
+        faces.set(key, { id: key, name: names[key], newest: item, sightings: 0 });
+      }
+      faces.get(key).sightings += 1;
+    }
+  }
+  return [...faces.values()];
 };
 
 /** Consecutive runs sharing a clock hour, in the order given. */
@@ -102,7 +127,7 @@ const BASE_STYLE = `
 `;
 
 /**
- * Everything the four cards share: config, polling, the service calls, the
+ * Everything the cards share: config, polling, the service calls, the
  * camera picker and the click routing. A subclass supplies only `body()`.
  */
 class H500Base extends HTMLElement {
@@ -524,6 +549,70 @@ class TapoH500TimelineCard extends H500Base {
   }
 }
 
+/** Who has been seen, the local answer to the app's recognised-faces summary.
+ *
+ * The hub recognises but will not identify: it assigns a stable id per person
+ * and holds no name or photo, because those live in TP-Link's cloud. This
+ * supplies the missing half locally — the picture from the person's newest
+ * clip, and the name from the card's own config.
+ */
+class TapoH500FacesCard extends H500Base {
+  static defaults = { days: 7 };
+  static style = `
+    .faces { display: grid; gap: 8px;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    .face { position: relative; padding: 0; border-radius: 6px; overflow: hidden;
+      line-height: 0; background: var(--secondary-background-color);
+      text-align: left; }
+    .face img, .face .blank {
+      width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
+    .face .who { display: block; padding: 6px 8px 2px; line-height: 1.2;
+      font-size: 0.95rem; color: var(--primary-text-color); }
+    .face .seen { display: block; padding: 0 8px 8px; line-height: 1.3; }
+    .unnamed { font-family: monospace; font-size: 0.8rem; }
+    .hint { margin-top: 10px; }
+  `;
+
+  getCardSize() {
+    return 3 + Math.ceil((this._faces || []).length / 2);
+  }
+
+  body() {
+    // Only clips the hub attached a face to; motion-only ones are not people.
+    this._faces = groupByFace(this._recordings, this._config.names || {});
+    if (!this._faces.length) {
+      return `<div class="muted">No faces recognised in this period. The hub
+        only reports one when its own face detection fires.</div>`;
+    }
+    const tiles = this._faces.map((face) => {
+      const named = face.name !== undefined && face.name !== null;
+      return `
+        <button class="face" data-action="play"
+          data-start="${face.newest.start_time}"
+          ${face.newest.downloaded ? "" : "disabled"}>
+          ${this._image(face.newest)}
+          <span class="who${named ? "" : " unnamed"}">${
+            esc(named ? face.name : `Face ${face.id}`)}</span>
+          <span class="seen muted">${esc(ago(face.newest.start_time))}
+            · ${Number(face.sightings)} seen</span>
+        </button>`;
+    }).join("");
+    const playing = this._recordings.find((item) => this._isPlaying(item));
+    // Without the map every tile reads as a number, so say where names come
+    // from rather than leaving it a mystery.
+    const unnamed = this._faces.filter((face) => face.name === undefined);
+    const hint = unnamed.length
+      ? `<div class="muted hint">Name ${unnamed.length === 1 ? "it" : "them"}
+         by adding <code>names:</code> to this card:
+         <code>${esc(unnamed[0].id)}: Alice</code></div>`
+      : "";
+    return `
+      <div class="faces scroll"${this._maxHeight()}>${tiles}</div>
+      ${playing ? this._player(playing) : ""}
+      ${hint}`;
+  }
+}
+
 // Defined only once each. The same file can legitimately be loaded more than
 // once -- the integration registers a dashboard resource, a user may have added
 // another by hand, and differing URLs count as separate modules. A second
@@ -543,6 +632,8 @@ register("tapo-h500-grid-card", TapoH500GridCard, "Tapo H500 Event Grid",
   "Every recording as a thumbnail tile.");
 register("tapo-h500-timeline-card", TapoH500TimelineCard, "Tapo H500 Timeline",
   "Recordings grouped by the hour they happened.");
+register("tapo-h500-faces-card", TapoH500FacesCard, "Tapo H500 Faces",
+  "Who the hub has recognised, with the names it will not supply itself.");
 
 export { H500Base, TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
-         TapoH500TimelineCard };
+         TapoH500TimelineCard, TapoH500FacesCard };
