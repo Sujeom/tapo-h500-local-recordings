@@ -142,6 +142,38 @@ So a local integration can report *that* a known face was seen and *which* id
 it was, and nothing more. Names and photos would need the cloud API, which is a
 different architecture from this one.
 
+### No battery level, re-checked and still no
+
+Re-probed with the `admin` login and the `-40209`/`-40211` rule, since both
+were missing when this was first written off.
+
+`general_camera_manage` is a namespace that certainly works, so it was asked
+for nine different sections — `general_device_status`, `battery_info`,
+`device_status`, `battery`, `device_list_detail` and others. Every one returned
+`error_code 0`, which looks like a hit until you compare the payloads:
+`battery_info` returns **the same object** as `paired_general_device_list`. The
+hub ignores the section name here, exactly as `led` and `getFaceDetectionConfig`
+do, so a `0` proves nothing on its own.
+
+The per-camera record has 16 fields and not one is battery, power, charge,
+voltage or percentage:
+
+    AI_enhance_enabled  ai_camera_support  ai_enhance     ai_hub_support
+    alias               backup_wifi        category       device_id
+    device_model        device_type        hub_storage_enabled  mac
+    network_mode        parent_device_id   plan_24h_record      wifi_backup_enabled
+
+And 11 battery method names — `getBatteryStatus`, `getBatteryInfo`,
+`getBatteryConfig`, `getBatteryCapability`, `getPowerMode`, `getChargingMode`,
+`getBatteryStatistic`, `getDeviceLoad`, `getGeneralDeviceStatus`,
+`getGeneralDeviceInfo`, `getChildBatteryInfo` — across four namespaces, all
+`-40106`, with none of the `-40209`/`-40211` replies that mean "exists, wrong
+params".
+
+The reading lives on the camera, and `getChildDeviceList` answers `sum: 0`, so
+there is no child to address. Same shape as the face names: the hub relays what
+it holds, and the battery is not one of those things.
+
 ### There is no face library
 
 Detections of `alarm_type` 20 carry `event_info` with a `face_id` and a
