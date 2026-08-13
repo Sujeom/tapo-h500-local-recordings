@@ -24,8 +24,8 @@
   },
   "options": {
     "step": {
-      "init": {
-        "title": "Tapo H500 options",
+      "settings": {
+        "title": "Tapo H500 settings",
         "data": {
           "poll_interval": "Seconds between activity checks",
           "auto_download": "Download new recordings automatically",
@@ -39,7 +39,21 @@
           "poll_interval": "The whole notification delay: nothing reaches Home Assistant sooner than the next check. About 40ms of hub time per check, so low values are cheap.",
           "keep_rings": "0 treats presses like everything else. Any other number keeps that many of the newest presses whatever their age, so a busy afternoon of motion cannot evict the press that mattered."
         }
+      },
+      "init": {
+        "title": "Tapo H500",
+        "menu_options": {
+          "settings": "Settings",
+          "faces": "Name faces"
+        }
+      },
+      "faces": {
+        "title": "Name faces",
+        "description": "The hub recognises people and gives each a number, but will not say who they are \u2014 there is no name to look up. Put a name against a number and every card and sensor uses it. Clear a box to remove a name.\n\n{faces}"
       }
+    },
+    "abort": {
+      "no_faces": "The hub has not recognised any faces yet. It only reports one when its own face detection fires, and only for the period still held \u2014 try again after someone has been seen."
     }
   },
   "selector": {

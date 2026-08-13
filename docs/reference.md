@@ -413,7 +413,15 @@ is no undo.
 ## Face names
 
 The hub clusters faces and gives each a stable id, but will not say who anyone
-is — there is no face library to look an id up in. Names come from you:
+is — there is no face library to look an id up in. Names come from you.
+
+**The usual way: Settings → Devices & services → Tapo H500 → Configure → Name
+faces.** Every face the hub has recognised is listed with how many times and on
+which cameras it saw them, and a box to type a name into. Clearing a box
+removes the name. Faces you have already named stay on the list even once they
+stop appearing, so a name can be corrected rather than only added.
+
+For automations, the same thing as an action:
 
 ```yaml
 action: tapo_h500.name_face

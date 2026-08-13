@@ -9,7 +9,8 @@ from homeassistant.helpers import selector
 
 from .api import H500Client
 from .const import (
-    AUTO_DOWNLOAD_MODES, CONF_AUTO_DOWNLOAD, CONF_CLOUD_PASSWORD,
+    AUTO_DOWNLOAD_MODES, CONF_AUTO_DOWNLOAD, CONF_CLOUD_PASSWORD, CONF_FACE_NAMES,
+    DATA_HUBS,
     CONF_CONVERT_MP4, CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS,
     CONF_POLL_INTERVAL,
     DEFAULT_AUTO_DOWNLOAD, DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
@@ -87,9 +88,71 @@ class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class TapoH500OptionsFlow(config_entries.OptionsFlow):
+    """Two screens: how the integration behaves, and who the faces are."""
+
     async def async_step_init(self, user_input=None):
+        return self.async_show_menu(step_id="init",
+                                    menu_options=["settings", "faces"])
+
+    def _merged(self, user_input: dict) -> dict:
+        """Options are replaced wholesale on save, so anything the current form
+        does not ask about has to be carried across explicitly.
+
+        Face names are the reason this exists: they live in options but appear
+        on neither form in full, so saving the settings screen used to delete
+        every one of them without a word.
+        """
+        return {**self.config_entry.options, **user_input}
+
+    async def async_step_faces(self, user_input=None):
+        """Name the faces the hub has clustered, without touching a card.
+
+        The hub invents a stable id per person and refuses to say who they
+        are. Naming them used to mean reading an id off a card and calling a
+        service with it; here every face the hub has actually seen is listed
+        with a box to type into, and clearing a box removes the name.
+        """
+        names = dict(self.config_entry.options.get(CONF_FACE_NAMES) or {})
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            for face_id, name in user_input.items():
+                cleaned = (name or "").strip()
+                if cleaned:
+                    names[str(face_id)] = cleaned
+                else:
+                    names.pop(str(face_id), None)
+            return self.async_create_entry(
+                data={**self.config_entry.options, CONF_FACE_NAMES: names})
+
+        coordinator = self.hass.data[DOMAIN][DATA_HUBS][self.config_entry.entry_id]
+        seen = coordinator.faces_seen()
+        # Everyone already named stays editable even if they have not been
+        # seen today, or a name could only ever be added and never corrected.
+        face_ids = sorted(set(seen) | set(names))
+        if not face_ids:
+            return self.async_abort(reason="no_faces")
+
+        schema = vol.Schema({
+            vol.Optional(face_id, default=names.get(face_id, "")): str
+            for face_id in face_ids
+        })
+        # The form labels each box with the raw id, which alone says nothing.
+        # This is where "seen 5 times, last at 10:42" goes.
+        lines = []
+        for face_id in face_ids:
+            face = seen.get(face_id)
+            if face and face.get("sightings"):
+                where = ", ".join(face.get("cameras") or []) or "a camera"
+                lines.append(f"- {face_id}: seen {face['sightings']}x today "
+                             f"on {where}")
+            else:
+                lines.append(f"- {face_id}: not seen today")
+        return self.async_show_form(
+            step_id="faces", data_schema=schema,
+            description_placeholders={"faces": "\n".join(lines)})
+
+    async def async_step_settings(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(data=self._merged(user_input))
         options = self.config_entry.options
         schema = vol.Schema({
             vol.Required(
@@ -116,4 +179,4 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
                 default=options.get(CONF_CONVERT_MP4, DEFAULT_CONVERT_MP4),
             ): bool,
         })
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="settings", data_schema=schema)

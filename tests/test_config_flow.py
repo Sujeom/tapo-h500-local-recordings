@@ -76,8 +76,48 @@ class Labels(unittest.TestCase):
         self.assertEqual(_schema_fields("async_step_user") - labelled, set())
 
     def test_every_options_field_has_a_label(self):
-        labelled = set(STRINGS["options"]["step"]["init"]["data"])
-        self.assertEqual(_schema_fields("async_step_init") - labelled, set())
+        # init is now a menu; the settings form moved to its own step.
+        labelled = set(STRINGS["options"]["step"]["settings"]["data"])
+        self.assertEqual(_schema_fields("async_step_settings") - labelled, set())
+
+
+class FaceNaming(unittest.TestCase):
+    """Names are set from the integration's own screen, not from a card."""
+
+    def test_the_options_menu_offers_naming(self):
+        menu = STRINGS["options"]["step"]["init"]["menu_options"]
+        self.assertIn("faces", menu)
+        self.assertIn("settings", menu)
+
+    def test_saving_settings_cannot_wipe_the_names(self):
+        """Options are replaced wholesale on save. The settings form does not
+        ask about face names, so without merging, saving any option at all
+        silently deleted every name."""
+        self.assertIn("def _merged", SOURCE)
+        self.assertRegex(SOURCE, r"return \{\*\*self\.config_entry\.options, \*\*user_input\}")
+        self.assertIn("self.async_create_entry(data=self._merged(user_input))", SOURCE)
+
+    def test_saving_names_cannot_wipe_the_settings(self):
+        """The same hazard in the other direction."""
+        self.assertIn("data={**self.config_entry.options, CONF_FACE_NAMES: names}",
+                      SOURCE)
+
+    def test_already_named_faces_stay_editable(self):
+        """Otherwise a name could be added but never corrected once that
+        person stopped appearing in the window."""
+        self.assertIn("set(seen) | set(names)", SOURCE)
+
+    def test_clearing_a_box_removes_the_name(self):
+        self.assertIn("names.pop(str(face_id), None)", SOURCE)
+
+    def test_no_faces_yet_is_explained(self):
+        self.assertIn('self.async_abort(reason="no_faces")', SOURCE)
+        self.assertIn("no_faces", STRINGS["options"]["abort"])
+
+    def test_the_form_says_what_each_number_is(self):
+        """A column of raw ids with text boxes tells nobody anything."""
+        self.assertIn("description_placeholders", SOURCE)
+        self.assertIn("{faces}", STRINGS["options"]["step"]["faces"]["description"])
 
 
 if __name__ == "__main__":

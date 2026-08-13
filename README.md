@@ -47,9 +47,11 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   the hub has finished recording. A plain YAML version is in
   [`examples/`](examples/notify-person-pet-doorbell.yaml) if you would rather
   edit it directly.
-- **Faces:** name someone once with the `tapo_h500.name_face` action and every
-  card shows it. Each named face also gets a sensor for when they were last
-  seen, on any camera.
+- **Faces:** **Configure → Name faces** lists every face the hub has
+  recognised, with how often and where it saw them, and a box to type a name
+  into. Names are stored on the hub, so every card and sensor uses them, and
+  each named face gets a last-seen sensor. There is a `tapo_h500.name_face`
+  action too, for automations.
 - **Ask it:** "who was at the door?" and "what happened today?" work in Assist.
 - **Summaries:** call `tapo_h500.daily_summary` from an automation for a digest
   — a service, not a schedule, so nothing arrives unless you ask for it.
