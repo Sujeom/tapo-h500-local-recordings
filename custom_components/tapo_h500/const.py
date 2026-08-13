@@ -25,7 +25,20 @@ AUTO_DOWNLOAD_RINGS = "rings"
 AUTO_DOWNLOAD_ALL = "all"
 AUTO_DOWNLOAD_MODES = [AUTO_DOWNLOAD_OFF, AUTO_DOWNLOAD_RINGS, AUTO_DOWNLOAD_ALL]
 
-DEFAULT_POLL_INTERVAL = 20
+# How often to poll. This is the entire notification latency budget: nothing
+# the hub sees can reach Home Assistant sooner than the next poll, so 20s meant
+# a person was announced 10s after the fact on average and 20s at worst.
+#
+# Halving it is safe because every call reuses the one authenticated session
+# opened by connect(). A poll costs the hub ordinary requests, not logins, and
+# it is repeated logins -- not request volume -- that wedges an H500.
+DEFAULT_POLL_INTERVAL = 10
+
+# Hub status is LED state, siren config, storage and firmware. None of it
+# changes between two polls, but fetching it cost a round trip in front of
+# every detection lookup, delaying the one thing that is time critical. Fetch
+# it every Nth poll instead, and after the events rather than before them.
+STATUS_EVERY_N_POLLS = 3
 # An H500 with TD21 doorbells labels every clip video_type "2", so ring-only
 # filtering matches nothing and downloads nothing. Defaulting to rings made the
 # feature a silent no-op; default to all until the ring code is identified.

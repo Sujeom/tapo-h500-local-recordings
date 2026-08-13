@@ -87,5 +87,28 @@ actions:
       data:
         # The camera entity serves the newest event's own frame, so the
         # notification arrives with the picture rather than only a description.
+        # Tap the picture itself to enlarge it.
         image: /api/camera_proxy/{{ camera }}
         tag: tapo-h500-{{ camera }}      # a new alert replaces the old one
+
+        # Tapping the notification body opens that camera's own dialog, with
+        # the live image and its history -- not a generic dashboard. Android
+        # reads clickAction, iOS reads url, so both are set to the same place.
+        # "0" is the first dashboard; change it if yours lives elsewhere.
+        clickAction: /lovelace/0?more-info-entity-id={{ camera }}
+        url: /lovelace/0?more-info-entity-id={{ camera }}
+
+        # Two buttons under the notification.
+        #
+        # The clip is NOT linkable at this moment: the hub only indexes a
+        # recording once it has finished, and the integration then downloads
+        # it, so a direct video URL would be dead on arrival. Recordings opens
+        # the media browser, where the clip appears once it lands -- usually
+        # within a minute. The Tapo H500 cards are the other way in.
+        actions:
+          - action: URI
+            title: Camera
+            uri: /lovelace/0?more-info-entity-id={{ camera }}
+          - action: URI
+            title: Recordings
+            uri: /media-browser/local/tapo_h500

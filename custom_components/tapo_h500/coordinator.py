@@ -17,6 +17,7 @@ from .const import (
     CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL, DEFAULT_AUTO_DOWNLOAD,
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING, LOOKBACK_SECONDS, SIGNAL_NEW_CLIP,
+    STATUS_EVERY_N_POLLS,
 )
 from .media import async_download_clip, async_prune, existing_clip
 from .status import hub_readings
@@ -40,6 +41,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._seen_events: dict[int, set[int]] = {}
         self._seen_clips: dict[int, set[int]] = {}
         self._primed = False
+        self._polls = 0
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
@@ -58,13 +60,6 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         except Exception as err:
             raise UpdateFailed(f"Could not list H500 cameras: {err}") from err
         self.cameras = cameras
-
-        try:
-            self.readings = hub_readings(
-                await self.hass.async_add_executor_job(self.client.hub_status))
-        except Exception as err:
-            # Status is a bonus; never fail the whole poll over it.
-            _LOGGER.debug("Hub status unavailable: %s", err)
 
         now = int(dt_util.utcnow().timestamp())
         window = now - LOOKBACK_SECONDS
@@ -88,6 +83,19 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             announce = detections if detections is not None else clips
             self._fire(index, announce, self._seen_events, window)
             self._download_new(index, camera, clips, window)
+
+        # Status last, and not every poll. It used to run before the detection
+        # lookups, so every notification waited on a round trip fetching LED
+        # state and storage figures. Poll 0 still fetches it, so nothing is
+        # blank on startup.
+        if self._polls % STATUS_EVERY_N_POLLS == 0:
+            try:
+                self.readings = hub_readings(
+                    await self.hass.async_add_executor_job(self.client.hub_status))
+            except Exception as err:
+                # Status is a bonus; never fail the whole poll over it.
+                _LOGGER.debug("Hub status unavailable: %s", err)
+        self._polls += 1
         self._primed = True
         return {"clips": clips_by_camera, "hub": self.readings}
 
