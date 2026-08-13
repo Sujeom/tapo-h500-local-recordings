@@ -41,6 +41,45 @@ including ones that certainly exist — it is for Sub-1GHz devices, not
 `-40106` is not a clean oracle. A real namespace with a wrong section name
 returns it too, so a negative proves nothing about either half.
 
+## The full component inventory
+
+All 47, for reference — earlier notes only listed the media-adjacent subset,
+which is how `mirrorscreen` went unnoticed:
+
+    AIEnhance          account            aovStorage         audioSourceCapability
+    childControl       childInherit       childQuickSetup    chime
+    dataDownload       dateTime           deviceLoad         deviceShare
+    diagnose           eventCenter        faceDetection      faceTracking
+    firmware           generalCameraManage hardDisk          hubPlayback
+    hubRecord          iotCloud           led                localSmart
+    matter             matterControl      migrate            mirrorscreen
+    multiLensCamMgmt   playback           playbackDelete     preWakeUp
+    quickSetup         recordDownload     ringLog            setDetailLanguage
+    siren              snapshot           subg               supportRE
+    support_presence_sensor               system             testChildSignal
+    testSignal         tssDeviceManage    usbsharemanage     usrDefAudio
+
+### mirrorscreen: the method exists, the params do not
+
+`getMirrorScreenConfig` answers **`-40209`**, not `-40106`. That distinction is
+the whole finding: `-40106` is "no such method" and `-40209` is the parameter
+complaint this firmware also returns for an out-of-range siren volume. So the
+method is real and the params tried so far are wrong.
+
+Absent so far: every direct-namespace form (`mirrorscreen`, `mirror_screen`,
+`mirrorScreen` across `config`/`info`/`status`/`list`/`enable`), and the
+sibling names `getMirrorscreenConfig`, `getMirrorScreenStatus`,
+`getMirrorScreen`, `getScreenMirrorConfig`, `getMirrorScreenList`.
+
+Untried, because the hub started refusing logins mid-probe: `getMirrorScreenConfig`
+with an empty namespace, a `name` list, a `table`, a channel, or child device
+addressing. pytapo has no casting or mirroring concept at all to borrow a shape
+from, so this one has no reference implementation.
+
+Worth noting the name is ambiguous. It may mean casting a feed to another
+screen, or it may mean flipping the image — "mirror" in the camera-settings
+sense. Nothing observed yet distinguishes the two.
+
 ## Hub modules
 
 `{"method": "get", "app_component": {"name": "app_component_list"}}` returns 47.
