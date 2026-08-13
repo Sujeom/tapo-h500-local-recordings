@@ -265,6 +265,15 @@ class H500Client:
             "setDiagnoseMode",
             {"system": {"sys": {"diagnose_mode": "on" if on else "off"}}})
 
+    def set_face_detection(self, detection: dict):
+        """Replace the whole detection block.
+
+        The hub rejects a bare `enabled` with -40211; only the complete block,
+        tags included, is accepted.
+        """
+        return self._set("setFaceDetectionConfig",
+                         {"face_detection": {"detection": detection}})
+
     def set_auto_upgrade(self, config: dict):
         """Replace the whole auto-upgrade block.
 

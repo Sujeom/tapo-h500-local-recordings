@@ -21,7 +21,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DATA_HUBS, DOMAIN
 from .hub_control import H500HubControl
-from .status import auto_upgrade_config
+from .status import auto_upgrade_config, face_detection_config
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -33,6 +33,11 @@ class HubSwitch(SwitchEntityDescription):
 def _auto_upgrade(client, readings: dict, on: bool):
     """Toggle only `enabled`, keeping the schedule the hub already holds."""
     return client.set_auto_upgrade(auto_upgrade_config(readings, on))
+
+
+def _face_detection(client, readings: dict, on: bool):
+    """Toggle only `enabled`, sending the tag list back with it."""
+    return client.set_face_detection(face_detection_config(readings, on))
 
 
 HUB_SWITCHES: tuple[HubSwitch, ...] = (
@@ -53,6 +58,12 @@ HUB_SWITCHES: tuple[HubSwitch, ...] = (
         entity_category=EntityCategory.CONFIG,
         value=lambda r: r.get("auto_upgrade"),
         apply=_auto_upgrade,
+    ),
+    HubSwitch(
+        key="face_detection", translation_key="face_detection",
+        entity_category=EntityCategory.CONFIG,
+        value=lambda r: r.get("face_detection"),
+        apply=_face_detection,
     ),
     HubSwitch(
         key="diagnose_mode", translation_key="diagnose_mode",

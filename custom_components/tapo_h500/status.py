@@ -122,6 +122,20 @@ def used_audio_slots(status: dict) -> list[str]:
     return names
 
 
+def face_detection_config(readings: dict, on: bool) -> dict:
+    """The whole detection block with only `enabled` changed.
+
+    setFaceDetectionConfig refuses `enabled` on its own with -40211 and accepts
+    only the complete block, so the tag list has to go back with every toggle.
+    Same trap as the auto-upgrade schedule: send half the block and the hub
+    either rejects it or keeps what it was not told about.
+    """
+    return {
+        "enabled": "on" if on else "off",
+        "tags": list(readings.get("face_detection_tags") or []),
+    }
+
+
 def auto_upgrade_config(readings: dict, on: bool) -> dict:
     """The whole auto-upgrade block with only `enabled` changed.
 

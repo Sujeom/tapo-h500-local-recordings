@@ -218,7 +218,6 @@ The hub gets its own device, and each paired camera gets one.
 | `sensor.*_clock_offset` | Seconds the hub's clock differs from Home Assistant's, signed. Clip filenames and the media browser's date folders come from hub timestamps, so drift files recordings under the wrong day. |
 | `sensor.*_timezone` | The hub's own timezone. |
 | `sensor.*_custom_sounds` | How many of the hub's five custom sound slots hold a recording, with their names as an attribute. |
-| `binary_sensor.*_face_detection` | Whether the hub's face detection is on, with the recognised `tags` (family, friend, courier, neighbour, colleague, schoolmate, others) as an attribute. Read-only — the hub refuses to change it locally. |
 
 **Hub settings you can change**
 
@@ -231,6 +230,7 @@ anything moving.
 | `switch.*_status_led` | The hub's status light. |
 | `switch.*_loop_recording` | Whether the hub overwrites the oldest footage once storage fills. Turning it off means recording stops when full. |
 | `switch.*_automatic_firmware_updates` | The hub's own auto-update. Toggling keeps the update time the hub already holds. |
+| `switch.*_face_detection` | The hub's face detection. Toggling keeps the recognised tags (family, friend, courier, neighbour, colleague, schoolmate, others) — the hub refuses a change that omits them. |
 | `switch.*_diagnostic_mode` | TP-Link's diagnostic logging. Off unless you are chasing something. |
 | `select.*_siren_sound` | Which of the 19 sounds the siren uses, set without sounding it. |
 | `number.*_siren_volume` | 1-10. The hub refuses anything outside that. |

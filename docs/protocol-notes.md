@@ -97,9 +97,23 @@ measurement that settles it rather than assuming it.
 ```
 
 That contradicts the old finding below that "every plausible method is absent".
-It is read-only: `setFaceDetectionConfig` refuses even a write of the hub's own
-current value with `-40211`, and the value was confirmed unchanged afterwards.
-Exposed as a diagnostic `binary_sensor`, with the tags as an attribute.
+**It is writable after all.** `-40211` was a parameter complaint, not a
+refusal — the same trap as `mirrorscreen`'s `-40209`. The hub accepts only the
+*whole* detection block:
+
+| Params to `setFaceDetectionConfig` | Result |
+| --- | --- |
+| `{"detection":{"enabled":"on","tags":[...]}}` | **`0`** |
+| `{"detection":{"enabled":"on"}}` | `-40211` |
+| `{"name":"config","detection":{...}}` | `-40211` |
+| `{"config":{"enabled":"on"}}` | `-40211` |
+| `{"enabled":"on"}` | `-40211` |
+
+Same shape rule as `setFirmwareAutoUpgradeConfig`: send the block back whole or
+it is rejected. Verified live by toggling off and on again — the seven tags
+survived both writes and the hub finished where it started. Exposed as a
+`switch`, and `status.face_detection_config` carries the tags through every
+toggle.
 
 ### mirrorscreen is reachable, and empty
 

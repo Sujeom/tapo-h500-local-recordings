@@ -123,9 +123,6 @@
       },
       "wifi_backup": {
         "name": "Wi-Fi backup"
-      },
-      "face_detection": {
-        "name": "Face detection"
       }
     },
     "siren": {
@@ -145,6 +142,9 @@
       },
       "diagnose_mode": {
         "name": "Diagnostic mode"
+      },
+      "face_detection": {
+        "name": "Face detection"
       }
     },
     "select": {

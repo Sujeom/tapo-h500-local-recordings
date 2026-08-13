@@ -679,6 +679,27 @@ class HubSettingsTest(unittest.TestCase):
         self.assertEqual(status.auto_upgrade_config({}, True),
                          {"enabled": "on"})
 
+    def test_face_detection_toggle_sends_the_tags_back(self):
+        """A bare `enabled` is refused with -40211; only the whole block works."""
+        readings = {"face_detection_tags": ["family", "courier"]}
+        self.assertEqual(status.face_detection_config(readings, False),
+                         {"enabled": "off", "tags": ["family", "courier"]})
+        self.assertEqual(status.face_detection_config(readings, True)["enabled"],
+                         "on")
+        # The coordinator's live readings must not be mutated in passing.
+        self.assertEqual(readings["face_detection_tags"], ["family", "courier"])
+
+    def test_face_detection_toggle_survives_a_hub_that_listed_no_tags(self):
+        self.assertEqual(status.face_detection_config({}, True),
+                         {"enabled": "on", "tags": []})
+
+    def test_face_detection_payload_wraps_the_block_the_hub_expects(self):
+        client = self._client()
+        client.set_face_detection({"enabled": "off", "tags": ["family"]})
+        self.assertEqual(client._hub.calls[-1], ("setFaceDetectionConfig", {
+            "face_detection": {"detection": {
+                "enabled": "off", "tags": ["family"]}}}))
+
     def test_auto_upgrade_payload_wraps_the_block_the_hub_expects(self):
         client = self._client()
         client.set_auto_upgrade({"enabled": "off", "time": "03:00"})

@@ -47,13 +47,6 @@ HUB_FLAGS: tuple[HubFlag, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda r: r.get("media_encrypted"),
     ),
-    # Read-only for the same reason as media encryption: the getter answers but
-    # setFaceDetectionConfig refuses even a write of the hub's own value.
-    HubFlag(
-        key="face_detection", translation_key="face_detection",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value=lambda r: r.get("face_detection"),
-    ),
 )
 
 CAMERA_FLAGS: tuple[CameraFlag, ...] = (
