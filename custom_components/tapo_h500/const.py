@@ -164,6 +164,19 @@ DETECTION_NAMES = {
 # would claim more than was observed.
 RING_ALARM_TYPES: set[int] = {17}
 
+# How long a detection binary sensor stays on after the hub reports it.
+#
+# A detection is a moment, not a state: the hub says "a person, at 17:41:09"
+# and never says they left. The event entity models that correctly and is the
+# right thing to trigger on. These sensors exist for the things an event
+# cannot do -- appear on a history graph, answer "has anything moved in the
+# last hour", or gate another automation with a condition -- and all of those
+# need the moment held open for a little while.
+#
+# 30s comfortably outlasts a ~15s clip, so consecutive detections in one
+# visit read as one continuous presence rather than a stutter.
+DETECTION_HOLD = 30
+
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
 
 # Video is remuxed, not re-encoded. Audio is re-encoded because the hub's TS

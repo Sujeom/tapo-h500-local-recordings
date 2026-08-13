@@ -47,6 +47,10 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   the hub has finished recording. A plain YAML version is in
   [`examples/`](examples/notify-person-pet-doorbell.yaml) if you would rather
   edit it directly.
+- **History:** each camera gets a `binary_sensor` per detection — motion,
+  person, animal, unfamiliar face, tampering — on for 30 seconds after the
+  hub reports it, so activity appears on a history graph and can be used as an
+  automation *condition*.
 - **Automations:** the doorbells appear under **Device** triggers — *When a
   person is detected*, *was rung*, *saw an unfamiliar face* — so no templates
   are needed.

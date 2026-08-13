@@ -9,11 +9,14 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DATA_HUBS, DOMAIN
+from .clips import detection_types
+from .const import DATA_HUBS, DETECTION_HOLD, DETECTION_NAMES, DOMAIN
 from .coordinator import H500Coordinator
 from .entity import H500Entity
 from .sensor import hub_device
@@ -85,6 +88,11 @@ async def async_setup_entry(
         for index, camera in enumerate(coordinator.cameras)
         for description in CAMERA_FLAGS
     ]
+    entities += [
+        H500DetectionFlag(coordinator, index, camera, code)
+        for index, camera in enumerate(coordinator.cameras)
+        for code in DETECTION_NAMES
+    ]
     async_add_entities(entities)
 
 
@@ -114,3 +122,67 @@ class H500CameraFlag(H500Entity, BinarySensorEntity):
         current = self.coordinator.cameras[self.index] \
             if self.index < len(self.coordinator.cameras) else self.camera
         return self.entity_description.value(current)
+
+
+# What each detection is, in Home Assistant's own vocabulary, so the frontend
+# picks a sensible icon and wording. Most codes have no matching class -- there
+# is no "vehicle" or "pet" device class -- and inventing one would be worse
+# than leaving it plain.
+DETECTION_CLASSES: dict[int, BinarySensorDeviceClass] = {
+    2: BinarySensorDeviceClass.MOTION,
+    6: BinarySensorDeviceClass.OCCUPANCY,
+    19: BinarySensorDeviceClass.TAMPER,
+    20: BinarySensorDeviceClass.OCCUPANCY,
+    22: BinarySensorDeviceClass.OCCUPANCY,
+}
+
+
+class H500DetectionFlag(H500Entity, BinarySensorEntity):
+    """On while the hub has recently reported this detection.
+
+    Driven by the same dispatcher signal as the event entity, so it turns on
+    at the same instant a notification fires rather than waiting for the next
+    poll. It clears itself after DETECTION_HOLD, because the hub reports that
+    something happened and never reports that it stopped.
+    """
+
+    def __init__(self, coordinator, index: int, camera: dict, code: int) -> None:
+        super().__init__(coordinator, index, camera)
+        self._code = code
+        slug = DETECTION_NAMES[code].replace(" ", "_")
+        self._attr_translation_key = f"detected_{slug}"
+        self._attr_unique_id = f"{camera['device_id']}_detected_{slug}"
+        self._attr_device_class = DETECTION_CLASSES.get(code)
+        self._attr_is_on = False
+        self._clear_timer = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(async_dispatcher_connect(
+            self.hass, self.coordinator.signal("event", self.index), self._handle))
+        # A pending timer firing against a removed entity would raise.
+        self.async_on_remove(self._cancel_timer)
+
+    @callback
+    def _cancel_timer(self) -> None:
+        if self._clear_timer is not None:
+            self._clear_timer()
+            self._clear_timer = None
+
+    @callback
+    def _handle(self, kind: str, entry: dict) -> None:
+        if self._code not in detection_types(entry):
+            return
+        # Restart the hold rather than letting the first detection's timer end
+        # it: a visitor who keeps triggering should read as one presence.
+        self._cancel_timer()
+        self._attr_is_on = True
+        self.async_write_ha_state()
+        self._clear_timer = async_call_later(
+            self.hass, DETECTION_HOLD, self._clear)
+
+    @callback
+    def _clear(self, _now) -> None:
+        self._clear_timer = None
+        self._attr_is_on = False
+        self.async_write_ha_state()
