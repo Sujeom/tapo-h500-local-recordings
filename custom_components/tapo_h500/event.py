@@ -40,6 +40,16 @@ class H500ActivityEvent(H500Entity, EventEntity):
         self.async_on_remove(async_dispatcher_connect(
             self.hass, self.coordinator.signal("event", self.index), self._handle))
 
+    def _known_faces(self, entry: dict) -> list[str]:
+        """The names of any recognised faces in this detection.
+
+        Sorted so two people arriving together always read the same way round
+        rather than in whatever order the hub listed them.
+        """
+        names = self.coordinator.face_names
+        return sorted(
+            {names[str(face)] for face in face_ids(entry) if str(face) in names})
+
     def _own_frame(self, start_time: int | None) -> str | None:
         """Signed URL for the thumbnail of the clip this event refers to."""
         if start_time is None:
@@ -69,6 +79,13 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # A number per recognised face. The hub offers no name and no
             # image, but the id is stable enough to match in an automation.
             "face_ids": face_ids(entry),
+            # ...and those numbers resolved through the hub's own name map.
+            #
+            # Only faces that have been named. An automation cannot reach the
+            # config entry to do this lookup itself, and an unnamed face read
+            # aloud as "Face 123456789012 is at the door" is worse than saying
+            # "a person" -- the id belongs in face_ids, not in a sentence.
+            "faces": self._known_faces(entry),
             # This event's OWN frame, addressed by its timestamp.
             #
             # The camera entity deliberately serves whatever thumbnail is

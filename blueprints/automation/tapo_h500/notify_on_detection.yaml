@@ -179,14 +179,27 @@ actions:
                          22: 'an unfamiliar face', 9: 'an animal',
                          8: 'a vehicle', 2: 'motion'} -%}
         {%- set ns = namespace(parts=[]) -%}
-        {%- for c in [19, 17, 6, 20, 22, 9, 8, 2] if c in codes -%}
+        {#- 6 and 20 are dropped once someone is named: "Alice - a person, a
+            familiar face" says the same thing three times. -#}
+        {%- set skip = [6, 20] if who else [] -%}
+        {%- for c in [19, 17, 6, 20, 22, 9, 8, 2]
+              if c in codes and c not in skip -%}
           {%- set ns.parts = ns.parts + [words[c]] -%}
         {%- endfor -%}
         {%- if ns.parts | count > 1 -%}
           {{ ns.parts[:-1] | join(', ') }} and {{ ns.parts[-1] }}
         {%- else -%}{{ ns.parts | join }}{%- endif -%}
+      # Anyone recognised AND named, resolved by the integration: an
+      # automation cannot read the hub's name map itself.
+      who: >-
+        {%- set names = state_attr(trigger.entity_id, 'faces') or [] -%}
+        {%- if names | count > 1 -%}
+          {{ names[:-1] | join(', ') }} and {{ names[-1] }}
+        {%- else -%}{{ names | join }}{%- endif -%}
       headline: >-
-        {% if 17 in codes %}Someone rang the {{ where }}
+        {% if 17 in codes and who %}{{ who }} rang the {{ where }}
+        {% elif 17 in codes %}Someone rang the {{ where }}
+        {% elif who %}{{ who }} at {{ where }}
         {% elif 6 in codes %}Person at {{ where }}
         {% elif 9 in codes %}Animal at {{ where }}
         {% elif 19 in codes %}Tampering at {{ where }}
@@ -197,7 +210,8 @@ actions:
   - action: "{{ service }}"
     data:
       title: "{{ headline }}"
-      message: "Saw {{ seen }}, {{ when }}"
+      message: >-
+        {% if who %}{{ who }} — {% endif %}{{ seen }}, {{ when }}
       data:
         tag: "tapo-h500-{{ camera }}"
         clickAction: "{{ link }}"
@@ -228,7 +242,8 @@ actions:
       - action: "{{ service }}"
         data:
           title: "{{ headline }}"
-          message: "Saw {{ seen }}, {{ when }}"
+          message: >-
+            {% if who %}{{ who }} — {% endif %}{{ seen }}, {{ when }}
           data:
             image: "{{ frame }}"
             tag: "tapo-h500-{{ camera }}"

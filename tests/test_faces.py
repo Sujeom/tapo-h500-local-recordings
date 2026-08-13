@@ -98,6 +98,25 @@ class Sightings(unittest.TestCase):
         self.assertEqual(coord.faces_seen(), {})
 
 
+class EventNames(unittest.TestCase):
+    """The event resolves ids to names so an automation does not have to."""
+
+    def test_only_named_faces_are_published(self):
+        EVENT = (COMPONENT / "event.py").read_text()
+        body = EVENT.split("def _known_faces", 1)[1].split("def _own_frame", 1)[0]
+        self.assertIn("if str(face) in names", body)
+
+    def test_names_are_sorted_so_two_people_read_the_same_way(self):
+        EVENT = (COMPONENT / "event.py").read_text()
+        body = EVENT.split("def _known_faces", 1)[1].split("def _own_frame", 1)[0]
+        self.assertIn("sorted(", body)
+
+    def test_the_raw_ids_are_still_published_too(self):
+        """An automation matching a specific unnamed person still needs them."""
+        EVENT = (COMPONENT / "event.py").read_text()
+        self.assertIn('"face_ids": face_ids(entry)', EVENT)
+
+
 class Service(unittest.TestCase):
     def test_naming_writes_to_the_entry_not_a_card(self):
         """The point of the change: one place, read by everything."""

@@ -73,6 +73,30 @@ class Detections(unittest.TestCase):
         self.assertNotIn("alarm_type", filter_condition)
 
 
+class KnownFaces(unittest.TestCase):
+    """A recognised person is named rather than called "a person"."""
+
+    def test_it_reads_the_resolved_names_not_the_ids(self):
+        """An automation cannot reach the hub's name map, so the integration
+        resolves it. Reading face_ids here would put a twelve-digit number in
+        a sentence."""
+        self.assertIn("state_attr(trigger.entity_id, 'faces')", RAW)
+        self.assertNotIn("state_attr(trigger.entity_id, 'face_ids')", RAW)
+
+    def test_a_named_person_takes_the_headline(self):
+        self.assertIn("{% if 17 in codes and who %}{{ who }} rang the", RAW)
+        self.assertIn("{% elif who %}{{ who }} at {{ where }}", RAW)
+
+    def test_an_unknown_face_still_falls_back(self):
+        """Most detections are of nobody in particular."""
+        self.assertIn("{% elif 17 in codes %}Someone rang the", RAW)
+        self.assertIn("{% elif 6 in codes %}Person at", RAW)
+
+    def test_naming_someone_suppresses_the_generic_words(self):
+        """"Alice - a person, a familiar face" says the same thing threefold."""
+        self.assertIn("set skip = [6, 20] if who else []", RAW)
+
+
 class Photograph(unittest.TestCase):
     def _notifications(self):
         return re.findall(r"image: \"\{\{ frame \}\}\"", RAW)
