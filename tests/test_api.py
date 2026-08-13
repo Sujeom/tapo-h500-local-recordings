@@ -342,5 +342,299 @@ class StatusTest(unittest.TestCase):
             self.assertEqual(status.disk(broken), {})
 
 
+class _FakeHub:
+    """Records executeFunction calls instead of talking to a hub."""
+
+    def __init__(self, result=None):
+        self.calls = []
+        self.result = result or {}
+
+    def executeFunction(self, method, params):
+        self.calls.append((method, params))
+        return self.result
+
+
+class SirenTest(unittest.TestCase):
+    """Siren control, verified against firmware 1.3.20.
+
+    getSirenStatus/Config/TypeList answer and setSirenStatus/setSirenConfig are
+    accepted with error_code 0. Volume is 1-10; 0 and 11 return -40209.
+    """
+
+    def _client(self, result=None):
+        client = H500Client("host", "admin", "local", "cloud")
+        client._hub = _FakeHub(result)
+        return client
+
+    def test_volume_scales_and_never_leaves_the_range_the_hub_accepts(self):
+        self.assertEqual(status.hub_volume(1.0), 10)
+        self.assertEqual(status.hub_volume(0.8), 8)
+        # 0.0 is a level Home Assistant will send; 0 is rejected by the hub.
+        self.assertEqual(status.hub_volume(0.0), 1)
+        for level in (-5.0, 0.0, 0.5, 1.0, 99.0):
+            self.assertIn(status.hub_volume(level), range(1, 11))
+
+    def test_turning_the_siren_on_and_off_uses_the_siren_namespace(self):
+        client = self._client()
+        client.set_siren(True)
+        client.set_siren(False)
+        self.assertEqual(client._hub.calls, [
+            ("setSirenStatus", {"siren": {"status": "on"}}),
+            ("setSirenStatus", {"siren": {"status": "off"}}),
+        ])
+
+    def test_config_sends_only_the_fields_that_changed(self):
+        client = self._client()
+        client.set_siren_config(volume=7)
+        self.assertEqual(client._hub.calls[-1],
+                         ("setSirenConfig", {"siren": {"volume": "7"}}))
+        client.set_siren_config(tone="Alarm 1", duration=30)
+        self.assertEqual(
+            client._hub.calls[-1],
+            ("setSirenConfig", {"siren": {"siren_type": "Alarm 1", "duration": 30}}))
+
+    def test_an_empty_config_change_is_not_sent_at_all(self):
+        client = self._client()
+        self.assertIsNone(client.set_siren_config())
+        self.assertEqual(client._hub.calls, [])
+
+    def test_tone_list_survives_a_junk_entry(self):
+        client = self._client({"siren_type_list": ["Alarm 1", 7, None, "Alarm 2"]})
+        self.assertEqual(client.siren_tones(), ["Alarm 1", "Alarm 2"])
+        self.assertEqual(self._client({}).siren_tones(), [])
+
+    def test_readings_expose_the_config_the_hub_returns_as_strings(self):
+        readings = status.hub_readings({
+            "getSirenStatus": {"status": "off", "time_left": 0},
+            "getSirenConfig": {"siren_type": "Doorbell Ring 5",
+                               "volume": "8", "duration": 300},
+        })
+        self.assertEqual(readings["siren_tone"], "Doorbell Ring 5")
+        self.assertEqual(readings["siren_volume"], 8)
+        self.assertEqual(readings["siren_duration"], 300)
+        self.assertFalse(readings["siren_active"])
+
+    def test_missing_siren_config_does_not_break_the_poll(self):
+        readings = status.hub_readings({})
+        for key in ("siren_tone", "siren_volume", "siren_duration"):
+            self.assertIsNone(readings[key])
+
+
+class HubSettingsTest(unittest.TestCase):
+    """Writable hub settings.
+
+    Each setter was proven on firmware 1.3.20 by writing the hub's own current
+    value back and confirming error_code 0 with the setting unchanged.
+    """
+
+    def _client(self):
+        client = H500Client("host", "admin", "local", "cloud")
+        client._hub = _FakeHub()
+        return client
+
+    def test_each_toggle_uses_the_namespace_the_hub_accepted(self):
+        client = self._client()
+        client.set_led(True)
+        client.set_loop_recording(False)
+        client.set_diagnose_mode(True)
+        self.assertEqual(client._hub.calls, [
+            ("setLedStatus", {"led": {"config": {"enabled": "on"}}}),
+            ("setCircularRecordingConfig",
+             {"harddisk_manage": {"harddisk": {"loop": "off"}}}),
+            ("setDiagnoseMode", {"system": {"sys": {"diagnose_mode": "on"}}}),
+        ])
+
+    def test_auto_upgrade_toggle_keeps_the_schedule(self):
+        """The hub replaces `common` wholesale, so a bare enabled wipes it."""
+        readings = {"auto_upgrade_config": {
+            "enabled": "on", "time": "03:00", "random_range": 120}}
+        self.assertEqual(status.auto_upgrade_config(readings, False), {
+            "enabled": "off", "time": "03:00", "random_range": 120})
+        # The coordinator's live readings must not be mutated in passing.
+        self.assertEqual(readings["auto_upgrade_config"]["enabled"], "on")
+
+    def test_auto_upgrade_toggle_survives_a_hub_that_sent_no_schedule(self):
+        self.assertEqual(status.auto_upgrade_config({}, True),
+                         {"enabled": "on"})
+
+    def test_auto_upgrade_payload_wraps_the_block_the_hub_expects(self):
+        client = self._client()
+        client.set_auto_upgrade({"enabled": "off", "time": "03:00"})
+        self.assertEqual(
+            client._hub.calls[-1],
+            ("setFirmwareAutoUpgradeConfig",
+             {"auto_upgrade": {"common": {"enabled": "off", "time": "03:00"}}}))
+
+    def test_readings_expose_the_new_settings(self):
+        readings = status.hub_readings({
+            "getDiagnoseMode": {"system": {"sys": {"diagnose_mode": "off"}}},
+            "getFirmwareAutoUpgradeConfig": {"auto_upgrade": {"common": {
+                "enabled": "on", "time": "03:00", "random_range": 120}}},
+        })
+        self.assertFalse(readings["diagnose_mode"])
+        self.assertTrue(readings["auto_upgrade"])
+        self.assertEqual(readings["auto_upgrade_time"], "03:00")
+        self.assertEqual(readings["auto_upgrade_config"]["random_range"], 120)
+
+    def test_missing_settings_do_not_break_the_poll(self):
+        readings = status.hub_readings({})
+        self.assertIsNone(readings["diagnose_mode"])
+        self.assertIsNone(readings["auto_upgrade"])
+        self.assertEqual(readings["auto_upgrade_config"], {})
+
+    def test_every_batched_request_is_a_read(self):
+        # The poll runs unattended every few seconds; a setter in here would
+        # rewrite the user's hub on a timer.
+        for name, _ in status.HUB_STATUS_REQUESTS:
+            self.assertTrue(name.startswith("get"), name)
+
+
+class LiveProbeTest(unittest.TestCase):
+    """The live-view sweep in tools/, which needs no hub to reason about."""
+
+    def setUp(self):
+        sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
+        self.addCleanup(sys.path.pop, 0)
+        import h500_session
+        import probe_live
+        self.session = importlib.reload(h500_session)
+        self.probe = probe_live
+        self.session.state.update(
+            {"client": _StubLiveClient(), "raw": True, "requests": 0})
+
+    def _run(self, outcomes, only=None):
+        """Drive live_probe with a scripted verdict per attempt."""
+        calls = []
+
+        def fake_attempt(client, query, payload, timeout):
+            calls.append((query, payload))
+            return outcomes[len(calls) - 1]
+
+        with patch.object(self.probe, "run_attempt", fake_attempt), \
+                patch.object(self.session.time, "sleep", lambda _: None):
+            return self.session.live_probe(0, 1.0, only, 0.0), calls
+
+    def test_the_pytapo_combination_is_tried_first(self):
+        result, calls = self._run([("closed", "")] * 20)
+        first = result["results"][0]
+        # Query type and payload block must differ; pairing them by name is
+        # what made every earlier live run inconclusive.
+        self.assertEqual(first["type"], "video")
+        self.assertEqual(first["block"], "preview")
+        self.assertNotEqual(first["type"], first["block"])
+        self.assertNotIn("media_type", calls[0][0])
+        self.assertIn("preview", calls[0][1]["params"])
+
+    def test_it_stops_at_the_first_attempt_returning_video(self):
+        result, calls = self._run([("closed", ""), ("video", 4096)])
+        self.assertEqual(len(calls), 2, "should not keep probing after video")
+        self.assertEqual(result["results"][-1]["found"],
+                         "query type=video, block=preview, pytapo identity fields")
+
+    def test_a_refusing_port_stops_the_sweep(self):
+        result, calls = self._run(
+            [("exception", "ConnectionRefusedError: refused")] * 5)
+        self.assertEqual(len(calls), 1, "later attempts would be meaningless")
+        self.assertIn("refusing", result["results"][-1]["stopped"])
+
+    def test_only_selects_a_single_attempt(self):
+        result, calls = self._run([("closed", "")], only="video-preview-pytapo")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result["results"][0]["attempt"], "video-preview-pytapo")
+
+    def test_an_unknown_label_is_reported_rather_than_silently_doing_nothing(self):
+        result, calls = self._run([("closed", "")], only="nope")
+        self.assertEqual(calls, [])
+        self.assertIn("unknown attempt", result["error"])
+
+    def test_pytapo_identity_omits_fields_the_hub_resolves_itself(self):
+        block = self.probe.build_payload(
+            "preview", {"device_id": "c", "mac": "m"}, "p", 1, "pytapo",
+        )["params"]["preview"]
+        self.assertEqual(block["deviceId"], "c")
+        self.assertFalse({"dev_id", "mac", "client_id", "player_id"} & set(block))
+
+
+class _StubMediaSession:
+    """Replays a scripted sequence of media-session responses."""
+
+    def __init__(self, responses):
+        self._responses = responses
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def transceive(self, payload, no_data_timeout=None):
+        async def stream():
+            for mimetype, body in self._responses:
+                yield types.SimpleNamespace(mimetype=mimetype, plaintext=body)
+        return stream()
+
+
+# The hub's real reply to an accepted live request, from a firmware 1.3.20 run.
+OPEN_ACK = ("application/json",
+            b'{"type":"response","seq":3704,'
+            b'"params":{"error_code":0,"session_id":"10"}}')
+
+
+class LiveAttemptTest(unittest.TestCase):
+    """A successful open acknowledgement must not end the attempt.
+
+    The hub answers an accepted live request with error_code 0 and a
+    session_id, and only then sends video. Treating that reply as the verdict
+    reported a working live session as a dead one.
+    """
+
+    def setUp(self):
+        sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
+        self.addCleanup(sys.path.pop, 0)
+        import probe_live
+        self.probe = probe_live
+
+    def _attempt(self, responses, timeout=0.5):
+        stub = types.SimpleNamespace(
+            H500MediaSession=lambda **kwargs: _StubMediaSession(responses))
+        client = types.SimpleNamespace(
+            host="h", cloud_password="c", _super_secret_key="k",
+            _encryption_method="m", username="admin")
+        with patch.object(self.probe, "load_api", lambda: stub):
+            return asyncio.run(self.probe.attempt(client, {}, {}, timeout))
+
+    def test_video_after_the_ack_is_reported_as_video(self):
+        verdict, _ = self._attempt([OPEN_ACK, ("video/mp2t", b"\x47" * 188)])
+        self.assertEqual(verdict, "video", "the ack must not end the attempt")
+
+    def test_an_ack_with_no_video_is_distinguished_from_silence(self):
+        verdict, detail = self._attempt([OPEN_ACK])
+        self.assertEqual(verdict, "opened")
+        self.assertEqual(detail["session"]["params"]["session_id"], "10")
+
+    def test_silence_with_no_ack_stays_closed(self):
+        verdict, _ = self._attempt([])
+        self.assertEqual(verdict, "closed")
+
+    def test_a_rejection_is_still_terminal(self):
+        verdict, detail = self._attempt(
+            [("application/json", b'{"params":{"error_code":-40106}}')])
+        self.assertEqual(verdict, "error")
+        self.assertEqual(detail["code"], -40106)
+
+    def test_only_query_type_video_is_ever_sent(self):
+        # type=preview returned 401 and left port 8800 refusing TCP.
+        self.assertEqual({a[1] for a in self.probe.ATTEMPTS}, {"video"})
+
+
+class _StubLiveClient:
+    player_id = "player"
+    _client_id = 1
+
+    def camera_at(self, index):
+        return {"device_id": "DEADBEEFCAFE", "mac": "AABBCCDDEEFF",
+                "channel_id": 0}
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,7 +20,7 @@ from .api import H500Client
 from .clips import end_of, event_type, start_of
 from .const import (
     CARD_URL, CONF_CLOUD_PASSWORD, CONF_CONVERT_MP4, DATA_CARD, DATA_HUBS,
-    DEFAULT_CONVERT_MP4, DOMAIN, SERVICE_DELETE_RECORDING,
+    DATA_PREVIEW, DEFAULT_CONVERT_MP4, DOMAIN, SERVICE_DELETE_RECORDING,
     SERVICE_DOWNLOAD_RECORDING, SERVICE_FORMAT_HUB_STORAGE,
     SERVICE_LIST_RECORDINGS,
 )
@@ -28,11 +28,13 @@ from .coordinator import H500Coordinator
 from .media import (
     async_delete_clip, async_download_clip, describe, media_root, scan_downloaded,
 )
+from .preview import H500PreviewView, preview_url
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.CAMERA, Platform.EVENT,
-             Platform.SENSOR]
+             Platform.NUMBER, Platform.SELECT, Platform.SENSOR, Platform.SIREN,
+             Platform.SWITCH]
 
 NONNEGATIVE_INT = vol.All(vol.Coerce(int), vol.Range(min=0))
 ENTRY_SCHEMA = {
@@ -91,6 +93,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.entry_id] = coordinator
 
     await _async_register_card(hass)
+    if not hass.data[DOMAIN].get(DATA_PREVIEW):
+        hass.http.register_view(H500PreviewView())
+        hass.data[DOMAIN][DATA_PREVIEW] = True
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     if not hass.services.has_service(DOMAIN, SERVICE_LIST_RECORDINGS):
         _register_services(hass)
@@ -220,7 +225,14 @@ def _register_services(hass: HomeAssistant) -> None:
                     "event_type": event_type(clip),
                     "video_type": clip.get("video_type"),
                     "downloaded": start in on_disk,
-                    **(describe(hass, on_disk[start]) if start in on_disk else {}),
+                    # A clip still only on the hub gets a preview URL rather
+                    # than nothing. It is generated when something actually
+                    # asks for the image, not here, so listing stays one call.
+                    **(describe(hass, on_disk[start]) if start in on_disk else {
+                        "thumbnail": preview_url(
+                            hass, call.data["config_entry_id"],
+                            call.data["camera_index"], start),
+                    }),
                 }
                 for start, end, clip in sorted(clips, key=lambda item: item[0])
             ],

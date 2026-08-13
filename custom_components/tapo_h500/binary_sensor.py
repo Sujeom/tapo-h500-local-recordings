@@ -29,28 +29,18 @@ class CameraFlag(BinarySensorEntityDescription):
     value: Callable[[dict], bool | None]
 
 
+# Only readings with no control of their own live here. The siren, LED and loop
+# recording moved to siren/switch entities, which carry the same state and can
+# also change it; keeping a read-only twin of each was two entities per fact.
+# Media encryption stays because it is deliberately not writable — changing it
+# would break the download path.
 HUB_FLAGS: tuple[HubFlag, ...] = (
-    HubFlag(
-        key="siren", translation_key="siren",
-        device_class=BinarySensorDeviceClass.SOUND,
-        value=lambda r: r.get("siren_active"),
-    ),
     HubFlag(
         key="storage_problem", translation_key="storage_problem",
         device_class=BinarySensorDeviceClass.PROBLEM,
         # Inverted deliberately: PROBLEM is on when unhealthy.
         value=lambda r: None if r.get("storage_healthy") is None
         else not r["storage_healthy"],
-    ),
-    HubFlag(
-        key="loop_recording", translation_key="loop_recording",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value=lambda r: r.get("loop_recording"),
-    ),
-    HubFlag(
-        key="led", translation_key="led",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value=lambda r: r.get("led_on"),
     ),
     HubFlag(
         key="media_encrypted", translation_key="media_encrypted",

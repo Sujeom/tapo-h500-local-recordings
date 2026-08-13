@@ -234,6 +234,66 @@ class H500Client:
             })
         return unpack_multiple(response)
 
+    def _set(self, method, params):
+        with self._hub_lock:
+            return self._hub.executeFunction(method, params)
+
+    def set_led(self, on: bool):
+        return self._set("setLedStatus",
+                         {"led": {"config": {"enabled": "on" if on else "off"}}})
+
+    def set_loop_recording(self, on: bool):
+        return self._set(
+            "setCircularRecordingConfig",
+            {"harddisk_manage": {"harddisk": {"loop": "on" if on else "off"}}})
+
+    def set_diagnose_mode(self, on: bool):
+        return self._set(
+            "setDiagnoseMode",
+            {"system": {"sys": {"diagnose_mode": "on" if on else "off"}}})
+
+    def set_auto_upgrade(self, config: dict):
+        """Replace the whole auto-upgrade block.
+
+        The hub takes `common` wholesale, so the caller passes the current
+        block with only the field it means to change replaced; sending just
+        `enabled` would drop the schedule.
+        """
+        return self._set("setFirmwareAutoUpgradeConfig",
+                         {"auto_upgrade": {"common": config}})
+
+    def siren_tones(self):
+        """The hub's own list of siren sounds.
+
+        Fetched once at setup rather than every poll: it is a fixed table.
+        """
+        with self._hub_lock:
+            result = self._hub.executeFunction("getSirenTypeList", {"siren": {}})
+        tones = result.get("siren_type_list")
+        return [tone for tone in tones if isinstance(tone, str)] \
+            if isinstance(tones, list) else []
+
+    def set_siren(self, on: bool):
+        return self._set("setSirenStatus",
+                         {"siren": {"status": "on" if on else "off"}})
+
+    def set_siren_config(self, tone=None, volume=None, duration=None):
+        """Change the sound, loudness or run time of the hub siren.
+
+        Volume is 1-10; the hub rejects 0 and 11 with -40209. Sending only the
+        fields that changed is what the app does and what the hub expects.
+        """
+        siren = {}
+        if tone is not None:
+            siren["siren_type"] = tone
+        if volume is not None:
+            siren["volume"] = str(volume)
+        if duration is not None:
+            siren["duration"] = int(duration)
+        if not siren:
+            return None
+        return self._set("setSirenConfig", {"siren": siren})
+
     def format_storage(self):
         """Erase hub storage.
 

@@ -22,6 +22,8 @@ recordings stored on a Tapo H500 HomeBase.
 - Downloads new recordings automatically.
 - Converts downloads to MP4 so they play in the browser.
 - Generates a JPEG thumbnail for every downloaded clip.
+- Shows a thumbnail for clips that have **not** been downloaded, by fetching
+  only the opening seconds rather than the whole recording.
 - Serves a **camera entity** per doorbell showing the newest event frame.
 - Browses downloaded clips under **Media → Tapo H500**, by camera and date,
   with thumbnails.
@@ -43,16 +45,43 @@ entry and is not placed in filenames, service responses, or logs.
 
 ## Scope and limitations
 
-**No live stream.** The camera entities serve stills taken from the newest
-recording, not live video. The H500's live media session for hub-attached
-battery cameras is not part of the path verified against real hardware, so it
-is deliberately not attempted here.
+**No live stream yet.** The camera entities serve stills taken from the newest
+recording, not live video.
 
-`tools/probe_live.py` exists to find that missing verb by asking the hub rather
-than sniffing the Tapo app. Phase A is free and may already answer it:
+The verb is no longer the unknown. On firmware `1.3.20` a port-8800 session
+opened with query `type=video` carrying a `preview` payload block is accepted:
+`error_code: 0`, a `session_id`, and then a real live-session notification from
+the hub. **But no video ever arrives** — 90 seconds of an open, talking session
+produced no frames, and every wake verb is absent locally, so a hub-attached
+battery TD21 appears not to stream to a local client at all.
+
+Nothing is wired into a camera entity until a real stream has been seen.
+`docs/protocol-notes.md` records exactly what was measured and what it rules
+out.
+
+`tools/probe_live.py` found that verb by asking the hub rather than sniffing the
+Tapo app. The shape came from pytapo's hub-child code path: query `type=video`
+carrying a **`preview`** payload block. The query type and the block name
+differ, which is why earlier runs — which varied both together as one word —
+never sent it.
+
+Only `type=video` is ever sent now. `type=preview` returned `HTTP ERROR 401` and
+left port 8800 refusing TCP, so the other spellings cost a wedged hub to learn
+nothing.
+
+Run the sweep over a **held login**; a fresh login per attempt is what wedges
+the hub:
 
 ```
 python3 -m venv .venv && .venv/bin/pip install pytapo==3.4.18
+.venv/bin/python tools/h500_session.py --host 192.168.1.50 &
+.venv/bin/python tools/h500_session.py --live --camera 1
+.venv/bin/python tools/h500_session.py --stop
+```
+
+`probe_live.py` runs the same sweep standalone, plus the free Phase A survey:
+
+```
 .venv/bin/python tools/probe_live.py --host 192.168.1.50 --camera 1
 .venv/bin/python tools/probe_live.py --host 192.168.1.50 --camera 1 --probe
 ```
@@ -66,12 +95,18 @@ from `TAPO_PASSWORD`/`TAPO_CLOUD_PASSWORD` or a prompt, never the command line.
 Read the error codes: a "method does not exist" code means the verb is wrong, a
 parameter complaint means the verb is right and only the fields need fitting.
 
-**No per-clip deletion on the hub.** The hub exposes no delete-one-recording
-call — `pytapo` has none, and TP-Link's own documentation says SD/hub footage
-can only be removed by formatting. `tapo_h500.delete_recording` therefore
-removes the *downloaded copy* in Home Assistant. `tapo_h500.format_hub_storage`
-is the only hub-side deletion that exists and it **erases every recording for
-every paired camera, with no undo**.
+**No per-clip deletion on the hub.** The hub advertises a `playbackDelete`
+component, but it cannot be reached: every namespace spelling returns `-40106`,
+`pytapo` has no such call to borrow a shape from, and TP-Link's own
+documentation says SD/hub footage can only be removed by formatting.
+`tapo_h500.delete_recording` therefore removes the *downloaded copy* in Home
+Assistant. `tapo_h500.format_hub_storage` is the only hub-side deletion that
+exists and it **erases every recording for every paired camera, with no undo**.
+
+The same is true of the other advertised-but-unreachable components:
+`snapshot` (so thumbnails stay ffmpeg frame extractions) and `eventCenter` /
+`ringLog` (so events still come from polling the clip index). See
+`docs/protocol-notes.md` for exactly what was probed.
 
 **Event latency.** The integration prefers the hub's detection log, but on
 firmware 1.3.20 that log is accepted and always empty, so in practice it falls
@@ -161,9 +196,37 @@ The hub gets its own device, and each paired camera gets one.
 | `sensor.*_storage_free` / `_storage_total` / `_storage_used` | Recording space, in GB and percent. Automate a warning before the loop starts overwriting. |
 | `sensor.*_storage_status` | The hub's own word for the disk state, e.g. `normal`. |
 | `binary_sensor.*_storage_problem` | On when the disk is not `normal`. |
-| `binary_sensor.*_siren` + `sensor.*_siren_time_left` | Whether the hub siren is sounding, and for how much longer. |
+| `siren.*` | Sounds the hub siren, and reports whether it is sounding. Supports a tone (19 sounds, from Doorbell Ring 1 to Alarm 5), a volume and a duration; the current settings are attributes. |
+| `sensor.*_siren_time_left` | How much longer the siren will sound. |
 | `sensor.*_firmware_state`, `sensor.*_ip_address` | Diagnostics. |
-| `binary_sensor.*_loop_recording`, `_led`, `_media_encryption` | Diagnostics. |
+| `binary_sensor.*_media_encryption` | Diagnostics. |
+
+**Hub settings you can change**
+
+Every control below was confirmed writable on firmware `1.3.20` by writing the
+hub's own current value back to it and checking the hub accepted it without
+anything moving.
+
+| Entity | Effect |
+| --- | --- |
+| `switch.*_status_led` | The hub's status light. |
+| `switch.*_loop_recording` | Whether the hub overwrites the oldest footage once storage fills. Turning it off means recording stops when full. |
+| `switch.*_automatic_firmware_updates` | The hub's own auto-update. Toggling keeps the update time the hub already holds. |
+| `switch.*_diagnostic_mode` | TP-Link's diagnostic logging. Off unless you are chasing something. |
+| `select.*_siren_sound` | Which of the 19 sounds the siren uses, set without sounding it. |
+| `number.*_siren_volume` | 1-10. The hub refuses anything outside that. |
+| `number.*_siren_duration` | How long the siren sounds, in seconds. |
+
+The read-only `binary_sensor.*_siren`, `_led` and `_loop_recording` entities are
+**gone**: the siren and switch entities above carry the same state and can also
+change it, and a read-only twin of each meant two entities per fact. Delete them
+from any dashboard that still lists them. `binary_sensor.*_media_encryption`
+stays, because that one is deliberately not writable.
+
+Three settings the hub exposes are deliberately **not** offered: the reboot
+schedule (its call is ambiguous between scheduling a reboot and performing one),
+media encryption (turning it off would break the verified download path) and the
+timezone (changing it would shift every clip timestamp).
 
 **Per camera**
 
@@ -247,6 +310,18 @@ let it grow.
 Each row shows the thumbnail, the local time, the event type and the duration,
 plus **Download** for clips still only on the hub and **Play**/**Delete** for
 clips already downloaded.
+
+Rows for clips that are still only on the hub show a thumbnail too. The hub's
+download session takes a time window, so a preview does not need the whole
+recording — the integration pulls the opening couple of seconds, keeps one
+frame and throws the video away. Measured on firmware `1.3.20` that is about
+230 KB and two seconds, against roughly 3.4 MB for a full 15-second clip.
+
+Previews are made only when something actually asks for the image, and the card
+marks its images `loading="lazy"`, so scrolling a long list does not fetch
+anything you never looked at. Each one is cached on disk at the same path the
+downloaded clip's thumbnail would use, so it is generated once, and downloading
+that clip later finds it already there.
 
 ## Actions
 

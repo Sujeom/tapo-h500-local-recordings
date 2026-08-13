@@ -97,17 +97,8 @@
       }
     },
     "binary_sensor": {
-      "siren": {
-        "name": "Siren"
-      },
       "storage_problem": {
         "name": "Storage problem"
-      },
-      "loop_recording": {
-        "name": "Loop recording"
-      },
-      "led": {
-        "name": "Status LED"
       },
       "media_encrypted": {
         "name": "Media encryption"
@@ -123,6 +114,38 @@
       },
       "wifi_backup": {
         "name": "Wi-Fi backup"
+      }
+    },
+    "siren": {
+      "siren": {
+        "name": "Siren"
+      }
+    },
+    "switch": {
+      "led": {
+        "name": "Status LED"
+      },
+      "loop_recording": {
+        "name": "Loop recording"
+      },
+      "auto_upgrade": {
+        "name": "Automatic firmware updates"
+      },
+      "diagnose_mode": {
+        "name": "Diagnostic mode"
+      }
+    },
+    "select": {
+      "siren_tone": {
+        "name": "Siren sound"
+      }
+    },
+    "number": {
+      "siren_volume": {
+        "name": "Siren volume"
+      },
+      "siren_duration": {
+        "name": "Siren duration"
       }
     }
   }

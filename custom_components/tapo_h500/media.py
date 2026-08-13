@@ -20,7 +20,9 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
 from .clips import camera_slug, surplus
-from .const import CONVERT_ARGS, MEDIA_DIR, THUMBNAIL_ARGS
+from .const import (
+    CONVERT_ARGS, MEDIA_DIR, PREVIEW_MAX_BYTES, PREVIEW_SECONDS, THUMBNAIL_ARGS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -132,6 +134,57 @@ async def async_thumbnail(hass: HomeAssistant, video: Path) -> Path | None:
 
 def _has_content(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
+
+
+async def async_preview_clip(
+    hass: HomeAssistant, client, camera, start_time: int
+) -> Path | None:
+    """A thumbnail for a clip that is still only on the hub.
+
+    The download session takes a time window, so a preview does not need the
+    whole recording — a couple of seconds is enough for one decodable frame,
+    which costs a fraction of a full clip. Abandoning the stream early is
+    deliberate: closing the generator unwinds the media session cleanly.
+
+    Cached at exactly the path the downloaded clip's thumbnail would use, so
+    downloading later finds it already there, and deleting the clip removes it.
+    """
+    thumbnail = clip_path(hass, camera, start_time, ".jpg")
+    if await hass.async_add_executor_job(_has_content, thumbnail):
+        return thumbnail
+    descriptor, temporary = await hass.async_add_executor_job(
+        _make_temp, thumbnail.parent, ".ts.part")
+    stream = os.fdopen(descriptor, "wb")
+    received = 0
+    try:
+        async for chunk in client.iter_recording(
+                camera, start_time, start_time + PREVIEW_SECONDS):
+            received += len(chunk)
+            await hass.async_add_executor_job(stream.write, chunk)
+            if received >= PREVIEW_MAX_BYTES:
+                break
+        await hass.async_add_executor_job(stream.close)
+        stream = None
+        if not received:
+            return None
+        # No -ss seek: only the opening seconds were fetched, so the first
+        # decodable frame is all there is.
+        made = await _run_ffmpeg(hass, [
+            "-y", "-f", "mpegts", "-i", str(temporary),
+            *THUMBNAIL_ARGS, str(thumbnail),
+        ])
+        if made and await hass.async_add_executor_job(_has_content, thumbnail):
+            return thumbnail
+        return None
+    except Exception as err:
+        # A preview is decoration. A hub that will not serve one must not turn
+        # into a broken recording list.
+        _LOGGER.debug("Preview for clip %s failed: %s", start_time, err)
+        return None
+    finally:
+        if stream is not None:
+            await hass.async_add_executor_job(stream.close)
+        await hass.async_add_executor_job(temporary.unlink, True)
 
 
 async def async_download_clip(

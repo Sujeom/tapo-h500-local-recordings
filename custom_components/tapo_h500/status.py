@@ -8,16 +8,21 @@ from __future__ import annotations
 
 import re
 
+from .const import SIREN_VOLUME_MAX, SIREN_VOLUME_MIN
+
 # One round trip covers all of these. Each was confirmed to return data on an
 # H500 running firmware 1.3.20; the other 55 getters pytapo knows about do not.
 HUB_STATUS_REQUESTS = (
     ("getSdCardStatus", {"harddisk_manage": {"table": ["hd_info"]}}),
     ("getSirenStatus", {"siren": {}}),
+    ("getSirenConfig", {"siren": {}}),
     ("getFirmwareUpdateStatus", {"cloud_config": {"name": "upgrade_status"}}),
     ("getLedStatus", {"led": {"name": ["config"]}}),
     ("getCircularRecordingConfig", {"harddisk_manage": {"name": "harddisk"}}),
     ("getMediaEncrypt", {"cet": {"name": ["media_encrypt"]}}),
     ("getDeviceIpAddress", {"network": {"name": ["wan"]}}),
+    ("getDiagnoseMode", {"system": {"name": "sys"}}),
+    ("getFirmwareAutoUpgradeConfig", {"auto_upgrade": {"name": ["common"]}}),
 )
 
 SIZE = re.compile(r"([0-9.]+)\s*([KMGT]?B)", re.IGNORECASE)
@@ -68,6 +73,37 @@ def disk(status: dict) -> dict:
     return inner if isinstance(inner, dict) else {}
 
 
+def hub_volume(level: float) -> int:
+    """Home Assistant's 0.0-1.0 siren level onto the hub's 1-10.
+
+    Clamped rather than trusted: the hub rejects 0 and 11 with -40209, and 0.0
+    is a level Home Assistant will legitimately send.
+    """
+    return max(SIREN_VOLUME_MIN,
+               min(SIREN_VOLUME_MAX, round(level * SIREN_VOLUME_MAX)))
+
+
+def auto_upgrade_config(readings: dict, on: bool) -> dict:
+    """The whole auto-upgrade block with only `enabled` changed.
+
+    setFirmwareAutoUpgradeConfig replaces `common` wholesale, so a toggle has
+    to send back the time and window it is not changing. Sending just
+    `enabled` would silently wipe the schedule. Copied rather than mutated:
+    this is the coordinator's live readings dict.
+    """
+    config = dict(readings.get("auto_upgrade_config") or {})
+    config["enabled"] = "on" if on else "off"
+    return config
+
+
+def _int(value) -> int | None:
+    """The hub sends numbers as strings about half the time."""
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def _on(value) -> bool | None:
     if value is None:
         return None
@@ -83,7 +119,14 @@ def hub_readings(status: dict) -> dict:
     if free is not None and total:
         used_percent = round((total - free) / total * 100, 1)
     siren = status.get("getSirenStatus") or {}
+    siren_config = status.get("getSirenConfig") or {}
+    upgrade = dig(status.get("getFirmwareAutoUpgradeConfig"),
+                  "auto_upgrade", "common") or {}
     return {
+        "siren_tone": siren_config.get("siren_type"),
+        # 1-10 as a string on the wire; kept numeric for the volume slider.
+        "siren_volume": _int(siren_config.get("volume")),
+        "siren_duration": _int(siren_config.get("duration")),
         "storage_free_gb": free,
         "storage_total_gb": total,
         "storage_used_percent": used_percent,
@@ -102,4 +145,11 @@ def hub_readings(status: dict) -> dict:
                                    "media_encrypt", "enabled")),
         "ip_address": dig(status.get("getDeviceIpAddress"), "network", "wan",
                           "ipaddr"),
+        "diagnose_mode": _on(dig(status.get("getDiagnoseMode"), "system", "sys",
+                                 "diagnose_mode")),
+        "auto_upgrade": _on(upgrade.get("enabled")),
+        # Kept whole: setFirmwareAutoUpgradeConfig replaces the entire block, so
+        # toggling it has to send back the time and window it did not change.
+        "auto_upgrade_config": upgrade,
+        "auto_upgrade_time": upgrade.get("time"),
     }

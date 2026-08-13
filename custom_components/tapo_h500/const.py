@@ -4,6 +4,7 @@ DOMAIN = "tapo_h500"
 CONF_CLOUD_PASSWORD = "cloud_password"
 DATA_HUBS = "hubs"
 DATA_CARD = "card_registered"
+DATA_PREVIEW = "preview_view_registered"
 
 SERVICE_LIST_RECORDINGS = "list_recordings"
 SERVICE_DOWNLOAD_RECORDING = "download_recording"
@@ -39,6 +40,11 @@ DEFAULT_KEEP_DOWNLOADS = 0
 # without it those sensors would be blank whenever nothing happened recently.
 LOOKBACK_SECONDS = 86400
 
+# The hub rejects a siren volume of 0 or 11 with -40209, so the usable range is
+# 1-10 and Home Assistant's 0.0-1.0 level is scaled onto it.
+SIREN_VOLUME_MIN = 1
+SIREN_VOLUME_MAX = 10
+
 EVENT_RING = "ring"
 EVENT_MOTION = "motion"
 EVENT_TYPES = [EVENT_RING, EVENT_MOTION]
@@ -58,6 +64,15 @@ SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
 # dies at the conversion step.
 CONVERT_ARGS = ["-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart",
                 "-f", "mp4"]
+
+# A preview of a clip that is still only on the hub. The hub streams a bounded
+# window, so one decodable frame does not need the whole recording: measured on
+# firmware 1.3.20, two seconds yields ~230 KB in ~2s and decodes cleanly, where
+# a full 15-second clip is ~3.4 MB. Bounded twice — a short window at the hub
+# and a byte cap here — because the window alone is the hub's estimate, not a
+# promise.
+PREVIEW_SECONDS = 2
+PREVIEW_MAX_BYTES = 262_144
 
 # One frame, scaled down. A full 2304x1296 frame is ~530 KB, which is absurd
 # for something the card renders at 96x54; 640 wide is ~65 KB and still sharp
