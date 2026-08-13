@@ -219,6 +219,7 @@ available in the card picker. They show the same recordings different ways:
 | `custom:tapo-h500-timeline-card` | Clips grouped under hour headings, so the gaps in a day are visible. |
 | `custom:tapo-h500-faces-card` | One tile per person the hub recognised, with their newest picture, how many times they were seen, and the name you give them. |
 | `custom:tapo-h500-summary-card` | A bar chart of events by hour of day, so you can see when things actually happen. |
+| `custom:tapo-h500-face-summary-card` | A bar chart of how often each face was seen, ranked most-seen first. |
 
 Add a manual card:
 
@@ -251,6 +252,27 @@ always has a text twin.
 
 Colours come from your Home Assistant theme, so it follows light and dark mode
 rather than shipping its own palette.
+
+### The face summary card
+
+How often each face was seen over the period, as a horizontal bar chart ranked
+most-seen first.
+
+```yaml
+type: custom:tapo-h500-face-summary-card
+days: 7
+names:
+  123456789012: Alice
+```
+
+Horizontal rather than vertical because the categories are names of arbitrary
+length; vertical bars would have to rotate or truncate them. The bars are
+sorted by count with a stable tiebreak, so two faces seen the same number of
+times do not swap places between redraws. Every count is also in a table below
+the chart, so nothing is available only on hover.
+
+Takes the same `names` map as the faces card — the hub supplies ids, never
+names. Anyone unnamed shows as `Face <id>`, which is the id to add to the map.
 
 ### The faces card
 
