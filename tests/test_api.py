@@ -617,16 +617,27 @@ class DetectionTest(unittest.TestCase):
                       {"event_info": ["junk"]}, {"event_info": [{}]}):
             self.assertEqual(clips.face_ids(empty), [])
 
-    def test_nothing_claims_to_be_a_ring_until_a_press_is_captured(self):
-        for record in self.REAL:
-            self.assertEqual(clips.event_type(record), "motion")
+    # The real press: the front doorbell was rung at 14:42:25 on 2026-08-13 and
+    # this was the only event on that camera in six hours.
+    PRESS = {"alarm_type": 17, "events_1": 66080, "start_time": 1786646545}
 
-    def test_adding_the_ring_code_classifies_every_path_at_once(self):
-        with patch.object(clips, "RING_ALARM_TYPES", {17}):
-            ring = next(r for r in self.REAL if r["alarm_type"] == 17)
-            other = next(r for r in self.REAL if r["alarm_type"] == 22)
-            self.assertEqual(clips.event_type(ring), "ring")
-            self.assertEqual(clips.event_type(other), "motion")
+    def test_a_real_doorbell_press_classifies_as_a_ring(self):
+        self.assertEqual(clips.event_type(self.PRESS), "ring")
+        self.assertEqual(clips.detection_types(self.PRESS), [6, 10, 17])
+        self.assertIn("doorbell", clips.describe_detection(self.PRESS))
+
+    def test_motion_is_still_not_a_ring(self):
+        for record in self.REAL:
+            expected = "ring" if record["alarm_type"] == 17 else "motion"
+            self.assertEqual(clips.event_type(record), expected,
+                             f"alarm_type {record['alarm_type']}")
+
+    def test_only_codes_backed_by_evidence_are_named(self):
+        # 6 and 22 are the two commonest codes and remain unnamed, because
+        # nothing observed says what they mean.
+        self.assertEqual(set(clips.DETECTION_NAMES), {2, 17, 20})
+        self.assertEqual(clips.describe_detection({"events_1": 2}), "motion")
+        self.assertIn("type 22", clips.describe_detection({"events_1": 2097152}))
 
     def test_detections_are_matched_to_clips_by_start_time(self):
         clip_list = [{"startTime": 1786553183, "endTime": 1786553199},

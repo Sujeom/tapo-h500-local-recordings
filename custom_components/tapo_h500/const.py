@@ -56,20 +56,34 @@ EVENT_TYPES = [EVENT_RING, EVENT_MOTION]
 RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 
 # alarm_type codes from searchDetectionList, seen on firmware 1.3.20:
-# 2, 6, 8, 9, 17, 19, 20 and 22. Only two are named, and only where the
-# evidence supports it -- 2 is set on nearly every detection, and 20 is the
-# only code observed carrying a face_id in event_info. The rest are real,
-# unnamed, and displayed as their number rather than guessed at.
+# 2, 6, 8, 9, 10, 17, 19, 20 and 22. Named only where the evidence carries,
+# measured over 35 distinct detections across both cameras:
+#
+#   17  a doorbell press. GROUND TRUTH: the front doorbell was rung at
+#       14:42:25 on 2026-08-13 and that was the only event on that camera in
+#       six hours -- alarm_type 17, events_1 66080. It has appeared twice, and
+#       never without code 10.
+#   20  a recognised face. Every one of its 5 detections carried a face_id,
+#       and no other code ever did.
+#    2  motion. Set on 31 of 35 detections, the base signal everything else
+#       accompanies.
+#
+# The rest are real and deliberately unnamed. 6 (29 sightings) and 22 (18) are
+# common but never appear alone, so nothing distinguishes what they mean; 8, 9
+# and 19 are rarer and equally unattributed; 10 appears only ever beside 17, so
+# it is part of the doorbell signal rather than a thing of its own. They display
+# as their number, because a confident wrong label on a recording is worse than
+# an honest "type 22".
 DETECTION_NAMES = {
     2: "motion",
+    17: "doorbell",
     20: "face",
 }
 
-# Which codes mean a doorbell press. Empty until a real press is captured:
-# naming one on a hunch would put a confident wrong label on every recording,
-# which is worse than the honest "type 22". Add the code here and the event
-# entity, the download filter and every card pick it up at once.
-RING_ALARM_TYPES: set[int] = set()
+# Which codes mean a doorbell press. 17 is confirmed against a real press; 10
+# rides along with it every time but has never been seen alone, so adding it
+# would claim more than was observed.
+RING_ALARM_TYPES: set[int] = {17}
 
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
 

@@ -174,6 +174,42 @@ The reading lives on the camera, and `getChildDeviceList` answers `sum: 0`, so
 there is no child to address. Same shape as the face names: the hub relays what
 it holds, and the battery is not one of those things.
 
+### What the alarm_type codes mean
+
+Ground truth at last for the one that mattered. The front doorbell was rung at
+14:42:25 on 2026-08-13; it was the only event on that camera in six hours:
+
+```
+alarm_type=17  events_1=66080  types=[6, 10, 17]  faces=[]
+```
+
+**17 is a doorbell press.** `RING_ALARM_TYPES` is now `{17}`, which turns on
+the ring classification for the event entity, the presses-only download filter
+and every card at once.
+
+Measured across 35 distinct detections on both cameras over seven days:
+
+| Code | Seen | Alone | With a face | Reading |
+| --- | --- | --- | --- | --- |
+| 2 | 31 | 1 | 5 | **motion** — the base signal nearly everything carries |
+| 6 | 29 | 0 | 5 | unknown |
+| 22 | 18 | 0 | 1 | unknown |
+| 9 | 9 | 1 | 1 | unknown |
+| 8 | 8 | 0 | 2 | unknown |
+| 20 | 5 | 0 | **5 of 5** | **face** — the only code that ever carries a face_id |
+| 17 | 2 | 0 | 0 | **doorbell**, confirmed |
+| 10 | 2 | 0 | 0 | rides with 17 every time, never alone |
+| 19 | 2 | 1 | 0 | unknown |
+
+Only three are named. 6 and 22 are the commonest after motion but never appear
+alone, so nothing in the data separates what they mean from what accompanies
+them; naming either would be a guess printed onto every recording. 10 is
+excluded from `RING_ALARM_TYPES` for the same reason — it has never been seen
+without 17, so adding it would claim more than was observed.
+
+The earlier `alarm_type` 17 on the side doorbell at 21:16 on 2026-08-12, the
+one with a 30-second clip, was therefore also a press.
+
 ### There is no face library
 
 Detections of `alarm_type` 20 carry `event_info` with a `face_id` and a

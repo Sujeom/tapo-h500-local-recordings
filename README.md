@@ -129,11 +129,25 @@ Cards and the event entity show what the hub reported — `motion`,
 codes have been seen (2, 6, 8, 9, 17, 19, 20, 22) and only two are named, since
 the hub cannot name them either.
 
-**Doorbell presses are still not identified.** Which `alarm_type` means a press
-has not been captured, so `RING_ALARM_TYPES` in `const.py` is empty and nothing
-claims to be a ring. Press the doorbell, find the code on the resulting event,
-and adding it there classifies every path at once. See
-`docs/protocol-notes.md`.
+**Doorbell presses are identified.** `alarm_type` 17 is a press, confirmed
+against a real one: the front doorbell was rung at 14:42:25 on 2026-08-13 and
+that was the only event on that camera in six hours. Presses now classify as
+`ring`, so the presses-only download mode works and the cards badge them.
+
+What each code means, measured over 35 detections on two cameras:
+
+| Code | Meaning | Evidence |
+| --- | --- | --- |
+| 17 | **doorbell press** | a real press; seen twice, never without 10 |
+| 20 | **recognised face** | all 5 of its detections carried a `face_id`, and no other code ever did |
+| 2 | **motion** | set on 31 of 35 detections — the base signal |
+| 10 | part of the doorbell signal | appears only ever beside 17 |
+| 6, 22 | unknown | common (29 and 18) but never alone, so nothing separates them |
+| 8, 9, 19 | unknown | rare and unattributed |
+
+The unnamed ones display as `type 22` rather than a guess. To name one, note
+what actually happened at a given minute and check the code on that event —
+a car, a delivery, a pet — and it can be added to `DETECTION_NAMES`.
 
 The protocol is undocumented. Pinning the H500 to a stable LAN address is
 strongly recommended. Firmware changes may require integration updates.
