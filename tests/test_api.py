@@ -604,6 +604,19 @@ class DetectionTest(unittest.TestCase):
         face = next(r for r in self.REAL if r["alarm_type"] == 20)
         self.assertIn("face", clips.describe_detection(face))
 
+    def test_face_ids_come_off_the_detection(self):
+        # Verbatim: the hub gives a number and nothing else. There is no face
+        # library to resolve it against -- getFaceList and friends are -40106.
+        face = next(r for r in self.REAL if r["alarm_type"] == 20)
+        self.assertEqual(clips.face_ids(face), [272465657857])
+
+    def test_face_ids_are_deduplicated_and_absent_when_there_are_none(self):
+        twice = {"event_info": [{"face_id": 5}, {"face_id": 5}, {"face_id": 9}]}
+        self.assertEqual(clips.face_ids(twice), [5, 9])
+        for empty in ({}, {"event_info": []}, {"event_info": None},
+                      {"event_info": ["junk"]}, {"event_info": [{}]}):
+            self.assertEqual(clips.face_ids(empty), [])
+
     def test_nothing_claims_to_be_a_ring_until_a_press_is_captured(self):
         for record in self.REAL:
             self.assertEqual(clips.event_type(record), "motion")

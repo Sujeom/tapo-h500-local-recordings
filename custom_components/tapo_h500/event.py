@@ -8,7 +8,8 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .clips import (
-    describe_detection, detection_types, end_of, hub_label, start_of,
+    describe_detection, detection_types, end_of, face_ids, hub_label,
+    start_of,
 )
 from .const import DATA_HUBS, DOMAIN, EVENT_TYPES
 from .entity import H500Entity
@@ -54,5 +55,8 @@ class H500ActivityEvent(H500Entity, EventEntity):
             "detection": describe_detection(entry),
             "alarm_type": entry.get("alarm_type"),
             "detection_types": detection_types(entry),
+            # A number per recognised face. The hub offers no name and no
+            # image, but the id is stable enough to match in an automation.
+            "face_ids": face_ids(entry),
         })
         self.async_write_ha_state()

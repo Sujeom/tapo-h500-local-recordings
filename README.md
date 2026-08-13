@@ -279,6 +279,30 @@ Every event and every listed recording now carries what the hub reported:
 | `detection` | `motion + face`, or `type 22` for a code with no name |
 | `alarm_type` | `22` — the most significant code |
 | `detection_types` | `[2, 6, 9, 22]` — everything that fired at once |
+| `face_ids` | `[272465657857]` — one number per recognised face |
+
+The hub gives a **number per face and nothing else**: no name and no picture,
+and no library to resolve the number against — `getFaceList`, `getFaceInfo`,
+`searchFaceList` and `getFaceLibrary` are all absent, and the accompanying
+`face_bitmap` has been `0` on every detection seen, so it categorises nothing.
+
+The number still earns its place, because the same person appears to keep the
+same id. Name them yourself:
+
+```yaml
+    actions:
+      - action: notify.mobile_app_phone
+        data:
+          message: >-
+            {% set who = {272465657857: 'Alice', 1969491410946: 'the courier'} %}
+            {% set ids = state_attr(trigger.entity_id, 'face_ids') or [] %}
+            {{ who.get(ids[0], 'Someone') if ids else 'Motion' }} at the door
+          data:
+            image: /api/camera_proxy/camera.side_doorbell
+```
+
+To *see* the face, use the picture rather than the id — the clip thumbnail is
+the actual frame, and it is available before the clip is downloaded.
 
 To pin the press: press the doorbell, look at `alarm_type` on the
 `event.<camera>_activity` entity that follows, and add that number to

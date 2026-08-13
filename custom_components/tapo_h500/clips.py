@@ -70,6 +70,29 @@ def detection_types(entry: dict) -> list[int]:
     return [alarm] if alarm else []
 
 
+def face_ids(entry: dict) -> list[int]:
+    """The hub's identifier for each face it recognised in this recording.
+
+    The hub gives a number and nothing else — no name and no image. There is no
+    face library to look the number up in: getFaceList, getFaceInfo,
+    searchFaceList and getFaceLibrary are all -40106, and
+    getFaceDetectionConfig returns the same config whatever section is asked
+    for. The accompanying `face_bitmap` has been 0 on every detection observed,
+    so it categorises nothing either.
+
+    The number is still worth having: the same person appears to keep the same
+    id, so an automation can match one and supply the name the hub will not.
+    """
+    found = []
+    for event in entry.get("event_info") or []:
+        if not isinstance(event, dict):
+            continue
+        identifier = _as_int(event.get("face_id"))
+        if identifier is not None and identifier not in found:
+            found.append(identifier)
+    return found
+
+
 def primary_type(entry: dict) -> int | None:
     """The most significant alarm type, which is what alarm_type reports."""
     alarm = _as_int(entry.get("alarm_type"))

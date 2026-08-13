@@ -115,6 +115,27 @@ survived both writes and the hub finished where it started. Exposed as a
 `switch`, and `status.face_detection_config` carries the tags through every
 toggle.
 
+### There is no face library
+
+Detections of `alarm_type` 20 carry `event_info` with a `face_id` and a
+`face_bitmap`. Neither can be resolved into a person by the hub:
+
+| Call | Result |
+| --- | --- |
+| `getFaceList`, `getFaceInfo`, `searchFaceList` | `-40106` |
+| `getFaceLibrary`, `getFaceDetectionCapability` | `-40106` |
+| `getFaceTrackingConfig` | `-40106` |
+| `getFaceDetectionConfig` with `name` `face_list` / `library` | `0`, but returns the same `detection` block whatever section is asked for |
+
+So there is no enumeration of known faces, no name and no image. And
+`face_bitmap` was `0` on every face detection observed, so it is not a mask
+over the `tags` list — it categorises nothing.
+
+What is usable: **four distinct `face_id` values across five face detections**,
+so one recurred. The id appears stable per person, which is enough for an
+automation to match one and supply the name the hub will not. Exposed as
+`face_ids` on the event entity and on each listed recording.
+
 ### mirrorscreen is reachable, and empty
 
 `-40209` is not constant here — params genuinely matter, which distinguishes it

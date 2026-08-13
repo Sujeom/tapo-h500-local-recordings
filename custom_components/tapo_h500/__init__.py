@@ -18,7 +18,8 @@ from homeassistant.loader import async_get_integration
 
 from .api import H500Client
 from .clips import (
-    describe_detection, detection_types, end_of, event_type, start_of,
+    describe_detection, detection_types, end_of, event_type, face_ids,
+    start_of,
 )
 from .const import (
     CARD_URL, CONF_CLOUD_PASSWORD, CONF_CONVERT_MP4, DATA_CARD, DATA_HUBS,
@@ -231,6 +232,7 @@ def _register_services(hass: HomeAssistant) -> None:
                     "detection": describe_detection(clip),
                     "alarm_type": clip.get("alarm_type"),
                     "detection_types": detection_types(clip),
+                    "face_ids": face_ids(clip),
                     "downloaded": start in on_disk,
                     # A clip still only on the hub gets a preview URL rather
                     # than nothing. It is generated when something actually
