@@ -443,8 +443,20 @@ Stored once on the config entry, so every card and every per-face sensor uses
 it. Leave `name` empty to clear it. Cards keep their own optional `names:`,
 which overrides the shared map for that card only.
 
-Naming someone creates `sensor.<name>` on the hub device, holding when they
-were last seen, with `sightings` and `cameras` attributes. Unnamed faces are
+Naming someone creates two sensors on the hub device: `sensor.<name>` holding
+when they were last seen, and `sensor.<name>_last_seen_at` holding which camera
+saw them.
+
+The second is what follows a person around the house. Face ids are hub-wide
+rather than per camera — measured on this hardware, two of six ids appeared on
+both doorbells — so the same number really does follow one person from door to
+door. Its `trail` attribute lists recent sightings newest first, each with a
+camera and a time, capped at 20.
+
+It reports where the hub last **saw** someone, which is not where they are.
+Nobody is tracked between sightings, and a quiet camera means nothing was
+detected rather than that the person left — the state simply stops changing.
+Outside the poll window there is no value at all, rather than a stale one. Unnamed faces are
 still counted and still appear on the cards — naming decides who is worth an
 entity, not who gets tracked.
 

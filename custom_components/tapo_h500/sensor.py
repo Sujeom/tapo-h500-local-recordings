@@ -166,13 +166,19 @@ async def async_setup_entry(
 
     @callback
     def _sync_faces() -> None:
-        fresh = [H500FaceSensor(coordinator, entry, face_id)
-                 for face_id in sorted(coordinator.face_names)
-                 if face_id not in added]
-        if not fresh:
+        new_ids = [face_id for face_id in sorted(coordinator.face_names)
+                   if face_id not in added]
+        if not new_ids:
             return
-        added.update(sensor.face_id for sensor in fresh)
-        async_add_entities(fresh)
+        added.update(new_ids)
+        # Two per person: when they were last seen, and where. The pair is
+        # what makes following someone between cameras readable at a glance --
+        # the hub gives one id per person across the whole house, so "where"
+        # is a real answer rather than a guess.
+        async_add_entities(
+            [H500FaceSensor(coordinator, entry, face_id) for face_id in new_ids]
+            + [H500FaceLocationSensor(coordinator, entry, face_id)
+               for face_id in new_ids])
 
     _sync_faces()
     entry.async_on_unload(async_dispatcher_connect(
@@ -266,4 +272,58 @@ class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
             # this integration means; a lifetime total would need a database.
             "sightings": face.get("sightings", 0),
             "cameras": face.get("cameras", []),
+        }
+
+
+class H500FaceLocationSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
+    """Which camera last saw this person, and the trail of ones before it.
+
+    Face ids are hub-wide rather than per-camera -- measured on this hardware,
+    two of six ids appeared on both doorbells -- so the same number really does
+    follow one person from door to door. This is that, surfaced.
+
+    It reports where the hub last SAW someone, which is not where they are.
+    Nobody is tracked between sightings and a quiet camera means nothing was
+    detected, not that the person left; the state simply stops changing.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:map-marker-account"
+
+    def __init__(self, coordinator, entry, face_id: str) -> None:
+        super().__init__(coordinator)
+        self.face_id = str(face_id)
+        self._attr_unique_id = f"{entry.entry_id}_face_{self.face_id}_location"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    @property
+    def name(self) -> str:
+        who = self.coordinator.face_names.get(self.face_id) \
+            or f"Face {self.face_id}"
+        return f"{who} last seen at"
+
+    @property
+    def _face(self) -> dict:
+        return self.coordinator.faces_seen().get(self.face_id) or {}
+
+    @property
+    def native_value(self):
+        # None rather than "unknown" or a stale camera: outside the polled
+        # window there is genuinely no answer, and inventing one would read as
+        # "they are at the front door" long after they left.
+        return self._face.get("last_camera")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        face = self._face
+        trail = face.get("trail") or []
+        return {
+            "face_id": self.face_id,
+            "cameras": face.get("cameras", []),
+            "sightings": face.get("sightings", 0),
+            # Newest first: camera and when, so a history of one person moving
+            # between doors is readable without joining anything up by hand.
+            "trail": [{"camera": hop["camera"],
+                       "at": dt_util.utc_from_timestamp(hop["at"]).isoformat()}
+                      for hop in trail],
         }

@@ -229,6 +229,15 @@ UNUSUAL_FLOOR = 4
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
 SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
 
+# How many recent sightings to keep on a face's trail.
+#
+# Following one person between cameras is real rather than inferred: measured
+# on this hub, face ids are hub-wide, and two of six ids appeared on both
+# doorbells. The trail is what that looks like as data. Capped because it is an
+# entity attribute -- the whole list is written to the state machine on every
+# update, and an uncapped one would grow with the poll window.
+FACE_TRAIL_MAX = 20
+
 # Options that actually change how the integration talks to the hub. A change
 # to one of these needs a reload; a change to anything else does not.
 #

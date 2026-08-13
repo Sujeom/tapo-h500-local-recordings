@@ -6,6 +6,7 @@ runtime. What matters is that one edit reaches every consumer -- the whole
 reason names moved off the cards -- and that ids compare as strings, since the
 hub reports them as numbers while YAML hands them over as either.
 """
+import importlib
 import re
 import unittest
 from pathlib import Path
@@ -115,6 +116,76 @@ class EventNames(unittest.TestCase):
         """An automation matching a specific unnamed person still needs them."""
         EVENT = (COMPONENT / "event.py").read_text()
         self.assertIn('"face_ids": face_ids(entry)', EVENT)
+
+
+class Tracking(unittest.TestCase):
+    """Following one person between cameras.
+
+    Real rather than inferred: measured on this hub, face ids are hub-wide and
+    two of six ids appeared on both doorbells, so the same number follows one
+    person from door to door.
+    """
+
+    def _two_cameras(self, clips_by_camera):
+        coord, _ = _build()
+        coord.cameras = [{"device_id": "a", "alias": "Front"},
+                         {"device_id": "b", "alias": "Side"}]
+        coord.entry.options = dict(coord.entry.options)
+        coord.data = {"clips": clips_by_camera, "hub": {}}
+        return coord
+
+    def test_the_trail_follows_one_person_between_cameras(self):
+        coord = self._two_cameras({
+            0: [{"startTime": 100, "event_info": [{"face_id": 7}]}],
+            1: [{"startTime": 500, "event_info": [{"face_id": 7}]}],
+        })
+        face = coord.faces_seen()["7"]
+        self.assertEqual([hop["camera"] for hop in face["trail"]],
+                         ["Side", "Front"])
+
+    def test_where_they_were_last_seen(self):
+        coord = self._two_cameras({
+            0: [{"startTime": 900, "event_info": [{"face_id": 7}]}],
+            1: [{"startTime": 100, "event_info": [{"face_id": 7}]}],
+        })
+        self.assertEqual(coord.faces_seen()["7"]["last_camera"], "Front")
+
+    def test_the_trail_is_newest_first(self):
+        coord = self._two_cameras({
+            0: [{"startTime": 100, "event_info": [{"face_id": 7}]},
+                {"startTime": 300, "event_info": [{"face_id": 7}]}],
+            1: [],
+        })
+        moments = [hop["at"] for hop in coord.faces_seen()["7"]["trail"]]
+        self.assertEqual(moments, sorted(moments, reverse=True))
+
+    def test_the_trail_is_capped(self):
+        """It is written to the state machine on every update, so it cannot
+        grow with the poll window."""
+        const = importlib.import_module("tapo_h500.const")
+        many = [{"startTime": 100 + n, "event_info": [{"face_id": 7}]}
+                for n in range(const.FACE_TRAIL_MAX + 15)]
+        coord = self._two_cameras({0: many, 1: []})
+        self.assertEqual(len(coord.faces_seen()["7"]["trail"]),
+                         const.FACE_TRAIL_MAX)
+
+    def test_someone_seen_at_one_camera_has_a_one_stop_trail(self):
+        coord = self._two_cameras({
+            0: [{"startTime": 100, "event_info": [{"face_id": 7}]}], 1: []})
+        face = coord.faces_seen()["7"]
+        self.assertEqual(face["cameras"], ["Front"])
+        self.assertEqual(len(face["trail"]), 1)
+
+    def test_no_sighting_means_no_location_rather_than_a_stale_one(self):
+        """Reporting the last known camera forever would read as "they are at
+        the front door" long after they left."""
+        SENSOR_SRC = (COMPONENT / "sensor.py").read_text()
+        body = SENSOR_SRC.split("class H500FaceLocationSensor", 1)[1]
+        self.assertIn('return self._face.get("last_camera")', body)
+
+    def test_the_location_sensor_is_added_with_the_time_one(self):
+        self.assertIn("H500FaceLocationSensor(coordinator, entry, face_id)",
+                      SENSOR)
 
 
 class NamingDoesNotReload(unittest.TestCase):

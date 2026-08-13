@@ -19,7 +19,8 @@ from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
     CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL, DEFAULT_AUTO_DOWNLOAD,
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
-    CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING,
+    CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS,
+    FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING,
     LOOKBACK_SECONDS, SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
 )
 from .media import async_download_clip, async_prune, existing_clip
@@ -80,7 +81,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                     key = str(face_id)
                     seen = faces.setdefault(
                         key, {"id": key, "sightings": 0, "last_seen": None,
-                              "camera_index": None, "cameras": set()})
+                              "camera_index": None, "cameras": set(),
+                              "trail": []})
                     seen["sightings"] += 1
                     moment = start_of(clip)
                     if moment is not None and (seen["last_seen"] is None
@@ -94,10 +96,22 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                     alias = self.cameras[position].get("alias")
                     if alias:
                         seen["cameras"].add(alias)
+                    if moment is not None:
+                        seen["trail"].append(
+                            {"camera": alias or f"Camera {position}",
+                             "at": moment})
         names = self.face_names
         for key, face in faces.items():
             face["name"] = names.get(key)
             face["cameras"] = sorted(face["cameras"])
+            # Newest first, and capped: this becomes an entity attribute and
+            # is rewritten to the state machine on every update.
+            face["trail"] = sorted(
+                face["trail"], key=lambda hop: hop["at"],
+                reverse=True)[:FACE_TRAIL_MAX]
+            # Where they are now, as far as the hub knows.
+            face["last_camera"] = (face["trail"][0]["camera"]
+                                   if face["trail"] else None)
         return faces
 
     def clips_for(self, index: int) -> list[dict]:
