@@ -7,6 +7,7 @@ see docs/protocol-notes.md.
 from __future__ import annotations
 
 import re
+import time
 
 from .const import SIREN_VOLUME_MAX, SIREN_VOLUME_MIN
 
@@ -24,6 +25,9 @@ HUB_STATUS_REQUESTS = (
     ("getDiagnoseMode", {"system": {"name": "sys"}}),
     ("getFaceDetectionConfig", {"face_detection": {"name": "config"}}),
     ("getFirmwareAutoUpgradeConfig", {"auto_upgrade": {"name": ["common"]}}),
+    ("getClockStatus", {"system": {"name": "clock_status"}}),
+    ("getTimezone", {"system": {"name": ["basic"]}}),
+    ("getUsrDefAudioList", {"usr_def_audio": {"name": "config"}}),
 )
 
 SIZE = re.compile(r"([0-9.]+)\s*([KMGT]?B)", re.IGNORECASE)
@@ -84,6 +88,40 @@ def hub_volume(level: float) -> int:
                min(SIREN_VOLUME_MAX, round(level * SIREN_VOLUME_MAX)))
 
 
+def clock_offset(hub_epoch, now: float | None = None) -> int | None:
+    """Seconds the hub's clock is ahead of ours, or None if it did not say.
+
+    Signed on purpose: ahead and behind are different problems, and rounding
+    them together would hide a hub drifting one way.
+    """
+    seconds = _int(hub_epoch)
+    if seconds is None:
+        return None
+    return int(round(seconds - (time.time() if now is None else now)))
+
+
+def used_audio_slots(status: dict) -> list[str]:
+    """Named custom-sound slots the hub holds.
+
+    getUsrDefAudioList always returns all five slots; the empty ones carry
+    empty strings rather than being absent, so presence proves nothing and the
+    name is what has to be checked.
+    """
+    files = dig(status.get("getUsrDefAudioList"), "usr_def_audio")
+    if not isinstance(files, dict):
+        # This runs inside the poll; a shape nobody anticipated must not take
+        # every other reading down with it.
+        return []
+    names = []
+    for key, slot in sorted(files.items()):
+        if not key.startswith("file_") or not isinstance(slot, dict):
+            continue
+        name = str(slot.get("name") or "").strip()
+        if name:
+            names.append(name)
+    return names
+
+
 def auto_upgrade_config(readings: dict, on: bool) -> dict:
     """The whole auto-upgrade block with only `enabled` changed.
 
@@ -111,8 +149,11 @@ def _on(value) -> bool | None:
     return str(value).lower() in ("on", "1", "true", "enabled")
 
 
-def hub_readings(status: dict) -> dict:
-    """Flatten the hub's status into the values entities are built from."""
+def hub_readings(status: dict, now: float | None = None) -> dict:
+    """Flatten the hub's status into the values entities are built from.
+
+    `now` exists so the clock comparison is deterministic under test.
+    """
     hd = disk(status)
     free = gigabytes(hd.get("video_free_space"))
     total = gigabytes(hd.get("video_total_space"))
@@ -125,6 +166,8 @@ def hub_readings(status: dict) -> dict:
                   "auto_upgrade", "common") or {}
     face = dig(status.get("getFaceDetectionConfig"),
                "face_detection", "detection") or {}
+    clock = dig(status.get("getClockStatus"), "system", "clock_status") or {}
+    basic = dig(status.get("getTimezone"), "system", "basic") or {}
     return {
         "siren_tone": siren_config.get("siren_type"),
         # 1-10 as a string on the wire; kept numeric for the volume slider.
@@ -159,4 +202,14 @@ def hub_readings(status: dict) -> dict:
         # refuses even a write of the hub's own current value (-40211).
         "face_detection": _on(face.get("enabled")),
         "face_detection_tags": face.get("tags") or [],
+        "hub_clock": clock.get("seconds_from_1970"),
+        "hub_local_time": clock.get("local_time"),
+        # Signed drift between the hub and Home Assistant. Not cosmetic: clip
+        # filenames and the media browser's date folders are derived from these
+        # timestamps, so a hub whose clock wanders files recordings under the
+        # wrong day.
+        "clock_offset": clock_offset(clock.get("seconds_from_1970"), now),
+        "timezone": basic.get("zone_id") or basic.get("timezone"),
+        "custom_sounds": len(used_audio_slots(status)),
+        "custom_sound_names": used_audio_slots(status),
     }

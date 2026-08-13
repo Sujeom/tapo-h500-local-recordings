@@ -8,7 +8,7 @@ from homeassistant.components.sensor import (
     SensorDeviceClass, SensorEntity, SensorEntityDescription, SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, UnitOfInformation
+from homeassistant.const import EntityCategory, UnitOfInformation, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -69,6 +69,29 @@ HUB_SENSORS: tuple[HubSensor, ...] = (
         key="firmware_state", translation_key="firmware_state",
         entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda r: r.get("firmware_state"),
+    ),
+    # Clip filenames and the media browser's date folders come from hub
+    # timestamps, so drift here files recordings under the wrong day. Signed:
+    # ahead and behind are different faults.
+    HubSensor(
+        key="clock_offset", translation_key="clock_offset",
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value=lambda r: r.get("clock_offset"),
+    ),
+    HubSensor(
+        key="timezone", translation_key="timezone",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value=lambda r: r.get("timezone"),
+    ),
+    # The hub holds five custom sound slots. Empty ones come back as empty
+    # strings rather than being absent, so this counts named slots.
+    HubSensor(
+        key="custom_sounds", translation_key="custom_sounds",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda r: r.get("custom_sounds"),
     ),
     HubSensor(
         key="ip_address", translation_key="ip_address",

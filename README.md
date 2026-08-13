@@ -109,11 +109,10 @@ The same is true of the other advertised-but-unreachable components:
 `ringLog` (so events still come from polling the clip index). See
 `docs/protocol-notes.md` for exactly what was probed.
 
-**Event latency.** The integration prefers the hub's detection log, but on
-firmware 1.3.20 that log is accepted and always empty, so in practice it falls
-back to polling the indexed clip list after one attempt. A clip appears only
-once the hub has finished writing it, so an event trails the actual doorbell
-press by the poll interval plus the clip length.
+**Event latency.** The hub's detection log works and is what classifies each
+recording, but events still come from the indexed clip list, and a clip is only
+indexed once the hub has finished writing it — so an event trails the actual
+doorbell press by the poll interval plus the clip length.
 
 **Recordings are classified, but not every code is named yet.** Every clip is
 labelled `video_type` `"2"` whatever triggered it, so the clip index itself
@@ -216,6 +215,9 @@ The hub gets its own device, and each paired camera gets one.
 | `sensor.*_siren_time_left` | How much longer the siren will sound. |
 | `sensor.*_firmware_state`, `sensor.*_ip_address` | Diagnostics. |
 | `binary_sensor.*_media_encryption` | Diagnostics. |
+| `sensor.*_clock_offset` | Seconds the hub's clock differs from Home Assistant's, signed. Clip filenames and the media browser's date folders come from hub timestamps, so drift files recordings under the wrong day. |
+| `sensor.*_timezone` | The hub's own timezone. |
+| `sensor.*_custom_sounds` | How many of the hub's five custom sound slots hold a recording, with their names as an attribute. |
 | `binary_sensor.*_face_detection` | Whether the hub's face detection is on, with the recognised `tags` (family, friend, courier, neighbour, colleague, schoolmate, others) as an attribute. Read-only — the hub refuses to change it locally. |
 
 **Hub settings you can change**

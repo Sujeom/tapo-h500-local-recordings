@@ -94,6 +94,15 @@
       },
       "model": {
         "name": "Model"
+      },
+      "clock_offset": {
+        "name": "Clock offset"
+      },
+      "timezone": {
+        "name": "Timezone"
+      },
+      "custom_sounds": {
+        "name": "Custom sounds"
       }
     },
     "binary_sensor": {

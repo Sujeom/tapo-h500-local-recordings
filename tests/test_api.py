@@ -420,6 +420,69 @@ class SirenTest(unittest.TestCase):
             self.assertIsNone(readings[key])
 
 
+class ClockAndAudioTest(unittest.TestCase):
+    """dateTime and usrDefAudio, both verbatim from firmware 1.3.20."""
+
+    CLOCK = {"getClockStatus": {"system": {"clock_status": {
+        "seconds_from_1970": 1786585660, "local_time": "2026-08-12 21:47:40"}}}}
+    ZONE = {"getTimezone": {"system": {"basic": {
+        "zone_id": "America/New_York", "timezone": "UTC-05:00"}}}}
+
+    def test_clock_offset_is_signed(self):
+        # Ahead and behind are different faults; collapsing them would hide a
+        # hub drifting one way.
+        self.assertEqual(status.clock_offset(1786585660, 1786585640), 20)
+        self.assertEqual(status.clock_offset(1786585620, 1786585640), -20)
+        self.assertEqual(status.clock_offset(1786585640, 1786585640), 0)
+
+    def test_a_hub_that_gives_no_clock_reads_none_not_zero(self):
+        # Zero would claim perfect sync from a hub that said nothing.
+        self.assertIsNone(status.clock_offset(None))
+        self.assertIsNone(status.clock_offset(""))
+        self.assertIsNone(status.hub_readings({})["clock_offset"])
+
+    def test_readings_carry_the_clock_and_zone(self):
+        readings = status.hub_readings({**self.CLOCK, **self.ZONE},
+                                       now=1786585660)
+        self.assertEqual(readings["clock_offset"], 0)
+        self.assertEqual(readings["hub_local_time"], "2026-08-12 21:47:40")
+        self.assertEqual(readings["timezone"], "America/New_York")
+
+    def test_empty_audio_slots_are_not_counted(self):
+        # All five slots always come back; the empty ones carry empty strings
+        # rather than being absent, so presence proves nothing.
+        empty = {"getUsrDefAudioList": {"usr_def_audio": {
+            f"file_{n}": {"file_id": "", "name": "", "index": "", "duration": ""}
+            for n in range(1, 6)}}}
+        self.assertEqual(status.used_audio_slots(empty), [])
+        self.assertEqual(status.hub_readings(empty)["custom_sounds"], 0)
+
+    def test_named_audio_slots_are_counted_in_order(self):
+        filled = {"getUsrDefAudioList": {"usr_def_audio": {
+            "file_1": {"name": "Front gate"},
+            "file_2": {"name": ""},
+            "file_3": {"name": "Delivery"},
+        }}}
+        self.assertEqual(status.used_audio_slots(filled),
+                         ["Front gate", "Delivery"])
+        self.assertEqual(status.hub_readings(filled)["custom_sounds"], 2)
+
+    def test_a_malformed_audio_list_does_not_break_the_poll(self):
+        for junk in ({"getUsrDefAudioList": {}},
+                     {"getUsrDefAudioList": {"usr_def_audio": "nonsense"}},
+                     {"getUsrDefAudioList": {"usr_def_audio": {"file_1": "x"}}},
+                     {}):
+            self.assertEqual(status.used_audio_slots(junk), [])
+
+    def test_face_detection_reading(self):
+        readings = status.hub_readings({"getFaceDetectionConfig": {
+            "face_detection": {"detection": {
+                "enabled": "on", "tags": ["family", "courier"]}}}})
+        self.assertTrue(readings["face_detection"])
+        self.assertEqual(readings["face_detection_tags"], ["family", "courier"])
+        self.assertIsNone(status.hub_readings({})["face_detection"])
+
+
 class RecordingWindowTest(unittest.TestCase):
     """The requested range must be searched, whatever dates the hub volunteers.
 
