@@ -107,9 +107,28 @@ RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 #       partition faces into recognised and not. An app label saying
 #       "unknown"/"stranger" on a 22 event would settle it outright.
 #
-# One remains unnamed, on purpose: 10 has only ever appeared beside 17, so it
-# is part of the doorbell signal rather than a thing of its own. It displays as
-# its number, because a confident wrong label is worse than "type 10".
+# One remains unnamed, on purpose. Measured over 42 detections across 7 days,
+# 10 and 17 are perfectly coupled: 5 events carry 17, all 5 carry 10, and
+# neither has ever been seen without the other.
+#
+#   Wed Aug 12  9:16:23 PM  Side    [2, 10, 17]
+#   Thu Aug 13 10:42:25 AM  Front   [6, 10, 17]            the confirmed press
+#   Thu Aug 13 11:52:57 AM  Front   [6, 10, 17, 20]
+#   Thu Aug 13 11:53:33 AM  Front   [2, 6, 10, 17, 22]     36s after the last
+#   Thu Aug 13 12:12:22 PM  Side    [10, 17]
+#
+# The standing hypothesis is that 10 marks a press nobody answered -- a Tapo
+# doorbell places a call, and a call has an outcome, which would explain a
+# code that cannot exist without 17. The two presses 36 seconds apart look
+# exactly like someone ringing again after no answer.
+#
+# It stays unnamed because the data cannot yet separate it from "10 is simply
+# part of every press": both readings predict 5 of 5. Only an ANSWERED press
+# distinguishes them. If one ever logs 17 without 10, the hypothesis is
+# confirmed; if an answered press still carries 10, it is dead.
+#
+# Until then it displays as its number, because a confident wrong label is
+# worse than "type 10".
 DETECTION_NAMES = {
     2: "motion",
     6: "person",
