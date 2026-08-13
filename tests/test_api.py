@@ -218,6 +218,7 @@ class ClipsTest(unittest.TestCase):
         self.assertEqual(clips.flatten_clips(result), [{"startTime": 10, "endTime": 20}])
 
 
+const = importlib.import_module("tapo_h500.const")
 status = importlib.import_module("tapo_h500.status")
 
 # Verbatim from an H500 on firmware 1.3.20, with the address replaced.
@@ -237,6 +238,30 @@ OBSERVED = {
     "getMediaEncrypt": {"cet": {"media_encrypt": {"enabled": "on"}}},
     "getDeviceIpAddress": {"network": {"wan": {"ipaddr": "192.168.1.50"}}},
 }
+
+
+class ConvertArgsTest(unittest.TestCase):
+    def test_output_format_is_explicit(self):
+        """The clip is written to a ".mp4.part" temporary file first.
+
+        ffmpeg chooses its muxer from the extension and does not know ".part",
+        so without an explicit format every conversion fails with "Unable to
+        choose an output format" and no download ever completes.
+        """
+        args = const.CONVERT_ARGS
+        self.assertIn("-f", args)
+        self.assertEqual(args[args.index("-f") + 1], "mp4")
+
+    def test_thumbnails_are_scaled_down(self):
+        """A full frame is 2304x1296 and about 530 KB; the card shows 96x54."""
+        args = const.THUMBNAIL_ARGS
+        self.assertIn("scale=640:-2", args)
+        self.assertEqual(args[args.index("-frames:v") + 1], "1")
+
+    def test_video_is_copied_not_reencoded(self):
+        args = const.CONVERT_ARGS
+        self.assertEqual(args[args.index("-c:v") + 1], "copy")
+        self.assertIn("+faststart", args)
 
 
 class StatusTest(unittest.TestCase):
