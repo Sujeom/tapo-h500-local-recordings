@@ -1,0 +1,91 @@
+# Notify on a person, an animal, or the doorbell — one automation, both cameras.
+#
+# The notification says what happened and where: "Person at Side Doorbell" /
+# "Saw a person and a dog, 5:41 PM". Codes come from the hub's own detection
+# log: 6 person, 9 pet, 17 doorbell. Plain motion (2) is deliberately not a
+# reason to notify — it fires on nearly everything — but it is still described
+# if it came along with something that is.
+#
+# Paste into Settings > Automations > three-dot menu > Edit in YAML, or drop
+# the automation: block into configuration.yaml.
+
+alias: Doorbell, person or animal
+description: Notifies for the events worth interrupting someone for.
+mode: parallel        # two cameras can fire at the same moment
+max: 10
+
+triggers:
+  # Trigger on the entity, not on an attribute: an event entity's state is the
+  # timestamp of its last event and changes every time, whereas the attribute
+  # does not change between two events of the same kind and the second would be
+  # missed. Add a line per camera.
+  - trigger: state
+    entity_id:
+      - event.front_doorbell_activity
+      - event.side_doorbell_activity
+
+conditions:
+  # Skip the entity restoring its last event on a restart or reload.
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state.state not in ['unknown', 'unavailable']
+         and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+  # Only person, pet or doorbell. detection_types lists everything that fired
+  # at once, so a person who also triggers plain motion still matches.
+  - condition: template
+    value_template: >-
+      {{ (state_attr(trigger.entity_id, 'detection_types') or [])
+         | select('in', [6, 9, 17]) | list | count > 0 }}
+
+actions:
+  - variables:
+      codes: "{{ state_attr(trigger.entity_id, 'detection_types') or [] }}"
+      # event.front_doorbell_activity -> camera.front_doorbell
+      camera: >-
+        {{ trigger.entity_id | replace('event.', 'camera.')
+           | replace('_activity', '') }}
+      # "Front Doorbell Activity" -> "Front Doorbell"
+      where: "{{ trigger.to_state.name | replace(' Activity', '') }}"
+      when: >-
+        {{ (trigger.to_state.state | as_datetime | as_local)
+           .strftime('%-I:%M %p') }}
+      # Everything the hub saw, most significant first, in words. Motion is
+      # last because it is the least informative. Codes with no entry here
+      # (10, which only ever rides along with a doorbell press) are skipped
+      # rather than shown as a bare number.
+      seen: >-
+        {%- set words = {19: 'tampering', 17: 'a doorbell press',
+                         6: 'a person', 20: 'a familiar face',
+                         22: 'an unfamiliar face', 9: 'an animal',
+                         8: 'a vehicle', 2: 'motion'} -%}
+        {%- set ns = namespace(parts=[]) -%}
+        {%- for c in [19, 17, 6, 20, 22, 9, 8, 2] if c in codes -%}
+          {%- set ns.parts = ns.parts + [words[c]] -%}
+        {%- endfor -%}
+        {%- if ns.parts | count > 1 -%}
+          {{ ns.parts[:-1] | join(', ') }} and {{ ns.parts[-1] }}
+        {%- else -%}
+          {{ ns.parts | join }}
+        {%- endif -%}
+
+  - action: notify.mobile_app_phone      # <- your notify service
+    data:
+      # Headline: the single most important thing, and which camera. Most
+      # events carry several codes at once -- a doorbell press is also a
+      # person, a person is usually also motion -- so the headline picks by
+      # priority: doorbell, then person, then animal. First match wins.
+      #
+      # Tampering deliberately does NOT take the headline; it is the first
+      # thing listed in the body instead. Swap the two lines if you would
+      # rather have "Camera tampering" shout over "Person".
+      title: >-
+        {% if 17 in codes %}Someone rang the {{ where }}
+        {% elif 6 in codes %}Person at {{ where }}
+        {% else %}Animal at {{ where }}{% endif %}
+      # Body: everything else that fired, and when.
+      message: "Saw {{ seen }}, {{ when }}"
+      data:
+        # The camera entity serves the newest event's own frame, so the
+        # notification arrives with the picture rather than only a description.
+        image: /api/camera_proxy/{{ camera }}
+        tag: tapo-h500-{{ camera }}      # a new alert replaces the old one

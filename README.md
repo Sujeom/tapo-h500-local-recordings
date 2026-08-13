@@ -368,6 +368,21 @@ filter and all four cards read the same list, so one number fixes every path.
 
 ### Notification automations
 
+A ready-made one is in
+[`examples/notify-person-pet-doorbell.yaml`](examples/notify-person-pet-doorbell.yaml):
+one automation covering both cameras that fires only for a person, an animal or
+the doorbell, and says which happened at which camera --
+
+> **Someone rang the Front Doorbell**
+> Saw a doorbell press, a person, an animal and motion, 5:41 PM
+
+Most events carry several codes at once, so the headline picks one by priority
+-- doorbell, then person, then animal -- and the body lists everything else the
+hub saw. Plain motion never notifies on its own but is still described when it
+arrives alongside something that does. Change `notify.mobile_app_phone` to your
+own notify service; nothing else needs editing for a two-camera hub.
+
+
 Trigger on the **entity**, not on its `event_type` attribute. An event entity's
 state is the timestamp of the last event, so it changes every time; the
 attribute does not change between two events of the same kind, so an attribute
