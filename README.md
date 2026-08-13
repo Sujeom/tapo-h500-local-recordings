@@ -1,4 +1,4 @@
-<img src="brand/logo.png" alt="Tapo H500 Local Recordings" width="380">
+<img src="https://raw.githubusercontent.com/Sujeom/tapo-h500-local-recordings/main/brand/logo.png" alt="Tapo H500 Local Recordings" width="380">
 
 Experimental HACS custom integration for browsing, downloading and automating
 recordings stored on a Tapo H500 HomeBase.
@@ -183,11 +183,16 @@ rsvg-convert -w 512 -h 512 brand/icon.svg -o brand/icon.png
 ```
 
 **This does not change the icon Home Assistant shows for the integration.** That
-one comes from the [home-assistant/brands](https://github.com/home-assistant/brands)
-repository, which needs a pull request adding `custom_integrations/tapo_h500/`
-with `icon.png` and `logo.png` — the files here are already the right sizes for
-it. Until that is merged, Home Assistant shows its default puzzle-piece icon and
-these images appear on the repository page and in HACS.
+one is fetched from `brands.home-assistant.io`, and there is no entry for this
+domain — `https://brands.home-assistant.io/tapo_h500/icon.png` returns 404, so
+Home Assistant falls back to its own placeholder. The only way to change it is a
+pull request to [home-assistant/brands](https://github.com/home-assistant/brands)
+adding `custom_integrations/tapo_h500/` with `icon.png` (512x512) and
+`icon@2x.png` (1024x1024). The files in `brand/` are already those sizes.
+
+The header image above uses an absolute `raw.githubusercontent.com` URL rather
+than a relative path, because a relative `<img src>` resolves against whatever
+page is doing the rendering — it works on GitHub and breaks inside HACS.
 
 ## HACS installation
 
