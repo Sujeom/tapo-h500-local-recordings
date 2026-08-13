@@ -9,7 +9,10 @@
 import assert from "node:assert/strict";
 
 class FakeElement {
-  constructor() { this.shadowRoot = null; }
+  constructor() { this.shadowRoot = null; this.children = []; }
+  appendChild(child) { this.children.push(child); }
+  addEventListener() {}
+  dispatchEvent() {}
   attachShadow() {
     this.shadowRoot = { innerHTML: "", querySelector: () => new FakeCard() };
     return this.shadowRoot;
@@ -23,9 +26,12 @@ globalThis.customElements = { _defined: new Map(),
   get(name) { return this._defined.get(name); },
   define(name, cls) { this._defined.set(name, cls); } };
 globalThis.window = {};
+globalThis.document = { createElement: (tag) => ({ tagName: tag, addEventListener() {} }) };
+globalThis.CustomEvent = class { constructor(type, opts) { this.type = type; Object.assign(this, opts); } };
 
 const mod = await import("../custom_components/tapo_h500/www/tapo-h500-card.js");
-const { esc, ago, groupByHour, groupByFace, eventsByHour, niceMax, utcDay,
+const { esc, ago, groupByHour, groupByFace, eventsByHour, niceMax,
+        editorSchema, mergeConfig, utcDay,
         windowDates, TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
         TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard } = mod;
 
@@ -343,6 +349,53 @@ test("a dragged height is not then capped by the default max_height", () => {
   const explicit = build(TapoH500Card,
     { grid_options: { rows: 12 }, max_height: 200 });
   assert.ok(explicit._maxHeight().includes("200px"));
+});
+
+test("every card offers a visual editor", () => {
+  // Without getConfigElement, Home Assistant reports "no visual editor
+  // available" and the card can only be configured in YAML.
+  for (const [name, Cls] of ALL) {
+    assert.equal(typeof Cls.getConfigElement, "function", `${name}: no editor`);
+    assert.ok(Cls.getConfigElement(), `${name}: editor element not created`);
+    assert.equal(typeof Cls.getStubConfig, "function", `${name}: no stub config`);
+  }
+  assert.ok(customElements.get("tapo-h500-card-editor"), "editor not registered");
+});
+
+test("the editor only offers settings the card actually has", () => {
+  // max_height means nothing on a card with no scrolling region; offering it
+  // would invite a setting that silently does nothing.
+  for (const type of ["tapo-h500-hero-card", "tapo-h500-summary-card"]) {
+    assert.ok(!editorSchema(type).some((f) => f.name === "max_height"),
+      `${type} does not scroll and must not offer max_height`);
+  }
+  for (const type of ["tapo-h500-card", "tapo-h500-grid-card",
+                      "tapo-h500-timeline-card", "tapo-h500-faces-card"]) {
+    assert.ok(editorSchema(type).some((f) => f.name === "max_height"), type);
+  }
+  // camera_index is the one-camera pin, so every card must offer it.
+  for (const c of ALL) {
+    assert.ok(editorSchema(`tapo-h500-card`).some((f) => f.name === "camera_index"));
+  }
+});
+
+test("editing in the UI does not delete what the form cannot see", () => {
+  // The form has no field for names or grid_options. Replacing the config
+  // instead of merging would wipe a user's face names on any edit.
+  const before = { type: "tapo-h500-faces-card", days: 7,
+                   names: { 272465657857: "Alice" }, grid_options: { rows: 9 } };
+  const after = mergeConfig(before, { days: 14, camera_index: 1 });
+  assert.deepEqual(after.names, { 272465657857: "Alice" });
+  assert.deepEqual(after.grid_options, { rows: 9 });
+  assert.equal(after.days, 14);
+  assert.equal(after.camera_index, 1);
+});
+
+test("a cleared field is removed, not stored as empty", () => {
+  // An empty string would beat the card's own default and read as a setting.
+  const after = mergeConfig({ type: "x", days: 7, entry_id: "abc" },
+                            { entry_id: "", days: undefined });
+  assert.deepEqual(after, { type: "x" });
 });
 
 test("every card type is registered exactly once", () => {

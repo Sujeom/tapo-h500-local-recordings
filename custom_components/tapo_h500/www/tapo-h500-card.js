@@ -123,6 +123,82 @@ export const groupByHour = (items) => {
   return groups;
 };
 
+// --- visual editor ---------------------------------------------------------
+
+const FIELD = {
+  days: { name: "days", selector: { number: { min: 1, max: 30, mode: "box" } } },
+  camera_index: { name: "camera_index",
+    selector: { number: { min: 0, max: 15, mode: "box" } } },
+  max_height: { name: "max_height",
+    selector: { number: { min: 0, max: 2000, step: 20, mode: "box" } } },
+  entry_id: { name: "entry_id", selector: { text: {} } },
+};
+
+const LABELS = {
+  days: "Days to show",
+  camera_index: "Camera (leave empty for a picker)",
+  max_height: "Scroll after (pixels, 0 for none)",
+  entry_id: "Config entry (leave empty for the first hub)",
+};
+
+/** Which fields each card actually has. A card without a scrolling list has no
+ *  use for max_height, and offering it would invite a setting that does
+ *  nothing. */
+export const editorSchema = (type) => {
+  const scrolls = !["tapo-h500-hero-card", "tapo-h500-summary-card"].includes(type);
+  return [FIELD.days, FIELD.camera_index,
+          ...(scrolls ? [FIELD.max_height] : []), FIELD.entry_id];
+};
+
+/** The config to store after an edit.
+ *
+ * Merged over the existing config rather than replacing it, because the form
+ * does not know about `names` or `grid_options` and replacing would silently
+ * delete them. Cleared fields are removed so the card falls back to its own
+ * default instead of storing an empty string.
+ */
+export const mergeConfig = (current, incoming) => {
+  const merged = { ...current, ...incoming };
+  for (const [key, value] of Object.entries(merged)) {
+    if (value === undefined || value === "" || value === null) delete merged[key];
+  }
+  return merged;
+};
+
+class TapoH500CardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = config;
+    this._update();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._update();
+  }
+
+  _update() {
+    if (!this._config || !this._hass) return;
+    if (!this._form) {
+      this._form = document.createElement("ha-form");
+      this._form.computeLabel = (field) => LABELS[field.name] || field.name;
+      this._form.addEventListener("value-changed", (event) => {
+        this.dispatchEvent(new CustomEvent("config-changed", {
+          detail: { config: mergeConfig(this._config, event.detail.value) },
+          bubbles: true, composed: true,
+        }));
+      });
+      this.appendChild(this._form);
+    }
+    this._form.hass = this._hass;
+    this._form.schema = editorSchema(this._config.type);
+    this._form.data = this._config;
+  }
+}
+
+if (!customElements.get("tapo-h500-card-editor")) {
+  customElements.define("tapo-h500-card-editor", TapoH500CardEditor);
+}
+
 const BASE_STYLE = `
   /* The sections view gives a resized card a height; filling it is what makes
      dragging the handle do anything. In the masonry view nothing above sets a
@@ -170,6 +246,16 @@ class H500Base extends HTMLElement {
   static style = "";
   // Sections-view sizing: what the resize handles allow, and where they start.
   static grid = { rows: 6, min_rows: 3, columns: 12, min_columns: 6 };
+
+  /** Without this Home Assistant reports "no visual editor available". */
+  static getConfigElement() {
+    return document.createElement("tapo-h500-card-editor");
+  }
+
+  /** The config a card starts with when picked from the card list. */
+  static getStubConfig() {
+    return { ...this.defaults };
+  }
 
   /** Lets the sections view offer resize handles and remember the result. */
   getGridOptions() {
