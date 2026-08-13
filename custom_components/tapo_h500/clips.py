@@ -111,7 +111,17 @@ def describe_detection(entry: dict) -> str | None:
     types = detection_types(entry)
     if not types:
         return None
-    named = [DETECTION_NAMES[code] for code in types if code in DETECTION_NAMES]
+    # 10 is a property of a press, not an event beside it, and it has never
+    # appeared without 17. Listing both gives "missed doorbell + doorbell",
+    # which announces the same press twice and reads as a contradiction, so
+    # the pair collapses into one phrase.
+    if 10 in types and 17 in types:
+        types = [code for code in types if code != 10]
+        press = "doorbell (missed)"
+    else:
+        press = None
+    named = [press if code == 17 and press else DETECTION_NAMES[code]
+             for code in types if code in DETECTION_NAMES]
     unknown = [f"type {code}" for code in types if code not in DETECTION_NAMES]
     return " + ".join(named + unknown) or None
 

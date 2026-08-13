@@ -58,9 +58,12 @@ actions:
         {{ (trigger.to_state.state | as_datetime | as_local)
            .strftime('%-I:%M %p') }}
       # Everything the hub saw, most significant first, in words. Motion is
-      # last because it is the least informative. Codes with no entry here
-      # (10, which only ever rides along with a doorbell press) are skipped
-      # rather than shown as a bare number.
+      # last because it is the least informative.
+      #
+      # Code 10 -- an unanswered press -- is deliberately NOT listed. It rides
+      # along with every 17, so "a doorbell press and a missed doorbell" would
+      # read as two contradictory events. The headline already says someone
+      # rang; whether it went unanswered is not news one second later.
       seen: >-
         {%- set words = {19: 'tampering', 17: 'a doorbell press',
                          6: 'a person', 20: 'a familiar face',

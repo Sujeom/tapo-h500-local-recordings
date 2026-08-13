@@ -82,8 +82,8 @@ EVENT_TYPES = [EVENT_RING, EVENT_MOTION]
 # matches and the detection log below is what actually classifies.
 RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 
-# alarm_type codes from searchDetectionList on firmware 1.3.20. Eight of the nine
-# are now named, each against something observed rather than guessed.
+# alarm_type codes from searchDetectionList on firmware 1.3.20. All nine are
+# named; each entry records what it was named against.
 #
 # The Tapo app labelled three side-doorbell events, and they differ by exactly
 # one code each -- which names two of them outright:
@@ -121,33 +121,38 @@ RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 #       partition faces into recognised and not. An app label saying
 #       "unknown"/"stranger" on a 22 event would settle it outright.
 #
-# One remains unnamed, on purpose. Measured over 42 detections across 7 days,
-# 10 and 17 are perfectly coupled: 5 events carry 17, all 5 carry 10, and
-# neither has ever been seen without the other.
+#   10  a doorbell press nobody answered. Named at the owner's identification,
+#       and it fits the mechanism: a Tapo doorbell places a call, a call has an
+#       outcome, and that explains a code which cannot exist without 17.
 #
-#   Wed Aug 12  9:16:23 PM  Side    [2, 10, 17]
-#   Thu Aug 13 10:42:25 AM  Front   [6, 10, 17]            the confirmed press
-#   Thu Aug 13 11:52:57 AM  Front   [6, 10, 17, 20]
-#   Thu Aug 13 11:53:33 AM  Front   [2, 6, 10, 17, 22]     36s after the last
-#   Thu Aug 13 12:12:22 PM  Side    [10, 17]
+#       Held to a lower standard of proof than the others, and deliberately
+#       recorded as such. Measured over 42 detections across 7 days, 10 and 17
+#       are perfectly coupled -- 5 events carry 17, all 5 carry 10, and neither
+#       has ever been seen without the other:
 #
-# The standing hypothesis is that 10 marks a press nobody answered -- a Tapo
-# doorbell places a call, and a call has an outcome, which would explain a
-# code that cannot exist without 17. The two presses 36 seconds apart look
-# exactly like someone ringing again after no answer.
+#         Wed Aug 12  9:16:23 PM  Side    [2, 10, 17]
+#         Thu Aug 13 10:42:25 AM  Front   [6, 10, 17]        the confirmed press
+#         Thu Aug 13 11:52:57 AM  Front   [6, 10, 17, 20]
+#         Thu Aug 13 11:53:33 AM  Front   [2, 6, 10, 17, 22] 36s after the last
+#         Thu Aug 13 12:12:22 PM  Side    [10, 17]
 #
-# It stays unnamed because the data cannot yet separate it from "10 is simply
-# part of every press": both readings predict 5 of 5. Only an ANSWERED press
-# distinguishes them. If one ever logs 17 without 10, the hypothesis is
-# confirmed; if an answered press still carries 10, it is dead.
+#       Two of those presses are 36 seconds apart, which is what ringing again
+#       after no answer looks like, and none of the five was answered in the
+#       app. That is the weakness: "10 means missed" and "10 is simply part of
+#       every press" both predict 5 of 5, so this measurement cannot tell them
+#       apart. Only an ANSWERED press can. If one ever logs 17 without 10 the
+#       name is confirmed; if an answered press still carries 10 it is wrong
+#       and should be removed rather than reworded.
 #
-# Until then it displays as its number, because a confident wrong label is
-# worse than "type 10".
+#       Because 10 accompanies every 17, describe_detection() collapses the
+#       pair into "doorbell (missed)" rather than listing both and announcing
+#       the same press twice.
 DETECTION_NAMES = {
     2: "motion",
     6: "person",
     8: "vehicle",
     9: "pet",
+    10: "missed doorbell",
     17: "doorbell",
     19: "theft",
     20: "face",

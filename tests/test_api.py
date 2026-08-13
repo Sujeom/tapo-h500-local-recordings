@@ -676,11 +676,42 @@ class DetectionTest(unittest.TestCase):
         self.assertNotIn("unknown", known)
         self.assertIn("unknown face", unknown)
 
-    def test_the_doorbell_signal_is_still_shown_as_a_number(self):
-        # 10 has only ever appeared beside 17, so nothing says what it is on
-        # its own; naming it would print a guess onto every press.
-        self.assertNotIn(10, clips.DETECTION_NAMES)
-        self.assertIn("type 10", clips.describe_detection({"events_1": 66080}))
+    def test_an_unanswered_press_is_named(self):
+        # 10 is named "missed doorbell" at the owner's identification. It has
+        # only ever appeared beside 17, which is consistent with a flag about
+        # a press rather than a detection in its own right.
+        self.assertEqual(clips.DETECTION_NAMES.get(10), "missed doorbell")
+        described = clips.describe_detection({"events_1": 66080})   # 6, 10, 17
+        # Phrased by the collapse below, so assert the meaning, not the words.
+        self.assertIn("missed", described)
+        self.assertNotIn("type 10", described)
+
+    def test_a_press_is_not_announced_twice(self):
+        # 10 accompanies every 17, so listing both gave "missed doorbell +
+        # doorbell" -- the same press stated twice, and read as a
+        # contradiction. The pair collapses to one phrase.
+        described = clips.describe_detection({"events_1": 66080})   # 6, 10, 17
+        self.assertEqual(described.count("doorbell"), 1)
+        self.assertEqual(described, "person + doorbell (missed)")
+
+    def test_10_alone_would_still_be_named(self):
+        # It has never been seen without 17 on this firmware, but the collapse
+        # must not swallow it if that ever changes.
+        self.assertEqual(clips.describe_detection({"events_1": 1 << 9}),
+                         "missed doorbell")
+
+    def test_a_press_without_10_reads_as_a_plain_doorbell(self):
+        # The answered case, if the hypothesis is right. Nothing should imply
+        # it was missed.
+        described = clips.describe_detection({"events_1": (1 << 5) | (1 << 16)})
+        self.assertEqual(described, "person + doorbell")
+        self.assertNotIn("missed", described)
+
+    def test_an_unknown_code_is_still_shown_as_a_number(self):
+        # The naming discipline itself: a code nobody has identified prints as
+        # its number rather than being folded into a neighbouring label.
+        described = clips.describe_detection({"events_1": 1 << 30})
+        self.assertIn("type 31", described)
 
     def test_detections_are_matched_to_clips_by_start_time(self):
         clip_list = [{"startTime": 1786553183, "endTime": 1786553199},
