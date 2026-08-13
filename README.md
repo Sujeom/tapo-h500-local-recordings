@@ -42,9 +42,10 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Notifications:** import the
   [blueprint](blueprints/automation/tapo_h500/notify_on_detection.yaml) —
   **Settings → Automations → Blueprints → Import**, then paste its URL. Pick
-  your cameras, your notify service, and which detections matter. It says what
-  happened and where, then replaces itself with that event's photograph once
-  the hub has finished recording. A plain YAML version is in
+  your cameras, your notify service, and which detections matter. It names
+  anyone you have named — "Alice rang the Front Doorbell" — says what happened
+  and where, then replaces itself with that event's photograph once the hub has
+  finished recording. A plain YAML version is in
   [`examples/`](examples/notify-person-pet-doorbell.yaml) if you would rather
   edit it directly.
 - **Faces:** **Configure → Name faces** lists every face the hub has
