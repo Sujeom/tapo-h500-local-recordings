@@ -92,9 +92,44 @@ def load_api():
     return api
 
 
-# Query "type" and payload block name are the same word in the verified
-# download path, so each candidate varies both together.
-CANDIDATES = ("preview", "live", "stream", "video")
+# In the verified download path the query "type" and the payload block name are
+# the same word, so earlier runs varied both together. pytapo's own hub-child
+# code path says live does not work that way: for a camera behind a hub it opens
+# the session with query type=video and then sends a "preview" block. Pairing
+# the two by name can never produce that combination, which is why every live
+# attempt so far has been inconclusive rather than negative.
+#
+# pytapo, Tapo.getMediaSession(StreamType.Stream) with childID set:
+#     {"deviceId": childID, "playerId": playerID, "type": "video"}   # no media_type
+# pytapo, Streamer._build_preview_payload():
+#     {"type":"request","seq":1,"params":{"method":"get","preview":{
+#      "audio":["default"],"channels":[0],"resolutions":["HD"],"deviceId":...}}}
+#
+# Two identity conventions are plausible for the block, so both are tried. The
+# H500 addresses a child *inline* with dev_id+mac (that is the framing its
+# verified download uses), whereas pytapo lets the hub resolve a childID and
+# sends camelCase deviceId. The inline form is tried first because it is the
+# one this hub is known to accept elsewhere.
+#
+# Confirmed on firmware 1.3.20: query type=video carrying a preview block is
+# accepted, error_code 0, and the hub allocates a session_id. Both identity
+# conventions were accepted, so the hub does not care which is used.
+#
+# Only query type=video appears here on purpose. type=preview returned
+# "HTTP ERROR 401" and left port 8800 refusing TCP immediately afterwards, so
+# the other spellings are not merely wrong, they cost a wedged hub to retry.
+# The query type is what the HTTP layer authenticates; the block name is what
+# the accepted session is then asked for.
+#
+#          label              query type   block      identity  media_type
+ATTEMPTS = (
+    ("video-preview-h500",    "video",     "preview", "h500",   False),
+    ("video-preview-pytapo",  "video",     "preview", "pytapo", False),
+    # Long shot kept only because it cannot 401: the block name the earlier
+    # same-name pairing would have used.
+    ("video-video-h500",      "video",     "video",   "h500",   True),
+)
+CANDIDATES = tuple(attempt[0] for attempt in ATTEMPTS)
 
 # Device IDs, parent IDs and MACs are all long hex strings. Matching the shape
 # rather than the key name means a field nobody anticipated is still redacted.
@@ -111,11 +146,11 @@ def scrub(value):
     return value
 
 
-def query_for(camera, block: str, player_id: str, media_type: bool) -> dict:
+def query_for(camera, qtype: str, player_id: str, media_type: bool) -> dict:
     """The verified download query string with only "type" changed."""
     query = {
         "deviceId": camera["device_id"],
-        "type": block,
+        "type": qtype,
         "playerId": player_id,
     }
     if media_type:
@@ -123,17 +158,29 @@ def query_for(camera, block: str, player_id: str, media_type: bool) -> dict:
     return query
 
 
-def build_payload(block: str, camera: dict, player_id: str, client_id: int) -> dict:
-    """The verified download payload's identity fields, with a live verb."""
+def build_payload(block: str, camera: dict, player_id: str, client_id: int,
+                  identity: str = "h500") -> dict:
+    """A live-verb payload in one of the two plausible identity conventions.
+
+    "h500" repeats the identity fields of the verified download payload, which
+    address a child inline. "pytapo" is what pytapo's Streamer sends, where the
+    hub resolves a childID instead, so there is no mac and the key is camelCase.
+    """
+    if identity == "pytapo":
+        fields = {"deviceId": camera["device_id"]}
+    else:
+        fields = {
+            "dev_id": camera["device_id"],
+            "mac": camera["mac"],
+            "client_id": client_id,
+            "player_id": player_id,
+        }
     return {
         "type": "request",
         "seq": 1,
         "params": {"method": "get", block: {
-            "dev_id": camera["device_id"],
-            "mac": camera["mac"],
+            **fields,
             "channels": [int(camera.get("channel_id", 0))],
-            "client_id": client_id,
-            "player_id": player_id,
             "audio": ["default"],
             "resolutions": ["HD"],
         }},
@@ -419,6 +466,7 @@ async def attempt(client, query: dict, payload: dict, timeout: float
         encryptionMethod=client._encryption_method, port=MEDIA_PORT,
         username=client.username, window_size=25, query_params=query,
     )
+    opened = None
     async with session:
         stream = session.transceive(
             json.dumps(payload, separators=(",", ":")), no_data_timeout=timeout)
@@ -426,10 +474,23 @@ async def attempt(client, query: dict, payload: dict, timeout: float
             try:
                 response = await asyncio.wait_for(stream.__anext__(), timeout)
             except StopAsyncIteration:
+                if opened is not None:
+                    return "opened", {"session": opened,
+                                      "then": "hub ended the session"}
                 return "closed", "hub ended the session"
             except asyncio.TimeoutError:
+                if opened is not None:
+                    return "opened", {"session": opened,
+                                      "then": f"no video in {timeout:.0f}s"}
                 return "timeout", f"no response in {timeout:.0f}s"
             verdict, detail = classify(response.mimetype, response.plaintext)
+            if verdict == "json":
+                # error_code 0 with a session_id *opens* the stream; video
+                # follows it. Returning here reported an accepted live session
+                # as a dead one, which is how the first real hit was missed.
+                # iter_recording in api.py has always looped past this point.
+                opened = detail
+                continue
             if verdict != "other":
                 return verdict, detail
 
@@ -510,6 +571,24 @@ def self_test() -> None:
     assert query == {"deviceId": "c", "type": "live", "playerId": "p",
                      "media_type": 0}
     assert "media_type" not in query_for({"device_id": "c"}, "live", "p", False)
+    # pytapo's child-stream identity: camelCase deviceId, and no mac, no
+    # client_id, no player_id for the hub to trip over.
+    pytapo_block = build_payload(
+        "preview", {"device_id": "c", "mac": "m"}, "p", 1, "pytapo",
+    )["params"]["preview"]
+    assert pytapo_block["deviceId"] == "c"
+    assert not {"dev_id", "mac", "client_id", "player_id"} & set(pytapo_block)
+    assert pytapo_block["resolutions"] == ["HD"]
+    # The whole point of the rewrite: the query type and the payload block name
+    # must be able to differ. If this ever collapses back to one word, the
+    # combination pytapo actually uses becomes untestable again.
+    assert any(qtype != block for _, qtype, block, _, _ in ATTEMPTS)
+    assert ("video-preview-h500", "video", "preview", "h500", False) \
+        == ATTEMPTS[0], "the confirmed shape must be tried first"
+    assert len({a[0] for a in ATTEMPTS}) == len(ATTEMPTS), "labels must be unique"
+    # type=preview returned 401 and then wedged port 8800. Any query type other
+    # than video costs a wedged hub to learn nothing, so none may come back.
+    assert {qtype for _, qtype, _, _, _ in ATTEMPTS} == {"video"}
     # An unreadable reply is not evidence that a method exists. The first
     # version of this oracle called everything PRESENT and reported 48/48.
     assert classify_method({"weird": 1})[0] == "unknown"
@@ -623,7 +702,7 @@ def main() -> int:
                   f"{'accepting' if tcp_alive(args.host) else 'REFUSING'}")
             verdict = control(client, client.camera_at(args.camera),
                               args.timeout, not args.no_media_type)
-            recovered = verdict in ("video", "json", "error")
+            recovered = verdict in ("video", "json", "error", "opened")
             print("\nMedia auth works again." if recovered else
                   "\nStill failing. Wait longer, then power-cycle the hub.")
             return 0 if recovered else 1
@@ -687,18 +766,22 @@ def main() -> int:
                 return 1
             time.sleep(args.pause)
 
-        for block in ([args.only] if args.only else CANDIDATES):
-            printable = query_for(camera, block, client.player_id, media_type)
-            print(f"  query {printable if args.raw else scrub(printable)}")
+        attempts = [a for a in ATTEMPTS if not args.only or a[0] == args.only]
+        for label, qtype, block, identity, wants_media_type in attempts:
+            # --no-media-type still forces it off; otherwise each attempt keeps
+            # the setting its hypothesis calls for.
+            query = query_for(camera, qtype, client.player_id,
+                              wants_media_type and media_type)
+            print(f"  {label}")
+            print(f"  query {query if args.raw else scrub(query)}")
             payload = build_payload(
-                block, camera, client.player_id, client._client_id)
-            verdict, detail = run_attempt(client, query_for(
-                camera, block, client.player_id, media_type), payload,
-                args.timeout)
-            print(f"  type={block:<8} {verdict:<9} {detail}\n")
+                block, camera, client.player_id, client._client_id, identity)
+            verdict, detail = run_attempt(client, query, payload, args.timeout)
+            print(f"  type={qtype} block={block} ids={identity}  "
+                  f"{verdict:<9} {detail}\n")
             if verdict == "video":
-                print(f"Live video from type={block}. "
-                      f"Payload block '{block}' is the verb.")
+                print(f"Live video: query type={qtype}, payload block "
+                      f"'{block}', {identity} identity fields.")
                 return 0
             if "ConnectionRefused" in str(detail):
                 print(f"Port {MEDIA_PORT} stopped accepting connections. Every "

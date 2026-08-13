@@ -8,6 +8,7 @@ anything on the machine send requests to it.
 
     tools/h500_session.py --host 192.168.1.50 &        # start it
     tools/h500_session.py --send '{"method":"get","led":{"name":"config"}}'
+    tools/h500_session.py --live                       # try live view
     tools/h500_session.py --health
     tools/h500_session.py --stop
 
@@ -87,6 +88,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(200, media_probe(
                 int(request.get("camera", 0)), int(request.get("seconds", 5)),
                 request.get("save")))
+
+        if self.path == "/live":
+            state["requests"] += 1
+            return self._reply(200, live_probe(
+                int(request.get("camera", 0)),
+                float(request.get("timeout", 10)),
+                request.get("only"),
+                float(request.get("pause", 5))))
 
         unsafe = [name for name in probe.methods_in(request)
                   if not probe.is_safe(name)]
@@ -184,14 +193,61 @@ def media_probe(camera_index: int, seconds: int,
     return result
 
 
-def call(port: int, path: str, body: str | None = None) -> str:
+def live_probe(camera_index: int, timeout: float, only: str | None,
+               pause: float) -> dict:
+    """Try the live-view candidates over this session's existing login.
+
+    Same attempts as probe_live.py, but without a fresh login per run — which
+    is what wedges the hub. Stops at the first attempt that returns video, and
+    also the moment port 8800 starts refusing, because every later attempt
+    would then fail for that reason rather than for its own.
+    """
+    client = state["client"]
+    try:
+        camera = client.camera_at(camera_index)
+    except Exception as err:
+        return {"error": f"{type(err).__name__}: {err}"}
+
+    results: list[dict] = []
+    attempts = [a for a in probe.ATTEMPTS if not only or a[0] == only]
+    if not only and not attempts:
+        return {"error": "no attempts defined"}
+    if only and not attempts:
+        return {"error": f"unknown attempt {only!r}",
+                "known": [a[0] for a in probe.ATTEMPTS]}
+
+    for index, (label, qtype, block, identity, media_type) in enumerate(attempts):
+        query = probe.query_for(camera, qtype, client.player_id, media_type)
+        payload = probe.build_payload(
+            block, camera, client.player_id, client._client_id, identity)
+        verdict, detail = probe.run_attempt(client, query, payload, timeout)
+        results.append({
+            "attempt": label, "type": qtype, "block": block, "ids": identity,
+            "verdict": verdict,
+            "detail": detail if state["raw"] else probe.scrub(detail),
+        })
+        if verdict == "video":
+            results.append({"found": f"query type={qtype}, block={block}, "
+                                     f"{identity} identity fields"})
+            break
+        if "ConnectionRefused" in str(detail):
+            results.append({"stopped": "port 8800 is refusing connections; "
+                                       "later attempts would be meaningless"})
+            break
+        if index + 1 < len(attempts):
+            time.sleep(pause)
+    return {"results": results}
+
+
+def call(port: int, path: str, body: str | None = None,
+         timeout: float = 60) -> str:
     url = f"http://127.0.0.1:{port}{path}"
     try:
         with urllib.request.urlopen(
             urllib.request.Request(
                 url, data=body.encode() if body is not None else None,
                 method="POST" if body is not None else "GET"),
-            timeout=60,
+            timeout=timeout,
         ) as reply:
             return reply.read().decode()
     except urllib.error.HTTPError as err:
@@ -228,6 +284,17 @@ def main() -> int:
     parser.add_argument("--media", action="store_true",
                         help="replay a known-good download over the "
                              "running session")
+    parser.add_argument("--live", action="store_true",
+                        help="try the live-view candidates over the running "
+                             "session; wakes the camera")
+    parser.add_argument("--only", help="run a single live attempt by label")
+    # A battery TD21 has to wake before it can send a frame, and the session is
+    # accepted well before that happens, so a short timeout reports an opened
+    # session as a silent one.
+    parser.add_argument("--timeout", type=float, default=30.0,
+                        help="seconds to wait for each live attempt")
+    parser.add_argument("--pause", type=float, default=5.0,
+                        help="seconds between live attempts")
     parser.add_argument("--camera", type=int, default=0)
     parser.add_argument("--save", help="write the media test stream here")
     parser.add_argument("--health", action="store_true")
@@ -240,6 +307,15 @@ def main() -> int:
     if args.media:
         print(call(args.port, "/media", json.dumps(
             {"camera": args.camera, "save": args.save})))
+        return 0
+    if args.live:
+        # Every attempt is bounded by run_attempt at 3x its timeout, and the
+        # pauses sit between them, so allow for the whole sweep rather than
+        # timing out the client half way through and losing the results.
+        budget = len(probe.ATTEMPTS) * (args.timeout * 3 + args.pause) + 30
+        print(call(args.port, "/live", json.dumps(
+            {"camera": args.camera, "timeout": args.timeout,
+             "only": args.only, "pause": args.pause}), timeout=budget))
         return 0
     if args.health:
         print(call(args.port, "/health"))
