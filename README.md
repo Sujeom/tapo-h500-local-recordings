@@ -27,8 +27,9 @@ recordings stored on a Tapo H500 HomeBase.
 - Serves a **camera entity** per doorbell showing the newest event frame.
 - Browses downloaded clips under **Media → Tapo H500**, by camera and date,
   with thumbnails.
-- Ships a **dashboard card** listing the hub's clips with play, download and
-  delete buttons.
+- Ships **four dashboard cards** over the same recordings: a list with play,
+  download and delete buttons, plus a large newest-event card, a thumbnail grid
+  and an hour-by-hour timeline.
 - Deletes downloaded copies; can format hub storage (see the warning below).
 - Does **not** call `preWakeUp`, `preVod`, or a TP-Link cloud media endpoint.
 
@@ -291,6 +292,16 @@ there is normally nothing to add by hand. If a dashboard still reports
 Automatic registration needs a storage-mode dashboard. YAML-mode dashboards own
 their own resource list, so add the resource there yourself.
 
+Four cards ship in that one resource, so registering it makes all of them
+available in the card picker. They show the same recordings different ways:
+
+| Card | Shows |
+| --- | --- |
+| `custom:tapo-h500-card` | A list, one row per clip, with download, play and delete. The one to browse and manage with. |
+| `custom:tapo-h500-hero-card` | Only the newest event, large, with "2 minutes ago" and a tap to play. For a wall tablet or the top of a dashboard. |
+| `custom:tapo-h500-grid-card` | Every clip as a thumbnail tile. Fits far more events on screen for scanning a busy day. |
+| `custom:tapo-h500-timeline-card` | Clips grouped under hour headings, so the gaps in a day are visible. |
+
 Add a manual card:
 
 ```yaml
@@ -298,6 +309,18 @@ type: custom:tapo-h500-card
 days: 2
 max_height: 400
 ```
+
+They take the same options — `days`, `camera_index`, `entry_id`, and
+`max_height` for the three scrolling ones. The hero card ignores `max_height`,
+having only one event to show.
+
+```yaml
+type: custom:tapo-h500-hero-card
+camera_index: 0
+```
+
+Every card only offers **Play** for clips already downloaded; a clip still on
+the hub shows **Download** instead. All of them show a thumbnail either way.
 
 With no `camera_index` the card shows a button per paired camera and remembers
 which one you picked, so one card covers the whole hub. Setting `camera_index`
@@ -408,7 +431,12 @@ Verified against a physical H500 with paired TD21 doorbells:
 - The hub's module inventory, and that `preWakeUp` is a component with no
   corresponding method. See `docs/protocol-notes.md`.
 
-Verified by unit test (`python3 -m unittest discover -s tests`, 14 tests, no
+The dashboard cards have their own tests, which need Node but no browser and no
+Home Assistant (`node tests/test_cards.mjs`, 15 tests): escaping, relative
+times, hour grouping, and that no card ever points a `<video>` at a clip that
+has not been downloaded.
+
+Verified by unit test (`python3 -m unittest discover -s tests`, 53 tests, no
 hub or Home Assistant install required):
 
 - The H500 download request payload and the required `Content-Length: 0` outer
