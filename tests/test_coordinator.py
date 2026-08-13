@@ -91,6 +91,8 @@ def _install_stubs():
     media = types.ModuleType("tapo_h500.media")
     media.async_download_clip = None
     media.async_prune = None
+    media.async_verify = None
+    media.async_export = None
     media.existing_clip = lambda *a, **k: None
     package = types.ModuleType("tapo_h500")
     package.__path__ = [str(COMPONENT)]
@@ -242,6 +244,66 @@ class RevisedDetections(unittest.TestCase):
                               coord._seen_clips, 0)
         self.assertEqual(len(first), 1)
         self.assertEqual(second, [], "a revision restarted the download")
+
+
+class Backoff(unittest.TestCase):
+    """A hub that stops answering must be asked less, not the same.
+
+    At 2s a failing hub is polled thirty times a minute, and pytapo
+    re-authenticates when its token stops working -- so a wedged hub gets a
+    stream of fresh logins exactly when it can least afford them.
+    """
+
+    def test_the_first_failure_slows_the_poll(self):
+        coord, client = _build(interval=2)
+
+        def boom():
+            raise RuntimeError("hub gone")
+        client.cameras = boom
+        with self.assertRaises(Exception):
+            asyncio.run(coord._async_update_data())
+        self.assertGreater(coord.update_interval.total_seconds(), 2)
+
+    def test_it_keeps_slowing_while_the_hub_stays_down(self):
+        coord, client = _build(interval=2)
+
+        def boom():
+            raise RuntimeError("hub gone")
+        client.cameras = boom
+        seen = []
+        for _ in range(4):
+            with self.assertRaises(Exception):
+                asyncio.run(coord._async_update_data())
+            seen.append(coord.update_interval.total_seconds())
+        self.assertEqual(seen, sorted(seen))
+        self.assertGreater(seen[-1], seen[0])
+
+    def test_it_snaps_back_on_the_first_success(self):
+        """Not gradually: the hub is answering, so there is nothing to be
+        careful about any more."""
+        coord, client = _build(interval=2)
+        original = client.cameras
+
+        def boom():
+            raise RuntimeError("hub gone")
+        client.cameras = boom
+        for _ in range(3):
+            with self.assertRaises(Exception):
+                asyncio.run(coord._async_update_data())
+        client.cameras = original
+        asyncio.run(coord._async_update_data())
+        self.assertEqual(coord.update_interval.total_seconds(), 2)
+
+    def test_the_wait_is_capped(self):
+        """An hour between polls would mean a recovered hub goes unnoticed."""
+        capped = coordinator_mod.backoff_seconds(2, 30, const.POLL_BACKOFF_MAX)
+        self.assertEqual(capped, const.POLL_BACKOFF_MAX)
+
+    def test_the_cap_is_minutes_not_hours(self):
+        self.assertLessEqual(const.POLL_BACKOFF_MAX, 900)
+
+    def test_no_failures_means_the_base_interval(self):
+        self.assertEqual(coordinator_mod.backoff_seconds(2, 0, 300), 2)
 
 
 class CameraList(unittest.TestCase):

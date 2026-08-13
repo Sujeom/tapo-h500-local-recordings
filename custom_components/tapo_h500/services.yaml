@@ -229,3 +229,36 @@ find_face:
       example: Alice
       selector:
         text:
+
+export_recording:
+  name: Export a recording
+  description: >-
+    Copy a downloaded clip and its thumbnail somewhere retention cannot reach.
+    Copies rather than moves, so the media directory stays the working set and
+    existing cards keep working. The destination must be listed in
+    allowlist_external_dirs.
+  fields:
+    config_entry_id:
+      name: Hub
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    camera_index:
+      name: Camera
+      default: 0
+      selector:
+        number: {min: 0, max: 15, mode: box}
+    start_time:
+      name: Recording start
+      required: true
+      selector:
+        number: {min: 0, mode: box}
+    destination:
+      name: Destination directory
+      description: >-
+        An allowed directory. Clips land under <destination>/<camera>/<date>/.
+      required: true
+      example: /media/nas/doorbell
+      selector:
+        text:

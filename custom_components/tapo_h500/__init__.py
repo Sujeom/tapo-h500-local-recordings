@@ -33,6 +33,7 @@ from .const import (
     SERVICE_DESCRIBE_RECORDING,
     SERVICE_DAILY_SUMMARY,
     SERVICE_FIND_FACE,
+    SERVICE_EXPORT_RECORDING,
     SIGNAL_FACES_CHANGED,
     RELOAD_ON_CHANGE,
     DESCRIBE_PROMPT,
@@ -40,8 +41,8 @@ from .const import (
 )
 from .coordinator import H500Coordinator
 from .media import (
-    async_delete_clip, async_download_clip, clip_path, describe,
-    existing_clip, media_content_id, media_root, scan_downloaded,
+    async_delete_clip, async_download_clip, async_export, clip_path,
+    describe, existing_clip, media_content_id, media_root, scan_downloaded,
 )
 from .preview import H500PreviewView, preview_url
 
@@ -70,6 +71,13 @@ DOWNLOAD_SCHEMA = vol.Schema({
 DELETE_SCHEMA = vol.Schema({
     **ENTRY_SCHEMA,
     vol.Required("start_time"): NONNEGATIVE_INT,
+})
+EXPORT_SCHEMA = vol.Schema({
+    **ENTRY_SCHEMA,
+    vol.Required("start_time"): NONNEGATIVE_INT,
+    # No default. Copying files somewhere is not a thing to guess at, and an
+    # unset destination should fail loudly rather than write to a surprise.
+    vol.Required("destination"): cv.string,
 })
 FIND_FACE_SCHEMA = vol.Schema({
     vol.Required("config_entry_id"): cv.string,
@@ -111,6 +119,7 @@ SERVICES = (
     SERVICE_DESCRIBE_RECORDING,
     SERVICE_DAILY_SUMMARY,
     SERVICE_FIND_FACE,
+    SERVICE_EXPORT_RECORDING,
     SIGNAL_FACES_CHANGED,
     RELOAD_ON_CHANGE,
     DESCRIBE_PROMPT,
@@ -495,6 +504,12 @@ def _register_services(hass: HomeAssistant) -> None:
         return {"who": wanted, "face_ids": sorted(ids),
                 "count": len(found), "recordings": found}
 
+    async def export_recording(call: ServiceCall):
+        """Copy a downloaded clip somewhere retention cannot reach."""
+        _, camera = await _resolve(hass, call)
+        return await async_export(hass, camera, call.data["start_time"],
+                                  call.data["destination"])
+
     for service, handler, schema in (
         (SERVICE_LIST_RECORDINGS, list_recordings, LIST_SCHEMA),
         (SERVICE_DOWNLOAD_RECORDING, download_recording, DOWNLOAD_SCHEMA),
@@ -504,6 +519,7 @@ def _register_services(hass: HomeAssistant) -> None:
         (SERVICE_DESCRIBE_RECORDING, describe_recording, DESCRIBE_SCHEMA),
         (SERVICE_DAILY_SUMMARY, daily_summary, SUMMARY_SCHEMA),
         (SERVICE_FIND_FACE, find_face, FIND_FACE_SCHEMA),
+        (SERVICE_EXPORT_RECORDING, export_recording, EXPORT_SCHEMA),
     ):
         hass.services.async_register(
             DOMAIN, service, handler, schema=schema,

@@ -21,12 +21,30 @@ from .const import (
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS,
     CONF_CAMERA_ORDER, DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING,
-    LOOKBACK_SECONDS, SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
+    LOOKBACK_SECONDS, POLL_BACKOFF_MAX, SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
 )
-from .media import async_download_clip, async_prune, existing_clip
+from .media import (
+    async_download_clip, async_prune, async_verify, existing_clip,
+)
 from .status import hub_readings
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def interval_or_default(entry: ConfigEntry) -> int:
+    return entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
+
+
+def backoff_seconds(base: int, failures: int, cap: int) -> int:
+    """How long to wait after this many consecutive failures.
+
+    Doubling, capped. Deliberately not jittered: there is one hub and one
+    poller, so there is no thundering herd to spread out, and a predictable
+    interval is easier to recognise in a log than a random one.
+    """
+    if failures <= 0:
+        return base
+    return min(cap, base * (2 ** failures))
 
 
 class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
@@ -46,10 +64,12 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._seen_clips: dict[int, set[int]] = {}
         self._primed = False
         self._polls = 0
+        self._failures = 0
+        self._base_interval = interval_or_default(entry)
         # Turn "refresh this every N seconds" into a poll count once, here, so
         # a longer interval configured in options does not silently turn into
         # a much longer refresh age.
-        interval = entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
+        interval = self._base_interval
         self._status_every = max(1, round(STATUS_MAX_AGE / interval))
         self._cameras_every = max(1, round(CAMERAS_MAX_AGE / interval))
 
@@ -143,6 +163,26 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         return max(moments) if moments else None
 
     async def _async_update_data(self) -> dict:
+        """Poll, and back off while the hub is not answering."""
+        try:
+            data = await self._poll()
+        except Exception:
+            self._failures += 1
+            delay = backoff_seconds(
+                self._base_interval, self._failures, POLL_BACKOFF_MAX)
+            if delay != (self.update_interval.total_seconds()
+                         if self.update_interval else None):
+                _LOGGER.debug("Hub not answering; polling every %ss", delay)
+                self.update_interval = timedelta(seconds=delay)
+            raise
+        if self._failures:
+            _LOGGER.debug("Hub answering again; back to every %ss",
+                          self._base_interval)
+            self._failures = 0
+            self.update_interval = timedelta(seconds=self._base_interval)
+        return data
+
+    async def _poll(self) -> dict:
         # The paired camera list changes only when a camera is added or
         # removed, and costs 58ms -- more than the detection lookups it used to
         # precede. Fetch it on the first poll and then rarely, but never leave
@@ -279,6 +319,17 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                             start_time, err)
             return
         _LOGGER.debug("Downloaded %s (%s bytes)", result["path"], result["bytes"])
+        # Verified now, while the hub still holds the original. A truncated
+        # file looks identical to a good one on disk, and the only moment it
+        # can be fetched again is before retention evicts the source.
+        stored = existing_clip(self.hass, camera, start_time)
+        if stored is not None and not await async_verify(self.hass, stored):
+            _LOGGER.warning(
+                "Downloaded clip %s does not decode; removing it so it can be "
+                "fetched again while the hub still has it", stored.name)
+            await self.hass.async_add_executor_job(stored.unlink, True)
+            self._seen_clips.get(index, set()).discard((start_time,))
+            return
         # Only automatic downloads are pruned. A manual download is a
         # deliberate choice and is left alone.
         keep = self.entry.options.get(CONF_KEEP_DOWNLOADS, DEFAULT_KEEP_DOWNLOADS)

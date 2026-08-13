@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import tempfile
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -263,6 +264,61 @@ def _videos(directory: Path) -> list[Path]:
     # Names sort chronologically: <date>/<HHMMSS>.<ext>.
     return sorted(path for path in directory.glob("*/*")
                   if path.suffix in (".mp4", ".ts"))
+
+
+async def async_export(hass: HomeAssistant, camera, start_time: int,
+                       destination: str) -> dict:
+    """Copy a downloaded clip and its thumbnail somewhere retention cannot reach.
+
+    Retention deletes and nothing archives, so the only copy of anything worth
+    keeping lives where a busy week will evict it. This copies rather than
+    moves: the media directory stays the working set, and an export that
+    emptied it would break every card pointing at it.
+
+    The destination has to be allowed by Home Assistant. Writing anywhere the
+    process can reach would let a service call reach the whole filesystem.
+    """
+    source = existing_clip(hass, camera, start_time)
+    if source is None:
+        raise HomeAssistantError(
+            "That recording has not been downloaded, so there is nothing to "
+            "export. Download it first.")
+    if not hass.config.is_allowed_path(destination):
+        raise HomeAssistantError(
+            f"{destination} is not an allowed directory. Add it to "
+            "allowlist_external_dirs in configuration.yaml.")
+
+    def _copy() -> list[str]:
+        # camera_slug is what the media directory already uses, so an
+        # export mirrors the layout people are used to browsing.
+        target = Path(destination) / camera_slug(camera) / source.parent.name
+        target.mkdir(parents=True, exist_ok=True)
+        written = []
+        for suffix in (source.suffix, ".jpg"):
+            origin = source.with_suffix(suffix)
+            if origin.is_file():
+                shutil.copy2(origin, target / origin.name)
+                written.append(str(target / origin.name))
+        return written
+
+    copied = await hass.async_add_executor_job(_copy)
+    return {"exported": copied, "count": len(copied)}
+
+
+async def async_verify(hass: HomeAssistant, path: Path) -> bool:
+    """Whether a downloaded clip decodes.
+
+    Checked while the hub still holds the original. A truncated download looks
+    exactly like a good one on disk -- right name, plausible size -- and the
+    only moment it can be fetched again is before retention evicts the source.
+    Discovering it later means discovering it is gone.
+
+    ffmpeg is used rather than ffprobe: it is the binary Home Assistant already
+    manages, and decoding to nothing proves more than reading a header does.
+    """
+    return await _run_ffmpeg(hass, [
+        "-v", "error", "-xerror", "-i", str(path), "-f", "null", "-",
+    ])
 
 
 async def async_prune(hass: HomeAssistant, camera, keep: int,

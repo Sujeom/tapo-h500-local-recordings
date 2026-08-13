@@ -14,6 +14,7 @@ SERVICE_NAME_FACE = "name_face"
 SERVICE_DESCRIBE_RECORDING = "describe_recording"
 SERVICE_DAILY_SUMMARY = "daily_summary"
 SERVICE_FIND_FACE = "find_face"
+SERVICE_EXPORT_RECORDING = "export_recording"
 
 # What to ask a vision model about a still from a doorbell clip.
 #
@@ -91,6 +92,15 @@ DEFAULT_POLL_INTERVAL = 2
 # call the integration makes. The camera list only changes when a camera is
 # paired or removed. Both are refreshed on an age in seconds rather than a
 # poll count, so they stay correct if the interval is changed in options.
+# How far the poll interval backs off while the hub is not answering.
+#
+# At 2s a failing hub is asked thirty times a minute, and pytapo
+# re-authenticates when its token stops working -- so a hub that has stopped
+# responding gets a stream of fresh logins, which is precisely what wedges an
+# H500 and precisely when it can least afford it. The interval doubles per
+# consecutive failure up to this cap and snaps back on the first success.
+POLL_BACKOFF_MAX = 300
+
 STATUS_MAX_AGE = 60
 CAMERAS_MAX_AGE = 300
 # An H500 with TD21 doorbells labels every clip video_type "2", so ring-only

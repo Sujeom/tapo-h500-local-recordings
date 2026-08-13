@@ -60,6 +60,8 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   **Name this face** button — type a name where you are looking at their photo.
 - **Night alerts:** an unfamiliar face between 22:00 and 06:00 gets a
   high-importance channel, so it sounds different from a daytime delivery.
+- **Archiving:** `tapo_h500.export_recording` copies a clip somewhere
+  retention cannot reach. The destination must be in `allowlist_external_dirs`.
 - **Search:** `tapo_h500.find_face` returns every recording someone appears in.
 - **Direction:** tell it which camera is nearest the street
   (**Configure → Camera layout**) and a recognised person moving between

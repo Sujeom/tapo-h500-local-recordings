@@ -156,3 +156,57 @@ class Voice(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Verification(unittest.TestCase):
+    """A truncated download looks identical to a good one on disk."""
+
+    def test_a_clip_is_checked_after_downloading(self):
+        coordinator = (COMPONENT / "coordinator.py").read_text()
+        self.assertIn("async_verify(self.hass, stored)", coordinator)
+
+    def test_it_is_checked_before_anything_is_pruned(self):
+        """Discovering a bad clip later means discovering it is gone.
+
+        Scoped to the download function: slicing from the first mention of
+        async_download_clip lands on the IMPORT line, where async_prune sits
+        two characters later and the order means nothing.
+        """
+        coordinator = (COMPONENT / "coordinator.py").read_text()
+        body = coordinator.split("def _download_new", 1)[1]
+        self.assertLess(body.index("async_verify"), body.index("async_prune"))
+
+    def test_a_bad_clip_is_removed_so_it_can_be_fetched_again(self):
+        coordinator = (COMPONENT / "coordinator.py").read_text()
+        self.assertIn("stored.unlink", coordinator)
+
+    def test_it_decodes_rather_than_reading_a_header(self):
+        self.assertIn('"-f", "null", "-"', MEDIA)
+        self.assertIn('"-xerror"', MEDIA)
+
+
+class Export(unittest.TestCase):
+    def test_the_destination_must_be_allowed(self):
+        """Writing anywhere the process can reach would let a service call
+        reach the whole filesystem."""
+        body = MEDIA.split("async def async_export", 1)[1]
+        self.assertIn("is_allowed_path", body)
+
+    def test_it_copies_rather_than_moves(self):
+        """The media directory stays the working set; moving would break every
+        card pointing at it."""
+        body = MEDIA.split("async def async_export", 1)[1].split("async def", 1)[0]
+        self.assertIn("shutil.copy2", body)
+        self.assertNotIn("shutil.move", body)
+
+    def test_an_undownloaded_clip_is_refused_clearly(self):
+        body = MEDIA.split("async def async_export", 1)[1]
+        self.assertIn("has not been downloaded", body)
+
+    def test_the_thumbnail_goes_with_it(self):
+        body = MEDIA.split("async def async_export", 1)[1].split("async def", 1)[0]
+        self.assertIn('".jpg"', body)
+
+    def test_there_is_no_default_destination(self):
+        """Copying files somewhere is not a thing to guess at."""
+        self.assertIn('vol.Required("destination")', INIT)
