@@ -87,9 +87,17 @@ class Logbook(unittest.TestCase):
 
 
 class Repairs(unittest.TestCase):
-    def test_both_issues_clear_as_well_as_raise(self):
-        """An issue that never clears is worse than one that never appears."""
-        self.assertEqual(REPAIRS.count("async_delete_issue"), 3)
+    def test_every_issue_clears_as_well_as_raises(self):
+        """An issue that never clears is worse than one that never appears.
+
+        Checked per function rather than by counting calls, which broke the
+        moment a fourth issue was added and said nothing about which one had
+        lost its clear.
+        """
+        for func in ("_storage", "_reachable", "_unnamed_faces"):
+            body = REPAIRS.split(f"def {func}", 1)[1].split("\ndef ", 1)[0]
+            self.assertIn("async_create_issue", body, func)
+            self.assertIn("async_delete_issue", body, func)
 
     def test_unknown_storage_is_not_treated_as_healthy(self):
         self.assertIn("if not total or free is None:", REPAIRS)
@@ -111,6 +119,42 @@ class Repairs(unittest.TestCase):
         coordinator = (COMPONENT / "coordinator.py").read_text()
         block = coordinator.split("from .repairs import async_check", 1)[1][:300]
         self.assertIn("except Exception", block)
+
+
+class NamePrompt(unittest.TestCase):
+    """A face the hub keeps seeing is worth naming; one seen once is not."""
+
+    def test_only_unnamed_faces_are_suggested(self):
+        body = REPAIRS.split("def _unnamed_faces", 1)[1]
+        self.assertIn("if face_id not in named", body)
+
+    def test_a_threshold_separates_regulars_from_passers_by(self):
+        const_src = (COMPONENT / "const.py").read_text()
+        threshold = int(re.search(r"NAME_PROMPT_SIGHTINGS = (\d+)",
+                                  const_src).group(1))
+        # 1 or 2 would fire for anyone who ever walked past.
+        self.assertGreaterEqual(threshold, 3)
+        body = REPAIRS.split("def _unnamed_faces", 1)[1]
+        self.assertIn(">= NAME_PROMPT_SIGHTINGS", body)
+
+    def test_one_issue_covers_them_all(self):
+        """A busy street would otherwise fill the repairs page with numbers."""
+        body = REPAIRS.split("def _unnamed_faces", 1)[1]
+        self.assertEqual(body.count("async_create_issue"), 1)
+        self.assertIn('"others"', body)
+
+    def test_it_names_the_most_seen_one_first(self):
+        body = REPAIRS.split("def _unnamed_faces", 1)[1]
+        self.assertIn("reverse=True", body)
+
+    def test_the_issue_clears_once_they_are_named(self):
+        body = REPAIRS.split("def _unnamed_faces", 1)[1]
+        self.assertIn("async_delete_issue", body)
+
+    def test_the_prompt_says_where_to_do_it(self):
+        text = STRINGS["issues"]["unnamed_face"]["description"]
+        self.assertIn("Name faces", text)
+        self.assertIn("{face_id}", text)
 
 
 class Image(unittest.TestCase):

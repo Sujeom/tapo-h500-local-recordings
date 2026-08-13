@@ -238,6 +238,16 @@ SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
 # update, and an uncapped one would grow with the poll window.
 FACE_TRAIL_MAX = 20
 
+# How many times an unnamed face must be seen before the integration suggests
+# naming them.
+#
+# The hub invents an id for every face it clusters, most of which belong to
+# people who pass once and never return. Someone seen repeatedly is different:
+# a neighbour, a regular delivery, a member of the household the hub has not
+# been told about. That is worth one prompt, and the count is what separates
+# the two without guessing.
+NAME_PROMPT_SIGHTINGS = 5
+
 # Options that actually change how the integration talks to the hub. A change
 # to one of these needs a reload; a change to anything else does not.
 #

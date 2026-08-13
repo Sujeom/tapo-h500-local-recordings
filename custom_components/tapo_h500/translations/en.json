@@ -241,6 +241,10 @@
     "hub_unreachable": {
       "title": "H500 is not responding",
       "description": "The hub has stopped answering, so nothing is being recorded to Home Assistant and every entity is showing its last known value. Check that it is powered and on the network. If the username is a TP-Link email rather than a local account, the hub refuses it with an error indistinguishable from being offline."
+    },
+    "unnamed_face": {
+      "title": "A face the hub keeps seeing has no name",
+      "description": "Face {face_id} has been seen {sightings} times on {cameras} and has not been named. Naming it makes every card, sensor and notification say who it is instead of a number \u2014 \"Alice rang the Front Doorbell\".\n\nName it under Configure \u2192 Name faces, where each face is listed with a link to its photograph, or with the Name this face button on the faces card.\n\n{others} other face(s) are also waiting to be named."
     }
   }
 }
