@@ -279,20 +279,63 @@ To pin the press: press the doorbell, look at `alarm_type` on the
 `RING_ALARM_TYPES` in `const.py`. The event entity, the presses-only download
 filter and all four cards read the same list, so one number fixes every path.
 
-### Doorbell automation
+### Notification automations
+
+Trigger on the **entity**, not on its `event_type` attribute. An event entity's
+state is the timestamp of the last event, so it changes every time; the
+attribute does not change between two events of the same kind, so an attribute
+trigger silently misses the second one.
+
+Notify on any activity, with the camera's own frame attached:
 
 ```yaml
 automation:
-  - alias: Someone at the door
+  - alias: Camera activity
     triggers:
       - trigger: state
         entity_id: event.side_doorbell_activity
-        attribute: event_type
-        to: ring
+    conditions:
+      # Skip the entity restoring its last event on restart or reload.
+      - condition: template
+        value_template: >-
+          {{ trigger.from_state.state not in ['unknown', 'unavailable']
+             and trigger.to_state.state not in ['unknown', 'unavailable'] }}
     actions:
       - action: notify.mobile_app_phone
         data:
-          message: Someone rang the doorbell
+          message: >-
+            {{ state_attr(trigger.entity_id, 'detection') or 'Activity' }}
+            at {{ trigger.to_state.name }}
+          data:
+            # The camera entity serves the newest event's frame.
+            image: /api/camera_proxy/camera.side_doorbell
+```
+
+Notify only for one kind of detection — here the code that carries a face ID:
+
+```yaml
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ 20 in (state_attr(trigger.entity_id, 'detection_types') or []) }}
+```
+
+`detection_types` lists **everything** that fired at once, so testing it catches
+a code even when a more significant one is what `alarm_type` reports. Use
+`alarm_type` instead when you want only the headline type:
+
+```yaml
+      - condition: template
+        value_template: "{{ state_attr(trigger.entity_id, 'alarm_type') == 22 }}"
+```
+
+Once a doorbell press has been identified and its code added to
+`RING_ALARM_TYPES`, presses classify as `ring` and the condition becomes:
+
+```yaml
+      - condition: template
+        value_template: >-
+          {{ state_attr(trigger.entity_id, 'event_type') == 'ring' }}
 ```
 
 The recording downloads on its own; the clip and its thumbnail land under
