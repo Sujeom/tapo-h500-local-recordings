@@ -115,6 +115,33 @@ survived both writes and the hub finished where it started. Exposed as a
 `switch`, and `status.face_detection_config` carries the tags through every
 toggle.
 
+### The app's face summary is cloud-side, not on the hub
+
+Asked directly whether the hub can produce the app's recognised-faces summary:
+**no**, and this one is a clean negative rather than a guessing failure.
+
+22 plausible method names — `getFaceRecognitionConfig`, `getFaceAlbum`,
+`getFaceCollection`, `getVisitorList`, `getStrangerList`, `getPersonList`,
+`getAiDetectionConfig`, `getSmartDetectionConfig`, `searchFaceEvent`,
+`getFaceThumbnail`, `getFaceImage` and others — were each tried against four
+namespaces (`face_detection`, `localSmart`, `local_smart`, `playback`). All 88
+combinations returned `-40106`.
+
+That uniformity is the evidence. Every method on this hub that exists but is
+being called wrongly answers `-40209` or `-40211` — that is how the face
+detection setter and the mirrorscreen shape were both found. Not one such reply
+appeared here, so these methods are absent rather than merely mis-shaped.
+
+The division of labour that fits: the hub *recognises* (it assigns a stable
+`face_id` per person) and TP-Link's cloud *identifies* (it holds the name and
+the photo). The hub carries the account link — `getThirdAccount` returns the
+cloud username and a public key — but `getCloudConfig` holds only
+`upgrade_info`, and no local call reaches the face data.
+
+So a local integration can report *that* a known face was seen and *which* id
+it was, and nothing more. Names and photos would need the cloud API, which is a
+different architecture from this one.
+
 ### There is no face library
 
 Detections of `alarm_type` 20 carry `event_info` with a `face_id` and a
