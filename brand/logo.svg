@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 200" width="760" height="200"
+     role="img" aria-label="Tapo H500 Local Recordings for Home Assistant">
+  <title>Tapo H500 Local Recordings</title>
+  <!--
+    Original artwork, and deliberately plain type rather than anything
+    resembling TP-Link's or Tapo's own wordmark. "Tapo H500" appears here only
+    to say which hardware this talks to; this project is not affiliated with or
+    endorsed by TP-Link.
+  -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1FB6A0"/>
+      <stop offset="1" stop-color="#0E7C74"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="0.36" cy="0.30" r="0.85">
+      <stop offset="0" stop-color="#2B3A44"/>
+      <stop offset="0.55" stop-color="#111C24"/>
+      <stop offset="1" stop-color="#050C11"/>
+    </radialGradient>
+  </defs>
+
+  <g transform="translate(20 20) scale(0.3125)">
+    <rect width="512" height="512" rx="112" fill="url(#body)"/>
+    <circle cx="256" cy="240" r="132" fill="#F4FBFA"/>
+    <circle cx="256" cy="240" r="112" fill="url(#glass)"/>
+    <circle cx="256" cy="240" r="52" fill="#0A1116"/>
+    <circle cx="256" cy="240" r="52" fill="none" stroke="#1FB6A0" stroke-width="10"/>
+    <ellipse cx="200" cy="184" rx="30" ry="18" fill="#ffffff" opacity="0.38"
+             transform="rotate(-38 200 184)"/>
+    <g fill="none" stroke="#F4FBFA" stroke-linecap="round" stroke-width="18">
+      <path d="M392 96a118 118 0 0 1 36 68" opacity="0.92"/>
+      <path d="M372 128a72 72 0 0 1 22 42" opacity="0.5"/>
+    </g>
+    <circle cx="256" cy="424" r="26" fill="#FF5A5A"/>
+    <circle cx="256" cy="424" r="26" fill="none" stroke="#F4FBFA" stroke-width="8"
+            opacity="0.85"/>
+  </g>
+
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+    <text x="204" y="92" font-size="54" font-weight="600" fill="#0E7C74">Tapo H500</text>
+    <text x="204" y="140" font-size="34" font-weight="400" fill="#5B6B72">Local Recordings</text>
+    <text x="204" y="176" font-size="21" font-weight="400" fill="#8A9AA1">for Home Assistant</text>
+  </g>
+</svg>

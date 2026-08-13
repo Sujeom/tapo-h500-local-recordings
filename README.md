@@ -1,7 +1,10 @@
-# Tapo H500 Local Recordings for Home Assistant
+<img src="brand/logo.png" alt="Tapo H500 Local Recordings" width="380">
 
 Experimental HACS custom integration for browsing, downloading and automating
 recordings stored on a Tapo H500 HomeBase.
+
+*Not affiliated with or endorsed by TP-Link. The artwork in `brand/` is
+original to this project; "Tapo" and "H500" name the hardware it talks to.*
 
 > **Work in progress.** This is unfinished and changing. It talks to an
 > undocumented protocol that has been reverse engineered against exactly one
@@ -136,6 +139,23 @@ The protocol is undocumented. Pinning the H500 to a stable LAN address is
 strongly recommended. Firmware changes may require integration updates.
 
 Requires Home Assistant 2024.11 or newer.
+
+## Artwork
+
+`brand/` holds the icon and the header lockup, as SVG sources plus rendered PNGs
+(`icon.png` 512, `icon@2x.png` 1024, `logo.png`, `logo@2x.png`). Re-render after
+editing a source with:
+
+```
+rsvg-convert -w 512 -h 512 brand/icon.svg -o brand/icon.png
+```
+
+**This does not change the icon Home Assistant shows for the integration.** That
+one comes from the [home-assistant/brands](https://github.com/home-assistant/brands)
+repository, which needs a pull request adding `custom_integrations/tapo_h500/`
+with `icon.png` and `logo.png` — the files here are already the right sizes for
+it. Until that is merged, Home Assistant shows its default puzzle-piece icon and
+these images appear on the repository page and in HACS.
 
 ## HACS installation
 

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512"
+     role="img" aria-label="Tapo H500 local recordings">
+  <title>Tapo H500 Local Recordings</title>
+  <!--
+    Original artwork. Deliberately not TP-Link's or Tapo's logo: the mark is a
+    doorbell lens with the hub relaying it, in a teal that sits beside the Tapo
+    family without borrowing its identity.
+  -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1FB6A0"/>
+      <stop offset="1" stop-color="#0E7C74"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="0.36" cy="0.30" r="0.85">
+      <stop offset="0" stop-color="#2B3A44"/>
+      <stop offset="0.55" stop-color="#111C24"/>
+      <stop offset="1" stop-color="#050C11"/>
+    </radialGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#body)"/>
+  <!-- A soft top-left sheen keeps the tile from reading as a flat swatch. -->
+  <rect width="512" height="512" rx="112" fill="url(#sheen)"/>
+
+  <!-- The lens: the one shape that says "camera" at 32px. -->
+  <circle cx="256" cy="248" r="132" fill="#0B1419" opacity="0.28"/>
+  <circle cx="256" cy="240" r="132" fill="#F4FBFA"/>
+  <circle cx="256" cy="240" r="112" fill="url(#glass)"/>
+  <circle cx="256" cy="240" r="52" fill="#0A1116"/>
+  <circle cx="256" cy="240" r="52" fill="none" stroke="#1FB6A0" stroke-width="10"/>
+  <!-- Catchlight, offset so the glass reads as curved rather than printed. -->
+  <ellipse cx="200" cy="184" rx="30" ry="18" fill="#ffffff" opacity="0.38"
+           transform="rotate(-38 200 184)"/>
+
+  <!-- The hub relaying: two arcs, the doorbell's signal reaching the base. -->
+  <g fill="none" stroke="#F4FBFA" stroke-linecap="round" stroke-width="18">
+    <path d="M392 96a118 118 0 0 1 36 68" opacity="0.92"/>
+    <path d="M372 128a72 72 0 0 1 22 42" opacity="0.5"/>
+  </g>
+
+  <!-- Recording: the reason this integration exists. -->
+  <circle cx="256" cy="424" r="26" fill="#FF5A5A"/>
+  <circle cx="256" cy="424" r="26" fill="none" stroke="#F4FBFA" stroke-width="8"
+          opacity="0.85"/>
+</svg>
