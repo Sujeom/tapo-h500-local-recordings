@@ -201,6 +201,23 @@ Measured across 35 distinct detections on both cameras over seven days:
 | 10 | 2 | 0 | 0 | rides with 17 every time, never alone |
 | 19 | 2 | 1 | 0 | unknown |
 
+The Tapo app then labelled three side-doorbell events on 2026-08-12, and they
+differ by exactly one code each, which names two outright:
+
+| App label | Codes | Adds |
+| --- | --- | --- |
+| motion + person | `[2, 6, 22]` | — |
+| person + motion + car | `[2, 6, 8, 22]` | **8 = vehicle** |
+| person + dog + motion | `[2, 6, 9, 22]` | **9 = pet** |
+
+That leaves `{2, 6, 22}` covering "motion + person", one code more than labels.
+Code 20 (a face) accompanies 6 in all 5 of its detections but 22 only once, and
+a face is a person; and the confirmed press carried 6 but not 22, and someone
+pressed it. So **6 is person**.
+
+22 remains unnamed: it occurs 18 times and always alongside 6, so it is some
+subset of person events that nothing observed distinguishes.
+
 Only three are named. 6 and 22 are the commonest after motion but never appear
 alone, so nothing in the data separates what they mean from what accompanies
 them; naming either would be a guess printed onto every recording. 10 is

@@ -55,27 +55,37 @@ EVENT_TYPES = [EVENT_RING, EVENT_MOTION]
 # matches and the detection log below is what actually classifies.
 RING_HINTS = ("ring", "doorbell", "call", "button", "visitor")
 
-# alarm_type codes from searchDetectionList, seen on firmware 1.3.20:
-# 2, 6, 8, 9, 10, 17, 19, 20 and 22. Named only where the evidence carries,
-# measured over 35 distinct detections across both cameras:
+# alarm_type codes from searchDetectionList on firmware 1.3.20. Six of the nine
+# are now named, each against something observed rather than guessed.
 #
-#   17  a doorbell press. GROUND TRUTH: the front doorbell was rung at
-#       14:42:25 on 2026-08-13 and that was the only event on that camera in
-#       six hours -- alarm_type 17, events_1 66080. It has appeared twice, and
-#       never without code 10.
-#   20  a recognised face. Every one of its 5 detections carried a face_id,
-#       and no other code ever did.
-#    2  motion. Set on 31 of 35 detections, the base signal everything else
-#       accompanies.
+# The Tapo app labelled three side-doorbell events, and they differ by exactly
+# one code each -- which names two of them outright:
 #
-# The rest are real and deliberately unnamed. 6 (29 sightings) and 22 (18) are
-# common but never appear alone, so nothing distinguishes what they mean; 8, 9
-# and 19 are rarer and equally unattributed; 10 appears only ever beside 17, so
-# it is part of the doorbell signal rather than a thing of its own. They display
-# as their number, because a confident wrong label on a recording is worse than
-# an honest "type 22".
+#   "motion + person"          -> [2, 6,    22]
+#   "person + motion + car"    -> [2, 6, 8, 22]   the car adds 8
+#   "person + dog + motion"    -> [2, 6, 9, 22]   the dog adds 9
+#
+# That leaves {2, 6, 22} for "motion + person", one code more than labels. Two
+# things separate them. Code 20 (a recognised face) co-occurs with 6 in all 5
+# of its detections but with 22 only once, and a face is a person. And the
+# confirmed doorbell press carried 6 but not 22, and someone pressed it. So 6
+# is person, and 2 is motion -- it is set on 31 of 35 detections, the base
+# signal nearly everything carries.
+#
+#   17  doorbell. The front doorbell was rung at 14:42:25 on 2026-08-13 and it
+#       was the only event on that camera in six hours.
+#   20  face. All 5 of its detections carried a face_id; no other code ever did.
+#
+# Still unnamed, on purpose: 22 occurs 18 times and always alongside 6, so it
+# is some subset of person events that nothing observed distinguishes; 10 has
+# only ever appeared beside 17, so it is part of the doorbell signal; 19 is
+# rare and unattributed. They display as their number, because a confident
+# wrong label on a recording is worse than an honest "type 22".
 DETECTION_NAMES = {
     2: "motion",
+    6: "person",
+    8: "vehicle",
+    9: "pet",
     17: "doorbell",
     20: "face",
 }

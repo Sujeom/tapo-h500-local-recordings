@@ -134,16 +134,34 @@ against a real one: the front doorbell was rung at 14:42:25 on 2026-08-13 and
 that was the only event on that camera in six hours. Presses now classify as
 `ring`, so the presses-only download mode works and the cards badge them.
 
-What each code means, measured over 35 detections on two cameras:
+What each code means. Six of the nine are named, each against something
+observed rather than guessed:
 
-| Code | Meaning | Evidence |
+| Code | Meaning | How it was established |
 | --- | --- | --- |
-| 17 | **doorbell press** | a real press; seen twice, never without 10 |
-| 20 | **recognised face** | all 5 of its detections carried a `face_id`, and no other code ever did |
 | 2 | **motion** | set on 31 of 35 detections — the base signal |
-| 10 | part of the doorbell signal | appears only ever beside 17 |
-| 6, 22 | unknown | common (29 and 18) but never alone, so nothing separates them |
-| 8, 9, 19 | unknown | rare and unattributed |
+| 6 | **person** | see below |
+| 8 | **vehicle** | the only code the app's "car" event added |
+| 9 | **pet** | the only code the app's "dog" event added |
+| 17 | **doorbell press** | a real press, the only event on that camera in six hours |
+| 20 | **face** | all 5 of its detections carried a `face_id`; no other code ever did |
+| 10 | unknown | only ever appears beside 17, so part of the doorbell signal |
+| 22 | unknown | common (18), but always alongside 6 |
+| 19 | unknown | rare and unattributed |
+
+Vehicle and pet fell out of three events the Tapo app had labelled, which
+differ by exactly one code each:
+
+```
+"motion + person"        -> [2, 6,    22]
+"person + motion + car"  -> [2, 6, 8, 22]     the car adds 8
+"person + dog + motion"  -> [2, 6, 9, 22]     the dog adds 9
+```
+
+That left `{2, 6, 22}` for "motion + person" — one code more than labels. Two
+things separate them: a recognised face (20) accompanies **6** in all five of
+its detections but 22 only once, and a face is a person; and the confirmed
+doorbell press carried **6** and not 22, and someone pressed it.
 
 The unnamed ones display as `type 22` rather than a guess. To name one, note
 what actually happened at a given minute and check the code on that event —

@@ -594,9 +594,10 @@ class DetectionTest(unittest.TestCase):
     def test_unknown_codes_are_shown_not_guessed(self):
         # Naming an unproven code would put a confident wrong label on a
         # recording, which is worse than showing the number.
+        # 6 and 9 are named now (person, pet); 22 still is not.
         self.assertEqual(
             clips.describe_detection({"events_1": 2097442, "alarm_type": 22}),
-            "motion + type 6 + type 9 + type 22")
+            "motion + person + pet + type 22")
         self.assertEqual(clips.describe_detection({"events_1": 2}), "motion")
         self.assertIsNone(clips.describe_detection({}))
 
@@ -632,11 +633,30 @@ class DetectionTest(unittest.TestCase):
             self.assertEqual(clips.event_type(record), expected,
                              f"alarm_type {record['alarm_type']}")
 
-    def test_only_codes_backed_by_evidence_are_named(self):
-        # 6 and 22 are the two commonest codes and remain unnamed, because
-        # nothing observed says what they mean.
-        self.assertEqual(set(clips.DETECTION_NAMES), {2, 17, 20})
-        self.assertEqual(clips.describe_detection({"events_1": 2}), "motion")
+    # The Tapo app's own labels for three side-doorbell events on 2026-08-12,
+    # which is what names vehicle and pet: they differ by exactly one code.
+    LABELLED = [
+        ("motion + person",        2097186, {"motion", "person"}),
+        ("person + motion + car",  2097314, {"motion", "person", "vehicle"}),
+        ("person + dog + motion",  2097442, {"motion", "person", "pet"}),
+    ]
+
+    def test_the_apps_own_labels_come_back_out(self):
+        for label, events_1, expected in self.LABELLED:
+            described = clips.describe_detection({"events_1": events_1})
+            named = {w for w in described.replace(" + ", ",").split(",")
+                     if not w.startswith("type ")}
+            self.assertEqual(named, expected, f"app said {label!r}, got {described!r}")
+
+    def test_the_car_and_the_dog_are_the_only_difference(self):
+        base = set(clips.detection_types({"events_1": 2097186}))
+        self.assertEqual(set(clips.detection_types({"events_1": 2097314})) - base, {8})
+        self.assertEqual(set(clips.detection_types({"events_1": 2097442})) - base, {9})
+
+    def test_unattributed_codes_are_still_shown_as_numbers(self):
+        # 22 is common but nothing observed says what it means; naming it would
+        # print a guess onto every recording that carries it.
+        self.assertNotIn(22, clips.DETECTION_NAMES)
         self.assertIn("type 22", clips.describe_detection({"events_1": 2097152}))
 
     def test_detections_are_matched_to_clips_by_start_time(self):
