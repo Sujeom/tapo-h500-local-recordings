@@ -398,6 +398,7 @@ available in the card picker. They show the same recordings different ways:
 | `custom:tapo-h500-grid-card` | Every clip as a thumbnail tile. Fits far more events on screen for scanning a busy day. |
 | `custom:tapo-h500-timeline-card` | Clips grouped under hour headings, so the gaps in a day are visible. |
 | `custom:tapo-h500-faces-card` | One tile per person the hub recognised, with their newest picture, how many times they were seen, and the name you give them. |
+| `custom:tapo-h500-summary-card` | A bar chart of events by hour of day, so you can see when things actually happen. |
 
 Add a manual card:
 
@@ -406,6 +407,30 @@ type: custom:tapo-h500-card
 days: 2
 max_height: 400
 ```
+
+### The summary card
+
+Events by hour of the local day, as a bar chart — when things actually happen,
+rather than what happened.
+
+```yaml
+type: custom:tapo-h500-summary-card
+days: 7
+```
+
+One bar per hour, one colour for all of them: shading bars by height would
+re-encode the length the bar already shows. The scale starts at zero and tops
+out at a round number, so the tallest bar is read against a number you can
+halve by eye. Only the busiest hour carries a printed value; hovering any hour
+gives its count, and the hover target is the full column rather than a bar that
+may be three pixels tall.
+
+The **Table** button swaps the chart for the same 24 numbers. A value that
+exists only inside a tooltip is a value some readers cannot reach, so the chart
+always has a text twin.
+
+Colours come from your Home Assistant theme, so it follows light and dark mode
+rather than shipping its own palette.
 
 ### The faces card
 

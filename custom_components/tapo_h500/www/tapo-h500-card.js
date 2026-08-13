@@ -1,7 +1,7 @@
 /**
  * Tapo H500 dashboard cards.
  *
- * Five ways to look at the same recordings, all fed by the integration's own
+ * Six ways to look at the same recordings, all fed by the integration's own
  * response services, so none of them needs extra API surface:
  *
  *   custom:tapo-h500-card            list, with download/play/delete
@@ -9,6 +9,7 @@
  *   custom:tapo-h500-grid-card       every event as a tile
  *   custom:tapo-h500-timeline-card   events grouped by hour
  *   custom:tapo-h500-faces-card      who has been recognised, with names
+ *   custom:tapo-h500-summary-card    events by hour of day, as a bar chart
  *
  * Shared options:
  *   days: 1              # how many days back to list
@@ -79,6 +80,30 @@ export const groupByFace = (items, names = {}) => {
     }
   }
   return [...faces.values()];
+};
+
+/** 24 counts, one per hour of the local day. */
+export const eventsByHour = (items) => {
+  const hours = new Array(24).fill(0);
+  for (const item of items) {
+    const hour = new Date(item.start_time * 1000).getHours();
+    if (hour >= 0 && hour < 24) hours[hour] += 1;
+  }
+  return hours;
+};
+
+/** A round number at or above the peak, for the top gridline.
+ *
+ * Bars are read by length, so the scale starts at zero and the top is a number
+ * a person can divide by eye — 5, 10, 20 — never the raw maximum, which would
+ * put the tallest bar flush against the ceiling.
+ */
+export const niceMax = (peak) => {
+  if (!(peak > 0)) return 1;
+  for (const step of [1, 2, 5, 10, 20, 25, 50, 100]) {
+    if (peak <= step) return step;
+  }
+  return Math.ceil(peak / 100) * 100;
 };
 
 /** Consecutive runs sharing a clock hour, in the order given. */
@@ -227,6 +252,11 @@ class H500Base extends HTMLElement {
         this._playing = null;
         this._render();
         await this._load();
+      } else if (action === "view") {
+        // The chart's table twin. Every value a tooltip shows is reachable
+        // here too, which a tooltip alone cannot promise.
+        this._showTable = !this._showTable;
+        this._render();
       } else if (action === "play") {
         this._playing = this._playing === start ? null : start;
         this._render();
@@ -549,6 +579,110 @@ class TapoH500TimelineCard extends H500Base {
   }
 }
 
+/** When things happen: one bar per hour of the local day.
+ *
+ * One series, so one colour for every bar — shading them by height would
+ * double-encode the length the bar already shows. The scale starts at zero and
+ * tops out at a round number, only the busiest hour is labelled, and the whole
+ * thing has a table twin because a value that exists only in a tooltip is a
+ * value some readers cannot reach.
+ */
+class TapoH500SummaryCard extends H500Base {
+  static defaults = { days: 7, max_height: 0 };
+  static style = `
+    .chart { width: 100%; height: auto; display: block; }
+    .grid { stroke: var(--divider-color); stroke-width: 1; }
+    .bar { fill: var(--primary-color); }
+    .hit { fill: transparent; }
+    .hit:hover ~ .bar, .bar:hover { fill: var(--primary-color); opacity: 0.75; }
+    .tick { fill: var(--secondary-text-color); font-size: 9px; }
+    .peak { fill: var(--primary-text-color); font-size: 10px; font-weight: 500; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 2px 6px 2px 0;
+             border-bottom: 1px solid var(--divider-color); }
+    td.n { text-align: right; font-variant-numeric: tabular-nums; }
+    .total { margin-bottom: 6px; }
+  `;
+
+  getCardSize() {
+    return 5;
+  }
+
+  _table(hours) {
+    const rows = hours.map((count, hour) => `
+      <tr><td>${pad(hour)}:00</td><td class="n">${Number(count)}</td></tr>`).join("");
+    return `<table><thead><tr><th>Hour</th><th class="n">Events</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  }
+
+  _chart(hours) {
+    // Geometry. The box includes the x-axis band, so the labels are never
+    // clipped by the container and the card needs no nested scrollbar.
+    const W = 336, H = 168, L = 26, R = 6, T = 12, B = 20;
+    const plotW = W - L - R, plotH = H - T - B;
+    const top = niceMax(Math.max(...hours));
+    const slot = plotW / 24, gap = 2;
+    const width = Math.max(1, slot - gap);
+    const y = (value) => T + plotH - (value / top) * plotH;
+
+    const grid = [0, top / 2, top].map((value) => `
+      <line class="grid" x1="${L}" x2="${W - R}" y1="${y(value).toFixed(1)}"
+            y2="${y(value).toFixed(1)}"/>
+      <text class="tick" x="0" y="${(y(value) + 3).toFixed(1)}">${
+        Number.isInteger(value) ? value : value.toFixed(1)}</text>`).join("");
+
+    const peak = Math.max(...hours);
+    // The FIRST hour reaching the peak, not every hour tied with it. On a quiet
+    // camera most hours hold one event, so labelling every tie would put a
+    // number on nearly every bar.
+    const busiest = hours.indexOf(peak);
+    const bars = hours.map((count, hour) => {
+      const x = L + hour * slot + gap / 2;
+      const label = `${pad(hour)}:00 — ${count} event${count === 1 ? "" : "s"}`;
+      // A full-column transparent hit area, so hovering does not require
+      // landing on a one-event bar three pixels tall.
+      const hit = `<rect class="hit" x="${(L + hour * slot).toFixed(1)}" y="${T}"
+        width="${slot.toFixed(1)}" height="${plotH}"><title>${esc(label)}</title></rect>`;
+      if (!count) return hit;
+      const barTop = y(count), height = T + plotH - barTop;
+      const r = Math.min(4, width / 2, height);
+      // Rounded at the value end, square on the baseline.
+      const d = `M${x.toFixed(1)},${(T + plotH).toFixed(1)}`
+        + `L${x.toFixed(1)},${(barTop + r).toFixed(1)}`
+        + `Q${x.toFixed(1)},${barTop.toFixed(1)} ${(x + r).toFixed(1)},${barTop.toFixed(1)}`
+        + `L${(x + width - r).toFixed(1)},${barTop.toFixed(1)}`
+        + `Q${(x + width).toFixed(1)},${barTop.toFixed(1)} ${(x + width).toFixed(1)},${(barTop + r).toFixed(1)}`
+        + `L${(x + width).toFixed(1)},${(T + plotH).toFixed(1)}Z`;
+      // Only the busiest hour is labelled; the axis and tooltip carry the rest.
+      const mark = hour === busiest && peak > 0
+        ? `<text class="peak" x="${(x + width / 2).toFixed(1)}"
+             y="${(barTop - 3).toFixed(1)}" text-anchor="middle">${count}</text>` : "";
+      return `${hit}<path class="bar" d="${d}"><title>${esc(label)}</title></path>${mark}`;
+    }).join("");
+
+    // Every third hour, or 24 labels collide on a phone.
+    const ticks = hours.map((_, hour) => hour % 3 === 0
+      ? `<text class="tick" x="${(L + hour * slot + slot / 2).toFixed(1)}"
+           y="${H - 6}" text-anchor="middle">${pad(hour)}</text>` : "").join("");
+
+    return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Events by hour of day">${grid}${bars}${ticks}</svg>`;
+  }
+
+  body() {
+    const hours = eventsByHour(this._recordings);
+    const total = hours.reduce((sum, n) => sum + n, 0);
+    const peak = Math.max(...hours);
+    const busiest = hours.indexOf(peak);
+    return `
+      <div class="muted total">${total} event${total === 1 ? "" : "s"} over
+        ${Number(this._config.days)} day${this._config.days === 1 ? "" : "s"}${
+        peak > 0 ? `, busiest around ${pad(busiest)}:00` : ""}</div>
+      ${this._showTable ? this._table(hours) : this._chart(hours)}
+      <button data-action="view">${this._showTable ? "Chart" : "Table"}</button>`;
+  }
+}
+
 /** Who has been seen, the local answer to the app's recognised-faces summary.
  *
  * The hub recognises but will not identify: it assigns a stable id per person
@@ -634,6 +768,8 @@ register("tapo-h500-timeline-card", TapoH500TimelineCard, "Tapo H500 Timeline",
   "Recordings grouped by the hour they happened.");
 register("tapo-h500-faces-card", TapoH500FacesCard, "Tapo H500 Faces",
   "Who the hub has recognised, with the names it will not supply itself.");
+register("tapo-h500-summary-card", TapoH500SummaryCard, "Tapo H500 Summary",
+  "Events by hour of day, as a bar chart.");
 
 export { H500Base, TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
-         TapoH500TimelineCard, TapoH500FacesCard };
+         TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard };

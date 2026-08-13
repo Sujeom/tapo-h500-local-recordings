@@ -25,9 +25,9 @@ globalThis.customElements = { _defined: new Map(),
 globalThis.window = {};
 
 const mod = await import("../custom_components/tapo_h500/www/tapo-h500-card.js");
-const { esc, ago, groupByHour, groupByFace, utcDay, windowDates, TapoH500Card,
-        TapoH500HeroCard, TapoH500GridCard, TapoH500TimelineCard,
-        TapoH500FacesCard } = mod;
+const { esc, ago, groupByHour, groupByFace, eventsByHour, niceMax, utcDay,
+        windowDates, TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
+        TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard } = mod;
 
 let failures = 0;
 const test = (name, fn) => {
@@ -144,6 +144,34 @@ test("no faces at all is an empty summary, not a crash", () => {
   assert.deepEqual(groupByFace([{ start_time: 1, face_ids: null }], {}), []);
 });
 
+test("events bucket into 24 local hours", () => {
+  const at = (iso) => ({ start_time: Math.floor(new Date(iso) / 1000) });
+  const hours = eventsByHour([
+    at("2026-08-13T09:41:00"), at("2026-08-13T09:12:00"),
+    at("2026-08-12T21:16:00"),
+  ]);
+  assert.equal(hours.length, 24, "one slot per hour, always");
+  assert.equal(hours[9], 2);
+  assert.equal(hours[21], 1);
+  assert.equal(hours.reduce((a, b) => a + b, 0), 3, "no event lost or double-counted");
+});
+
+test("an empty period is 24 zeroes, not an empty array", () => {
+  // The axis must still draw, or the card reads as broken rather than quiet.
+  assert.deepEqual(eventsByHour([]), new Array(24).fill(0));
+});
+
+test("the scale tops out at a round number above the peak", () => {
+  // Never the raw max: the tallest bar would touch the ceiling with no
+  // headroom, and the gridline would be an unreadable number.
+  assert.equal(niceMax(3), 5);
+  assert.equal(niceMax(5), 5);
+  assert.equal(niceMax(6), 10);
+  assert.equal(niceMax(11), 20);
+  assert.equal(niceMax(0), 1, "an empty chart still needs a scale");
+  assert.ok(niceMax(137) >= 137);
+});
+
 // --- card bodies -----------------------------------------------------------
 
 const CLIPS = [
@@ -163,10 +191,40 @@ const build = (Cls, config = {}) => {
   return card;
 };
 
+test("the summary chart reserves room for its own x-axis labels", () => {
+  // Anti-pattern: a fixed height that fits the plot but clips the axis band,
+  // giving the card a tiny nested scrollbar.
+  const card = build(TapoH500SummaryCard, { days: 7 });
+  const html = card.body();
+  const [, w, h] = html.match(/viewBox="0 0 (\d+) (\d+)"/).map(Number);
+  const lastTickY = Math.max(...[...html.matchAll(/<text class="tick"[^>]*y="([\d.]+)"/g)]
+    .map((m) => Number(m[1])));
+  assert.ok(lastTickY <= h, `x labels at y=${lastTickY} fall outside the ${h}px box`);
+  assert.ok(w > 0 && h > 0);
+});
+
+test("the summary has a table twin, so no value is tooltip-only", () => {
+  const card = build(TapoH500SummaryCard, { days: 7 });
+  assert.ok(card.body().includes("<svg"), "defaults to the chart");
+  card._showTable = true;
+  const table = card.body();
+  assert.ok(table.includes("<table"), "toggles to a table");
+  assert.equal((table.match(/<tr>/g) || []).length, 25, "header plus 24 hours");
+  assert.ok(!table.includes("<svg"), "one view at a time");
+});
+
+test("only the busiest hour is labelled on the chart", () => {
+  // A number on every bar is chaos and goes unread.
+  const card = build(TapoH500SummaryCard, { days: 7 });
+  const html = card.body();
+  assert.ok((html.match(/class="peak"/g) || []).length <= 1);
+});
+
 for (const [name, Cls] of [["list", TapoH500Card], ["hero", TapoH500HeroCard],
                            ["grid", TapoH500GridCard],
                            ["timeline", TapoH500TimelineCard],
-                           ["faces", TapoH500FacesCard]]) {
+                           ["faces", TapoH500FacesCard],
+                           ["summary", TapoH500SummaryCard]]) {
   test(`${name} card renders without throwing`, () => {
     const html = build(Cls).body();
     assert.ok(html.length > 0);
@@ -226,7 +284,8 @@ test("a hostile camera alias cannot break out of the markup", () => {
 
 test("every card type is registered exactly once", () => {
   const types = ["tapo-h500-card", "tapo-h500-hero-card", "tapo-h500-grid-card",
-                 "tapo-h500-timeline-card", "tapo-h500-faces-card"];
+                 "tapo-h500-timeline-card", "tapo-h500-faces-card",
+                 "tapo-h500-summary-card"];
   for (const type of types) assert.ok(customElements.get(type), `${type} missing`);
   assert.equal(globalThis.window.customCards.length, types.length);
 });
