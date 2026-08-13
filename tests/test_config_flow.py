@@ -120,6 +120,24 @@ class FaceNaming(unittest.TestCase):
         self.assertIn("see photo", SOURCE)
         self.assertIn("signed_url(self.hass, path)", SOURCE)
 
+    def test_the_link_is_absolute_so_it_actually_resolves(self):
+        """signed_url returns a root-relative path. A card puts that in an
+        <img src> and the browser resolves it, but a markdown link is handled
+        by the frontend router, which treats /media/local/... as an in-app
+        route, finds no such page and goes nowhere. That is why the first
+        version of this link did nothing when clicked.
+        """
+        body = SOURCE.split("def _photo_url", 1)[1]
+        self.assertIn("get_url(self.hass)", body)
+        self.assertIn('rstrip(\'/\')', body)
+
+    def test_an_installation_with_no_configured_url_still_gets_something(self):
+        """The relative form is still correct for anything resolving it
+        against the origin, so offer it rather than nothing."""
+        body = SOURCE.split("def _photo_url", 1)[1]
+        self.assertIn("except NoURLAvailableError:", body)
+        self.assertIn("return signed", body)
+
     def test_no_link_is_offered_before_the_clip_has_downloaded(self):
         """The thumbnail is written by the download, so linking
         unconditionally would offer a dead link for anyone seen this minute."""

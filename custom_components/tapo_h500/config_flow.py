@@ -6,6 +6,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
 from homeassistant.helpers import selector
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .api import H500Client
 from .media import clip_path, signed_url
@@ -164,12 +165,20 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
         return lines
 
     def _photo_url(self, face: dict, coordinator) -> str | None:
-        """A signed link to the thumbnail of this face's newest sighting.
+        """An absolute signed link to this face's newest sighting.
 
         None unless the clip has actually downloaded: the hub indexes a
         recording only once it has finished and the thumbnail is written by
         the download, so linking unconditionally would offer a dead link for
         anyone seen in the last minute.
+
+        Absolute, not the root-relative path signed_url returns. A card puts
+        that straight into an <img src> and the browser resolves it, but a
+        markdown link is handled by the frontend's own router, which treats
+        "/media/local/..." as an in-app route, finds no such page and goes
+        nowhere. Giving the full origin also makes Home Assistant render it as
+        an external link, which is what opens it in a new tab instead of
+        replacing the settings page.
         """
         index, moment = face.get("camera_index"), face.get("last_seen")
         if index is None or moment is None or index >= len(coordinator.cameras):
@@ -178,9 +187,17 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             path = clip_path(self.hass, coordinator.cameras[index], moment, ".jpg")
             if not path.is_file():
                 return None
-            return signed_url(self.hass, path)
+            signed = signed_url(self.hass, path)
         except Exception:  # noqa: BLE001 - a missing photo is not an error
             return None
+        try:
+            # Whichever address this installation is actually reachable on.
+            return f"{get_url(self.hass).rstrip('/')}{signed}"
+        except NoURLAvailableError:
+            # No configured URL at all. The relative form is still correct for
+            # anything that resolves it against the origin, so offer it rather
+            # than nothing.
+            return signed
 
     async def async_step_settings(self, user_input=None):
         if user_input is not None:
