@@ -73,12 +73,17 @@ removes the *downloaded copy* in Home Assistant. `tapo_h500.format_hub_storage`
 is the only hub-side deletion that exists and it **erases every recording for
 every paired camera, with no undo**.
 
-**Event latency depends on the source.** The integration prefers the hub's
-detection log, which is not verified on H500 firmware; if the hub rejects it,
-the integration permanently falls back to polling the indexed clip list, which
-is verified. In that fallback a clip appears only once the hub has finished
-writing it, so an event can trail the actual doorbell press by the poll
-interval plus the clip length.
+**Event latency.** The integration prefers the hub's detection log, but on
+firmware 1.3.20 that log is accepted and always empty, so in practice it falls
+back to polling the indexed clip list after one attempt. A clip appears only
+once the hub has finished writing it, so an event trails the actual doorbell
+press by the poll interval plus the clip length.
+
+**No AI classification.** The hub exposes no face, person, pet or vehicle
+detection to a local client, and every clip is labelled `video_type` `"2"`
+whatever triggered it. The cameras do the classification — `ai_camera_support`
+is a non-zero bitmask — but the result is not retrievable. See
+`docs/protocol-notes.md`.
 
 The protocol is undocumented. Pinning the H500 to a stable LAN address is
 strongly recommended. Firmware changes may require integration updates.

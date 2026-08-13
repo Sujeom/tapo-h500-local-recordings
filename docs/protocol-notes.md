@@ -128,6 +128,32 @@ Two things worth keeping in mind:
   port-8800 probe has never validly tested, because the run where `preview`
   returned HTTP 401 had its `type=download` control return 401 too.
 
+## Detections and AI classification
+
+The hub does not expose them. Tested on firmware 1.3.20:
+
+- `faceDetection` and `faceTracking` are components, but every plausible method
+  is absent (`-40106`): `getFaceDetectionConfig`, `getFaceTrackingConfig`,
+  `getFaceList`, `getFaceInfo`, `getAIEnhanceConfig`, `getLocalSmartConfig`,
+  `getSmartDetectionConfig`, `getPersonDetectionConfig`, `getDetectionConfig`,
+  `getAlertEventType`.
+- `searchDetectionList` is accepted — `error_code: 0` — but returns `{}` for
+  both cameras across a seven-day window, with and without child addressing.
+  It is a live method that yields nothing here.
+- Every clip is `video_type: "2"`, whatever triggered it. There is no per-clip
+  classification, which is the same reason a doorbell press cannot be told
+  apart from motion.
+- Person, pet and vehicle config getters are camera-level, and a camera child
+  cannot be addressed (see `controlChild` above).
+
+The cameras report `ai_camera_support: 15` and `ai_hub_support: 15`, a bitmask
+for four AI features, so the classification happens on the device. The hub just
+never hands it to a local client.
+
+This is why the coordinator treats `searchDetectionList` as best-effort: it
+tries once, gets a non-list back, disables itself and polls the clip index
+instead.
+
 ## What has not worked
 
 - Bare method names with `{}` params: envelope rejected, `40210`, method never
