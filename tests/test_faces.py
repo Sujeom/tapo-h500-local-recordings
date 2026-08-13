@@ -117,6 +117,54 @@ class EventNames(unittest.TestCase):
         self.assertIn('"face_ids": face_ids(entry)', EVENT)
 
 
+class NamingDoesNotReload(unittest.TestCase):
+    """The reported crash: the card asked for a name, the integration reloaded
+    underneath it, and the next request found no coordinator."""
+
+    def test_only_connection_options_trigger_a_reload(self):
+        CONST = (COMPONENT / "const.py").read_text()
+        block = CONST.split("RELOAD_ON_CHANGE = (", 1)[1].split(")", 1)[0]
+        self.assertIn("CONF_POLL_INTERVAL", block)
+        # Face names must NOT be in it, or naming reloads again.
+        self.assertNotIn("CONF_FACE_NAMES", block)
+
+    def test_a_name_only_change_skips_the_reload(self):
+        body = INIT.split("async def _async_options_changed", 1)[1][:1400]
+        self.assertIn("return", body)
+        self.assertIn("async_reload", body)
+        # The early return must come before the reload, or it never skips.
+        self.assertLess(body.index("        return"), body.index("async_reload"))
+
+    def test_it_still_reloads_when_the_connection_changes(self):
+        body = INIT.split("async def _async_options_changed", 1)[1][:1400]
+        self.assertIn("await hass.config_entries.async_reload(entry.entry_id)", body)
+
+    def test_a_missing_coordinator_falls_back_to_reloading(self):
+        """Mid-teardown there is nothing to compare against; reloading is the
+        safe answer, not skipping."""
+        body = INIT.split("async def _async_options_changed", 1)[1][:1400]
+        self.assertIn("coordinator is not None", body)
+
+    def test_new_faces_appear_without_a_reload(self):
+        # Scoped to setup: searching the whole file matches the IMPORT of
+        # async_dispatcher_connect and passes even when nothing subscribes.
+        body = SENSOR.split("async def async_setup_entry", 1)[1] \
+                     .split("class H500HubSensor", 1)[0]
+        self.assertIn("def _sync_faces", body)
+        self.assertIn("async_dispatcher_connect(", body)
+        self.assertIn("SIGNAL_FACES_CHANGED", body)
+
+    def test_a_face_is_not_added_twice(self):
+        body = SENSOR.split("def _sync_faces", 1)[1].split("_sync_faces()", 1)[0]
+        self.assertIn("if face_id not in added", body)
+
+    def test_renaming_takes_effect_without_a_reload(self):
+        """A name captured at construction would show the old one until
+        restart, and avoiding that restart is the point."""
+        self.assertIn("def name(self) -> str:", SENSOR)
+        self.assertIn("self.coordinator.face_names.get(self.face_id)", SENSOR)
+
+
 class Service(unittest.TestCase):
     def test_naming_writes_to_the_entry_not_a_card(self):
         """The point of the change: one place, read by everything."""
@@ -132,8 +180,10 @@ class Service(unittest.TestCase):
         self.assertIn('"face_names": coordinator.face_names', INIT)
 
     def test_a_sensor_exists_per_named_face(self):
-        self.assertIn("H500FaceSensor(coordinator, entry, face_id, name)", SENSOR)
-        self.assertIn("coordinator.face_names.items()", SENSOR)
+        # The name is no longer passed in: it is read live off the coordinator
+        # so a rename does not need a reload.
+        self.assertIn("H500FaceSensor(coordinator, entry, face_id)", SENSOR)
+        self.assertIn("sorted(coordinator.face_names)", SENSOR)
 
 
 if __name__ == "__main__":

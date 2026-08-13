@@ -227,6 +227,20 @@ UNUSUAL_MULTIPLIER = 3.0
 UNUSUAL_FLOOR = 4
 
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
+SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
+
+# Options that actually change how the integration talks to the hub. A change
+# to one of these needs a reload; a change to anything else does not.
+#
+# Naming a face used to reload the entry like any other option change, which
+# tore down the coordinator mid-request -- the card that asked for the name
+# then failed with "cannot get data from the hub" -- and, worse, opened a
+# fresh login. Repeated logins are the one thing that wedges an H500, so
+# recording a name must not cost one.
+RELOAD_ON_CHANGE = (
+    CONF_POLL_INTERVAL, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
+    CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS,
+)
 
 # Video is remuxed, not re-encoded. Audio is re-encoded because the hub's TS
 # audio codec is not always one MP4 can carry.

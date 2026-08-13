@@ -10,12 +10,14 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfInformation, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.core import callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .clips import events_since
-from .const import DATA_HUBS, DOMAIN
+from .const import DATA_HUBS, DOMAIN, SIGNAL_FACES_CHANGED
 from .coordinator import H500Coordinator
 from .entity import H500Entity
 
@@ -154,14 +156,27 @@ async def async_setup_entry(
         for index, camera in enumerate(coordinator.cameras)
         for description in CAMERA_SENSORS
     ]
-    # One per named face. Naming someone through the name_face service updates
-    # the entry's options, Home Assistant reloads it, and their sensor appears.
-    entities += [
-        H500FaceSensor(coordinator, entry, face_id, name)
-        for face_id, name in sorted(coordinator.face_names.items(),
-                                    key=lambda pair: pair[1].lower())
-    ]
     async_add_entities(entities)
+
+    # One per named face, added as names appear rather than on a reload.
+    # Naming used to reload the whole entry, which cost a hub login and broke
+    # whatever was mid-request; now the entry is left alone and this listens
+    # for the change instead.
+    added: set[str] = set()
+
+    @callback
+    def _sync_faces() -> None:
+        fresh = [H500FaceSensor(coordinator, entry, face_id)
+                 for face_id in sorted(coordinator.face_names)
+                 if face_id not in added]
+        if not fresh:
+            return
+        added.update(sensor.face_id for sensor in fresh)
+        async_add_entities(fresh)
+
+    _sync_faces()
+    entry.async_on_unload(async_dispatcher_connect(
+        hass, f"{SIGNAL_FACES_CHANGED}_{entry.entry_id}", _sync_faces))
 
 
 class H500HubSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
@@ -217,16 +232,25 @@ class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
-    def __init__(self, coordinator, entry, face_id: str, name: str) -> None:
+    def __init__(self, coordinator, entry, face_id: str) -> None:
         super().__init__(coordinator)
-        self._face_id = str(face_id)
-        self._attr_name = name
-        self._attr_unique_id = f"{entry.entry_id}_face_{self._face_id}"
+        self.face_id = str(face_id)
+        self._attr_unique_id = f"{entry.entry_id}_face_{self.face_id}"
         self._attr_device_info = hub_device(coordinator, entry)
 
     @property
+    def name(self) -> str:
+        """Read live, so renaming someone takes effect without a reload.
+
+        A name captured at construction would leave the entity showing the old
+        one until the integration restarted -- and avoiding that restart is the
+        point of this whole path.
+        """
+        return self.coordinator.face_names.get(self.face_id) or f"Face {self.face_id}"
+
+    @property
     def _face(self) -> dict:
-        return self.coordinator.faces_seen().get(self._face_id) or {}
+        return self.coordinator.faces_seen().get(self.face_id) or {}
 
     @property
     def native_value(self):
@@ -237,7 +261,7 @@ class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
     def extra_state_attributes(self) -> dict:
         face = self._face
         return {
-            "face_id": self._face_id,
+            "face_id": self.face_id,
             # Within the poll window only, which is what every other count in
             # this integration means; a lifetime total would need a database.
             "sightings": face.get("sightings", 0),

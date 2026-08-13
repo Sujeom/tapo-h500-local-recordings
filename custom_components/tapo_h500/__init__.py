@@ -17,6 +17,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.loader import async_get_integration
 
 from .api import H500Client
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
 from .clips import (
@@ -31,6 +32,8 @@ from .const import (
     SERVICE_NAME_FACE,
     SERVICE_DESCRIBE_RECORDING,
     SERVICE_DAILY_SUMMARY,
+    SIGNAL_FACES_CHANGED,
+    RELOAD_ON_CHANGE,
     DESCRIBE_PROMPT,
     CONF_FACE_NAMES,
 )
@@ -99,6 +102,8 @@ SERVICES = (
     SERVICE_NAME_FACE,
     SERVICE_DESCRIBE_RECORDING,
     SERVICE_DAILY_SUMMARY,
+    SIGNAL_FACES_CHANGED,
+    RELOAD_ON_CHANGE,
     DESCRIBE_PROMPT,
     CONF_FACE_NAMES, SERVICE_DOWNLOAD_RECORDING,
     SERVICE_DELETE_RECORDING, SERVICE_FORMAT_HUB_STORAGE,
@@ -143,11 +148,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     if not hass.services.has_service(DOMAIN, SERVICE_LIST_RECORDINGS):
         _register_services(hass)
-    entry.async_on_unload(entry.add_update_listener(_async_reload))
+    # What the options looked like at setup, so the listener can tell a
+    # connection-affecting change from a cosmetic one.
+    coordinator.options_snapshot = _reload_snapshot(entry)
+    entry.async_on_unload(entry.add_update_listener(_async_options_changed))
     return True
 
 
-async def _async_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
+def _reload_snapshot(entry: ConfigEntry) -> dict:
+    return {key: entry.options.get(key) for key in RELOAD_ON_CHANGE}
+
+
+async def _async_options_changed(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload only when something about the connection actually changed.
+
+    Naming a face writes to the entry's options like any other setting, and
+    reloading for that was doing real harm: it tore down the coordinator while
+    the card that asked for the name was still using it, which is the "cannot
+    get data from the hub" the card reported, and it opened a fresh login to a
+    hub that wedges under repeated authentication.
+    """
+    coordinator = (hass.data.get(DOMAIN, {}).get(DATA_HUBS, {})
+                   .get(entry.entry_id))
+    current = _reload_snapshot(entry)
+    if coordinator is not None and getattr(
+            coordinator, "options_snapshot", None) == current:
+        # Face names, and nothing the hub connection cares about. Entities read
+        # the map live, so telling them to redraw is the whole update.
+        coordinator.options_snapshot = current
+        async_dispatcher_send(hass, f"{SIGNAL_FACES_CHANGED}_{entry.entry_id}")
+        coordinator.async_update_listeners()
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
