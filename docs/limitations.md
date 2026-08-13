@@ -82,9 +82,10 @@ and an `events_1` bitmask of everything that fired at once, and one code even
 carries a face ID.
 
 Cards and the event entity show what the hub reported — `motion`,
-`motion + face`, and unnamed codes as `type 22` rather than a guess. Eight
-codes have been seen (2, 6, 8, 9, 17, 19, 20, 22) and only two are named, since
-the hub cannot name them either.
+`motion + face`, `person + doorbell (missed)` — and any code nobody has
+identified as `type 31` rather than a guess. Nine codes have been seen
+(2, 6, 8, 9, 10, 17, 19, 20, 22) and all nine are named, each against something
+observed rather than assumed.
 
 **Doorbell presses are identified.** `alarm_type` 17 is a press, confirmed
 against a real one: the front doorbell was rung at 14:42:25 on 2026-08-13 and
@@ -177,9 +178,16 @@ lookup is 19ms per camera, the clip index 17ms, the camera list 58ms, and the
 acknowledged, but the camera never wakes and no video arrives.
 
 **Detection types are decoded**, contrary to earlier versions of this file:
-`alarm_type` 17 is a doorbell press, confirmed against a real one. See
-`DETECTION_NAMES` in `custom_components/tapo_h500/const.py` for the evidence
-behind each code, including the one that is still deliberately unnamed.
+`alarm_type` 17 is a doorbell press, confirmed against a real one. All nine
+observed codes are named; see `DETECTION_NAMES` in
+`../custom_components/tapo_h500/const.py` for what each was named against.
+
+Code 10 is the weakest and is marked as such. It means a press nobody answered,
+which fits a doorbell that places a call, but the measurement cannot separate
+that from "10 is simply part of every press" — both predict the 5 of 5 that was
+observed, and none of those presses was answered in the app. Only an answered
+press settles it: 17 without 10 confirms the name, while an answered press
+still carrying 10 disproves it.
 
 ## Artwork
 
