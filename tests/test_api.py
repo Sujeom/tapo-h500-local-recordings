@@ -240,6 +240,34 @@ OBSERVED = {
 }
 
 
+class RetentionTest(unittest.TestCase):
+    """Whatever surplus() returns gets deleted, so the edges matter."""
+
+    def test_keeps_the_newest_and_drops_the_rest(self):
+        items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        self.assertEqual(clips.surplus(items, 5), [1, 2, 3, 4, 5])
+        # An eleventh arriving evicts exactly one more.
+        self.assertEqual(clips.surplus(items + [11], 5), [1, 2, 3, 4, 5, 6])
+
+    def test_zero_or_negative_means_no_limit(self):
+        items = [1, 2, 3]
+        self.assertEqual(clips.surplus(items, 0), [])
+        self.assertEqual(clips.surplus(items, -1), [])
+
+    def test_never_deletes_when_at_or_under_the_limit(self):
+        self.assertEqual(clips.surplus([1, 2, 3], 3), [])
+        self.assertEqual(clips.surplus([1, 2], 3), [])
+        self.assertEqual(clips.surplus([], 3), [])
+
+    def test_a_limit_of_one_keeps_only_the_newest(self):
+        self.assertEqual(clips.surplus([1, 2, 3], 1), [1, 2])
+
+    def test_the_input_is_not_mutated(self):
+        items = [1, 2, 3, 4]
+        clips.surplus(items, 2)
+        self.assertEqual(items, [1, 2, 3, 4])
+
+
 class ConvertArgsTest(unittest.TestCase):
     def test_output_format_is_explicit(self):
         """The clip is written to a ".mp4.part" temporary file first.

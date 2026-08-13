@@ -7,6 +7,7 @@
  *
  * type: custom:tapo-h500-card
  * days: 1              # how many days back to list
+ * max_height: 400      # pixels before the list scrolls; 0 to grow unbounded
  * camera_index: 0      # optional; omit to get a picker for every paired camera
  * entry_id: abc123     # optional; the first H500 entry is used by default
  */
@@ -38,6 +39,7 @@ const STYLE = `
   button:hover { background: var(--secondary-background-color); }
   button[disabled] { color: var(--disabled-text-color); cursor: default; }
   button.danger { color: var(--error-color, #db4437); }
+  .list { overflow-y: auto; overscroll-behavior: contain; }
   .row {
     display: flex; align-items: center; gap: 12px; padding: 8px 0;
     border-top: 1px solid var(--divider-color);
@@ -60,7 +62,7 @@ const STYLE = `
 
 class TapoH500Card extends HTMLElement {
   setConfig(config) {
-    this._config = { camera_index: 0, days: 1, ...config };
+    this._config = { days: 1, max_height: 400, ...config };
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.innerHTML = `<style>${STYLE}</style><ha-card></ha-card>`;
@@ -93,7 +95,12 @@ class TapoH500Card extends HTMLElement {
   }
 
   getCardSize() {
-    return 3 + (this._recordings ? this._recordings.length : 0);
+    const rows = this._recordings ? this._recordings.length : 0;
+    // Roughly 50px a row. Capped at max_height so a busy camera does not
+    // claim a whole column of the dashboard.
+    const height = this._config.max_height > 0
+      ? Math.min(rows * 50, this._config.max_height) : rows * 50;
+    return 3 + Math.ceil(height / 50);
   }
 
   async _call(service, data) {
@@ -226,7 +233,9 @@ class TapoH500Card extends HTMLElement {
         ? `<div class="muted">Loading recordings...</div>`
         : this._recordings.length === 0
           ? `<div class="muted">No recordings in this period.</div>`
-          : this._recordings.map((item) => this._row(item)).join("");
+          : `<div class="list"${this._config.max_height > 0
+              ? ` style="max-height:${Number(this._config.max_height)}px"` : ""}>${
+              this._recordings.map((item) => this._row(item)).join("")}</div>`;
     const picker = (!this._pinned && this._cameras && this._cameras.length > 1)
       ? `<div class="cameras">${this._cameras.map((cam) => `
           <button data-action="camera" data-index="${Number(cam.index)}"

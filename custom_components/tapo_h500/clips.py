@@ -70,3 +70,15 @@ def flatten_clips(result: dict) -> list[dict]:
             if isinstance(clip, dict) and "startTime" in clip:
                 found.append(clip)
     return found
+
+
+def surplus(items, keep: int) -> list:
+    """Everything past the newest `keep`, oldest first.
+
+    `items` must already be in oldest-to-newest order. Returns nothing when
+    `keep` is zero or negative, which is how "no limit" is expressed — the
+    caller deletes what comes back, so an off-by-one here loses recordings.
+    """
+    if keep <= 0 or len(items) <= keep:
+        return []
+    return list(items[:-keep])
