@@ -282,6 +282,69 @@ test("a hostile camera alias cannot break out of the markup", () => {
   assert.ok(!html.includes("<script>"), "event_type reached innerHTML unescaped");
 });
 
+const ALL = [["list", TapoH500Card], ["hero", TapoH500HeroCard],
+             ["grid", TapoH500GridCard], ["timeline", TapoH500TimelineCard],
+             ["faces", TapoH500FacesCard], ["summary", TapoH500SummaryCard]];
+
+test("any card can be pinned to a single camera", () => {
+  for (const [name, Cls] of ALL) {
+    const card = build(Cls, { camera_index: 1 });
+    card._cameras = [{ index: 0, alias: "Front" }, { index: 1, alias: "Side" }];
+    card._render();
+    const html = card._card.innerHTML;
+    assert.ok(!html.includes('data-action="camera"'),
+      `${name}: the picker must be hidden once a camera is pinned`);
+    assert.equal(card._index, 1, `${name}: must load the pinned camera`);
+  }
+});
+
+test("without a pin, a multi-camera hub offers the picker", () => {
+  for (const [name, Cls] of ALL) {
+    const card = build(Cls, {});
+    card._cameras = [{ index: 0, alias: "Front" }, { index: 1, alias: "Side" }];
+    card._render();
+    assert.ok(card._card.innerHTML.includes('data-action="camera"'),
+      `${name}: two cameras and no pin should offer a choice`);
+  }
+});
+
+test("a single-camera hub is not given a pointless picker", () => {
+  const card = build(TapoH500Card, {});
+  card._cameras = [{ index: 0, alias: "Front" }];
+  card._render();
+  assert.ok(!card._card.innerHTML.includes('data-action="camera"'));
+});
+
+test("every card offers resize handles, sized to what it needs", () => {
+  for (const [name, Cls] of ALL) {
+    const card = build(Cls, {});
+    const grid = card.getGridOptions();
+    assert.ok(grid.rows > 0 && grid.columns > 0, `${name}: needs a default size`);
+    assert.ok(grid.min_rows <= grid.rows, `${name}: floor above the default`);
+    assert.ok(grid.min_columns <= grid.columns, `${name}: floor above the default`);
+  }
+  // The chart is the one card that genuinely cannot be squashed.
+  assert.ok(build(TapoH500SummaryCard, {}).getGridOptions().min_columns >= 6);
+  assert.ok(build(TapoH500HeroCard, {}).getGridOptions().min_rows >= 4);
+});
+
+test("a size the user dragged wins over the card's default", () => {
+  const card = build(TapoH500Card, { grid_options: { rows: 12, columns: 4 } });
+  assert.deepEqual(
+    { rows: card.getGridOptions().rows, columns: card.getGridOptions().columns },
+    { rows: 12, columns: 4 });
+});
+
+test("a dragged height is not then capped by the default max_height", () => {
+  // Otherwise dragging a card taller strands blank space under a short list.
+  const dragged = build(TapoH500Card, { grid_options: { rows: 12 } });
+  assert.equal(dragged._maxHeight(), "", "default cap must yield to the drag");
+  // An explicitly configured cap is the user asking, so it still applies.
+  const explicit = build(TapoH500Card,
+    { grid_options: { rows: 12 }, max_height: 200 });
+  assert.ok(explicit._maxHeight().includes("200px"));
+});
+
 test("every card type is registered exactly once", () => {
   const types = ["tapo-h500-card", "tapo-h500-hero-card", "tapo-h500-grid-card",
                  "tapo-h500-timeline-card", "tapo-h500-faces-card",

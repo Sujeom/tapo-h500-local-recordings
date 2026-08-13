@@ -456,14 +456,31 @@ so a stranger is never hidden.
 Only recordings the hub attached a face to are listed; motion-only clips are
 not people.
 
-They take the same options — `days`, `camera_index`, `entry_id`, and
-`max_height` for the three scrolling ones. The hero card ignores `max_height`,
-having only one event to show.
+All six take the same options.
+
+**Resizing.** In a **sections** dashboard every card has drag handles — grab an
+edge and it keeps the size you choose. Each card starts at a size that suits it
+and refuses to be squashed past the point where it stops being readable: the
+hero card keeps enough rows for its picture, and the summary chart keeps enough
+columns for 24 hourly bars. In the older **masonry** layout there are no
+handles, so `max_height` is still how you cap a long list there.
+
+**One camera per card.** Without `camera_index` a card shows buttons for every
+paired camera and remembers which you picked. Setting it pins the card to that
+camera and hides the picker, which is what you want for one card per doorbell:
 
 ```yaml
 type: custom:tapo-h500-hero-card
-camera_index: 0
+camera_index: 0     # 0 is the first paired camera, 1 the second
+grid_options:       # written for you when you drag, or set it by hand
+  rows: 8
+  columns: 6
 ```
+
+`max_height` still caps the scrolling cards, but a card you have resized
+ignores the *default* cap — otherwise dragging one taller would strand blank
+space under a short list. An explicit `max_height` is you asking, so it still
+wins.
 
 Every card only offers **Play** for clips already downloaded; a clip still on
 the hub shows **Download** instead. All of them show a thumbnail either way.

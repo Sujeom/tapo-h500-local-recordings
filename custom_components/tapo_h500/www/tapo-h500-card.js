@@ -124,7 +124,17 @@ export const groupByHour = (items) => {
 };
 
 const BASE_STYLE = `
-  ha-card { padding: 12px 16px 16px; }
+  /* The sections view gives a resized card a height; filling it is what makes
+     dragging the handle do anything. In the masonry view nothing above sets a
+     height, so these resolve to auto and the card is content-sized as before. */
+  :host { height: 100%; }
+  ha-card {
+    padding: 12px 16px 16px; height: 100%; box-sizing: border-box;
+    display: flex; flex-direction: column;
+  }
+  /* min-height:0 or a flex child refuses to shrink below its content and the
+     card overflows instead of scrolling. */
+  .list, .scroll { flex: 1 1 auto; min-height: 0; }
   .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .head h2 { flex: 1; margin: 0; font-size: 1.1rem; font-weight: 500; }
   .cameras { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
@@ -158,6 +168,13 @@ const BASE_STYLE = `
 class H500Base extends HTMLElement {
   static defaults = {};
   static style = "";
+  // Sections-view sizing: what the resize handles allow, and where they start.
+  static grid = { rows: 6, min_rows: 3, columns: 12, min_columns: 6 };
+
+  /** Lets the sections view offer resize handles and remember the result. */
+  getGridOptions() {
+    return { ...this.constructor.grid, ...(this._config.grid_options || {}) };
+  }
 
   setConfig(config) {
     this._config = { days: 1, max_height: 400, ...this.constructor.defaults,
@@ -174,6 +191,9 @@ class H500Base extends HTMLElement {
     this._error = null;
     // A pinned camera_index keeps the single-camera behaviour; without one the
     // card offers every paired camera.
+    // A default cap must not fight a height the user dragged; an explicit one
+    // is the user asking for it and still wins.
+    this._cappedByUser = config.max_height !== undefined;
     this._pinned = config.camera_index !== undefined;
     this._index = config.camera_index ?? 0;
   }
@@ -335,6 +355,10 @@ class H500Base extends HTMLElement {
   }
 
   _maxHeight() {
+    // A resized card already has a height of its own. Applying the default cap
+    // on top would strand blank space below a short list.
+    const resized = Boolean(this._config.grid_options?.rows);
+    if (resized && !this._cappedByUser) return "";
     return this._config.max_height > 0
       ? ` style="max-height:${Number(this._config.max_height)}px"` : "";
   }
@@ -371,6 +395,8 @@ class H500Base extends HTMLElement {
 
 /** The original: one row per clip, with the management buttons. */
 class TapoH500Card extends H500Base {
+  // Rows are what a list wants; a narrow one still reads, so columns can go low.
+  static grid = { rows: 6, min_rows: 2, columns: 12, min_columns: 4 };
   static style = `
     .list { overflow-y: auto; overscroll-behavior: contain; }
     .row {
@@ -421,6 +447,9 @@ class TapoH500Card extends H500Base {
 
 /** The newest event, large enough to read from across the room. */
 class TapoH500HeroCard extends H500Base {
+  // One 16:9 frame plus a line of meta. Squashing it below 4 rows crops the
+  // picture, which is the whole point of this card.
+  static grid = { rows: 6, min_rows: 4, columns: 12, min_columns: 4 };
   static defaults = { max_height: 0 };
   static style = `
     .frame {
@@ -475,6 +504,8 @@ class TapoH500HeroCard extends H500Base {
 
 /** Every event as a tile, for scanning a busy day quickly. */
 class TapoH500GridCard extends H500Base {
+  // Tiles reflow, so this one takes any shape; wide and short still works.
+  static grid = { rows: 6, min_rows: 2, columns: 12, min_columns: 3 };
   static style = `
     .grid {
       display: grid; gap: 8px;
@@ -524,6 +555,8 @@ class TapoH500GridCard extends H500Base {
 
 /** Events under hour headings, so gaps in the day are visible. */
 class TapoH500TimelineCard extends H500Base {
+  // Hour headings plus rows: height is what this one trades on.
+  static grid = { rows: 8, min_rows: 3, columns: 12, min_columns: 4 };
   static style = `
     .hour {
       display: flex; align-items: center; gap: 8px; margin: 12px 0 4px;
@@ -588,6 +621,9 @@ class TapoH500TimelineCard extends H500Base {
  * value some readers cannot reach.
  */
 class TapoH500SummaryCard extends H500Base {
+  // A chart needs vertical room to be readable and horizontal room for 24
+  // hourly bars, so this is the one card with a real floor on both axes.
+  static grid = { rows: 5, min_rows: 4, columns: 12, min_columns: 6 };
   static defaults = { days: 7, max_height: 0 };
   static style = `
     .chart { width: 100%; height: auto; display: block; }
@@ -691,6 +727,8 @@ class TapoH500SummaryCard extends H500Base {
  * clip, and the name from the card's own config.
  */
 class TapoH500FacesCard extends H500Base {
+  // Square tiles that reflow; a couple of rows is enough for a quiet door.
+  static grid = { rows: 5, min_rows: 2, columns: 12, min_columns: 3 };
   static defaults = { days: 7 };
   static style = `
     .faces { display: grid; gap: 8px;
