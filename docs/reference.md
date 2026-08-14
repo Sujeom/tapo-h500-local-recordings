@@ -496,9 +496,20 @@ your door — 0 for the one nearest the street, higher as they approach. With
 that set, the location sensor's `direction` attribute reads `approaching` or
 `leaving`.
 
-It is the one thing the integration cannot work out for itself: the hub reports
-no geometry, and the order cameras appear in the paired list is the order they
-were added. Leave every camera on the same number to turn it off.
+The form arrives with the numbers already filled in wherever the recordings can
+supply them. The hub reports no geometry — the order cameras appear in the
+paired list is just the order they were added — but people arrive from the
+street and walk towards the door, so whichever camera saw somebody **first** is
+the one nearer the street. Every hop between two cameras within three minutes
+counts once, and the order falls out of the totals.
+
+It stays a suggestion: it fills in the boxes and nothing is stored until you
+submit, and anything you have already saved is left alone rather than
+overwritten on each visit. Nothing is suggested at all until somebody has
+actually been seen crossing between two cameras — a guessed direction is worse
+than none.
+
+Leave every camera on the same number to turn it off.
 
 No direction is reported unless it is genuinely known — one sighting, unranked
 cameras, two sightings more than three minutes apart, or a move between

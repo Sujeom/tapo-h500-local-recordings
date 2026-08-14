@@ -529,6 +529,51 @@ def direction(trail: list[dict], ranks: dict[str, int],
     return "approaching" if here > before else "leaving"
 
 
+def suggest_ranks(trails: list[list[dict]], window: int) -> dict[str, int]:
+    """Where the cameras sit between the street and the door, inferred.
+
+    The layout screen asks the one question the integration claimed it could
+    not answer -- and the data to answer it has been sitting in the face trails
+    all along. People arrive from the street and walk towards the door, so the
+    camera they are usually seen at FIRST is the one nearer the street.
+
+    Each hop from one camera to another within `window` counts once: a point
+    against the camera left and a point for the camera reached. A gate ends up
+    deeply negative and a doorbell positive, and sorting by that score is the
+    order. Ties break on the name so the answer does not depend on dictionary
+    ordering.
+
+    Empty when nobody has been seen crossing between two cameras -- which
+    matters, because this becomes the default on a form and "approaching the
+    door" is what people wire a siren to. It falls out of the counting rather
+    than being guarded for: no hops means no scores means no ranks. An explicit
+    early return said the same thing twice and could not be broken by any
+    change a test would notice.
+
+    Each trail is newest first, as faces_seen builds them, and is walked
+    backwards here -- reading them in the order they arrive would count every
+    journey as going the other way, which produces a confidently reversed
+    layout rather than an obviously broken one.
+    """
+    moves: dict[tuple[str, str], int] = {}
+    for trail in trails:
+        hops = [hop for hop in reversed(trail)
+                if hop.get("camera") and hop.get("at") is not None]
+        for before, after in zip(hops, hops[1:]):
+            if before["camera"] == after["camera"]:
+                continue
+            if after["at"] - before["at"] > window:
+                continue
+            step = (before["camera"], after["camera"])
+            moves[step] = moves.get(step, 0) + 1
+    score: dict[str, int] = {}
+    for (before, after), count in moves.items():
+        score[before] = score.get(before, 0) - count
+        score[after] = score.get(after, 0) + count
+    order = sorted(score, key=lambda camera: (score[camera], camera))
+    return {camera: rank for rank, camera in enumerate(order)}
+
+
 def prowling(trail: list[dict], window: int) -> bool:
     """Whether a trail reads as going round the house rather than through it.
 

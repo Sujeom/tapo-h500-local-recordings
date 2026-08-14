@@ -59,7 +59,7 @@
       },
       "layout": {
         "title": "Camera layout",
-        "description": "Give each camera a number for how close it is to your door: **0 for the one nearest the street**, higher as they get closer to the entrance. A gate camera might be 0 and the doorbell 1.\n\nThis is the one thing the integration cannot work out on its own — the hub reports no geometry. With it, a recognised person moving from one camera to another reads as *approaching* or *leaving* rather than just a list of places.\n\nLeave every camera on the same number to turn this off; no direction is reported unless it is genuinely known."
+        "description": "Give each camera a number for how close it is to your door: **0 for the one nearest the street**, higher as they get closer to the entrance. A gate camera might be 0 and the doorbell 1.\n\nThis is the one thing the integration cannot work out on its own — the hub reports no geometry. With it, a recognised person moving from one camera to another reads as *approaching* or *leaving* rather than just a list of places.\n\nLeave every camera on the same number to turn this off; no direction is reported unless it is genuinely known.{suggestion}"
       },
       "sensitivity": {
         "title": "Unusual activity",

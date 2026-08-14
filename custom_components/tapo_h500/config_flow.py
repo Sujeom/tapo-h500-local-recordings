@@ -206,11 +206,18 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
     async def async_step_layout(self, user_input=None):
         """Say where each camera sits between the street and the door.
 
-        This is the one thing the integration cannot work out for itself. The
-        hub reports no geometry, and the order cameras appear in the paired
-        list is the order they were added, which means nothing. Without it a
-        trail is a list of places; with it, the same trail says whether
-        someone is walking towards the door or away from it.
+        The hub reports no geometry, and the order cameras appear in the paired
+        list is the order they were added, which means nothing. Without a
+        layout a trail is a list of places; with it, the same trail says
+        whether someone is walking towards the door or away from it.
+
+        The form arrives with an answer already filled in wherever one can be
+        worked out from the recordings: people arrive from the street and walk
+        towards the door, so the camera that sees them first is the one nearer
+        the street. That is a suggestion and stays one -- it fills in the
+        defaults, and nothing is stored until this form is submitted. A
+        guessed direction is worse than none, because "someone is approaching
+        the door" is what people wire a siren to.
         """
         ranks = dict(self.config_entry.options.get(CONF_CAMERA_ORDER) or {})
         if user_input is not None:
@@ -226,12 +233,31 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             # Direction needs two places to be between.
             return self.async_abort(reason="one_camera")
 
+        # Anything already saved wins. Overwriting a deliberate answer with an
+        # inferred one on every visit to this screen would silently undo it.
+        suggested = coordinator.suggested_ranks()
         schema = vol.Schema({
-            vol.Optional(name, default=ranks.get(name, 0)):
+            vol.Optional(name,
+                         default=ranks.get(name, suggested.get(name, 0))):
                 vol.All(vol.Coerce(int), vol.Range(min=0, max=20))
             for name in names
         })
-        return self.async_show_form(step_id="layout", data_schema=schema)
+        return self.async_show_form(
+            step_id="layout", data_schema=schema,
+            description_placeholders={
+                "suggestion": self._layout_note(names, ranks, suggested)})
+
+    @staticmethod
+    def _layout_note(names, ranks, suggested) -> str:
+        """One line saying whether these numbers were inferred or are yours."""
+        inferred = [name for name in names
+                    if name not in ranks and name in suggested]
+        if not inferred:
+            return ""
+        order = " → ".join(sorted(inferred, key=lambda name: suggested[name]))
+        return (f"\n\nSuggested from how people have actually moved between "
+                f"them: **{order}**, street first. Change anything that looks "
+                f"wrong — nothing is stored until you submit.")
 
     async def async_step_sensitivity(self, user_input=None):
         """How busy each camera has to be before it counts as unusual.

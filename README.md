@@ -100,6 +100,10 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Waiting, and circling:** a sensor for an unrecognised face that has stayed
   more than three minutes, and one for somebody who came back to a camera they
   had already passed.
+- **It works out the layout:** **Configure → Camera layout** arrives already
+  filled in — people walk from the street to the door, so whichever camera sees
+  them first is the one nearer the street. Change anything that looks wrong;
+  nothing is stored until you submit.
 - **Calendar:** every detection in the Calendar panel, read from the hub, so
   scrolling back to last Tuesday actually shows last Tuesday.
 - **The day at a glance:** `image.<camera>_today` tiles the day's frames into

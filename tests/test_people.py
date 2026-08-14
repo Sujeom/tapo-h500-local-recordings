@@ -244,19 +244,37 @@ class Entities(unittest.TestCase):
         """Seen on either cluster is seen."""
         self.assertIn("self.coordinator.person_for(self.face_id)", BINARY)
 
-    def test_prowling_uses_merged_people_and_unnamed_faces(self):
+    def test_prowling_reads_everyone_rather_than_every_cluster(self):
+        """A circuit split across two clusters of one person is two journeys,
+        and neither half contains the return that is the whole signal."""
         body = BINARY.split("def _circling", 1)[1].split("@property", 1)[0]
-        self.assertIn("self.coordinator.people()", body)
-        self.assertIn('if not face.get("name")', body)
+        self.assertIn("self.coordinator.everyone()", body)
+        self.assertNotIn("faces_seen()", body)
 
-    def test_prowling_does_not_report_one_person_twice(self):
-        """Reading people() AND every face would list a named person under
-        both their merged record and each of their clusters. The unnamed
-        filter is what stops that, so it has to apply to the faces_seen half
-        rather than sit anywhere in the method."""
-        body = BINARY.split("def _circling", 1)[1].split("@property", 1)[0]
-        unmerged = body.split("faces_seen().values()", 1)[1]
-        self.assertIn('if not face.get("name")', unmerged)
+
+class Everyone(unittest.TestCase):
+    """Merged people plus the faces that have no name -- once each."""
+
+    def _built(self):
+        coord, client = build({"11": "Alice", "22": "Alice"})
+        client.per_camera["Gate"] = [sighting(11, NOW - 300),
+                                     sighting(22, NOW - 200),
+                                     sighting(999, NOW - 60)]
+        poll(coord)
+        return coord
+
+    def test_a_person_appears_once_not_once_per_cluster(self):
+        names = [face.get("name") for face in self._built().everyone()]
+        self.assertEqual(names.count("Alice"), 1)
+
+    def test_an_unnamed_face_still_appears(self):
+        """Most people who walk up to a door are never named, and leaving them
+        out would make the prowling sensor blind to strangers."""
+        ids = {face["id"] for face in self._built().everyone()}
+        self.assertIn("999", ids)
+
+    def test_it_is_one_record_per_person(self):
+        self.assertEqual(len(self._built().everyone()), 2)
 
 
 if __name__ == "__main__":

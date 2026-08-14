@@ -433,20 +433,15 @@ class H500Prowling(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
         self._attr_device_info = hub_device(coordinator, entry)
 
     def _circling(self) -> list[dict]:
-        """Named people merged, plus every face that has no name.
+        """Everyone in the window whose trail comes back on itself.
 
         Merging matters most here. Somebody the hub clustered twice walks
         front, side, front and each cluster holds half the trail, so neither
         half contains the return that is the entire signal -- a circuit split
-        in two is two journeys.
-
-        Unnamed faces cannot be merged, and are the more interesting case
-        anyway, so they come through as themselves.
+        in two is two journeys. coordinator.everyone() is that join.
         """
-        merged = list(self.coordinator.people().values())
-        merged += [face for face in self.coordinator.faces_seen().values()
-                   if not face.get("name")]
-        return [face for face in merged if face.get("prowling")]
+        return [face for face in self.coordinator.everyone()
+                if face.get("prowling")]
 
     @property
     def is_on(self) -> bool:

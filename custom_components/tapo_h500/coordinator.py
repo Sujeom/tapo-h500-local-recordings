@@ -14,7 +14,7 @@ from homeassistant.util import dt as dt_util
 from .clips import (
     attach_detections, describe_codes, detection_types, direction, end_of,
     event_type, face_ids, has_detection, local_date, newest_matching, prowling,
-    sessions, start_of,
+    sessions, start_of, suggest_ranks,
 )
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
@@ -277,6 +277,31 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 person["trail"], self.camera_ranks, DIRECTION_WINDOW)
             person["prowling"] = prowling(person["trail"], PROWL_WINDOW)
         return merged
+
+    def everyone(self) -> list[dict]:
+        """One record per distinct person in the window.
+
+        Named faces merged, and every face with no name as itself. Unnamed
+        clusters cannot be merged -- a name is the only evidence that two ids
+        are one person -- and they are the more interesting half anyway.
+        """
+        return list(self.people().values()) + [
+            face for face in self.faces_seen().values() if not face.get("name")]
+
+    def suggested_ranks(self) -> dict[str, int]:
+        """Where the cameras probably sit, from how people have actually moved.
+
+        The layout screen calls this the one thing the integration cannot work
+        out for itself, which was true of the hub and not of the recordings:
+        people arrive from the street and walk towards the door, so whichever
+        camera sees them first is the one nearer the street.
+
+        A suggestion and nothing more -- it fills in the form's defaults and
+        the owner still presses submit. Empty until somebody has actually been
+        seen crossing between two cameras.
+        """
+        return suggest_ranks([person.get("trail") or []
+                              for person in self.everyone()], DIRECTION_WINDOW)
 
     def person_for(self, face_id: str) -> dict:
         """The merged person an id belongs to, or the bare face if unnamed."""
