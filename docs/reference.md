@@ -113,6 +113,26 @@ To pin the press: press the doorbell, look at `alarm_type` on the
 `RING_ALARM_TYPES` in `const.py`. The event entity, the presses-only download
 filter and all four cards read the same list, so one number fixes every path.
 
+### Responding instead of notifying
+
+A second blueprint,
+[`respond_to_activity.yaml`](../blueprints/automation/tapo_h500/respond_to_activity.yaml),
+turns the lights on, sounds the siren and says who is at the door. Every piece
+was already here; nothing wired them together.
+
+Conservative out of the box: it fires only for a face the hub could **not**
+recognise, inside the night window from the integration's own options, and the
+siren stays silent until you pick one. A siren that goes off at three in the
+morning because a cat walked past is a siren that gets unplugged.
+
+Announcing is the gentler half and works alone — "Alice is at the front door"
+over a speaker, using the names you gave the hub's face ids. An unnamed face is
+"somebody unrecognised"; reading a twelve-digit number out to a room is worse
+than saying nothing.
+
+It respects the snooze switch, skips the state an event entity restores on
+restart, and runs one response at a time.
+
 ### Notification automations
 
 A ready-made one is in

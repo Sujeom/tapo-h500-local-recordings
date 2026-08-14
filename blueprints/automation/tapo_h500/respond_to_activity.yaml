@@ -1,0 +1,270 @@
+blueprint:
+  name: Tapo H500 respond to activity
+  description: >-
+    Do something about it, rather than tell you about it. Turn the lights on,
+    sound the siren, say who is at the door — the pieces have all been there
+    and nothing wired them together.
+
+    Deliberately conservative out of the box: it fires only for a face the hub
+    could not recognise, during the night window set in the integration's
+    options, and the siren is off until you pick one. A siren that goes off at
+    three in the morning because a cat walked past is a siren that gets
+    unplugged.
+
+    Announcing is the gentler half and works on its own: "Alice is at the front
+    door" over a speaker, with the names you gave the hub's face ids.
+  domain: automation
+  source_url: https://github.com/Sujeom/tapo-h500-local-recordings/blob/main/blueprints/automation/tapo_h500/respond_to_activity.yaml
+  author: tapo-h500-local-recordings
+  homeassistant:
+    min_version: "2024.10.0"
+
+  input:
+    cameras:
+      name: Cameras
+      description: Which doorbells to watch. Their activity entities.
+      selector:
+        entity:
+          filter:
+            - domain: event
+              integration: tapo_h500
+          multiple: true
+
+    detections:
+      name: Respond to
+      description: >-
+        Which detections are worth acting on. Defaults to a face the hub could
+        not place — the one thing here that is neither a delivery nor a cat.
+      default: ["22"]
+      selector:
+        select:
+          multiple: true
+          options:
+            - {label: Unfamiliar face, value: "22"}
+            - {label: Camera tampering, value: "19"}
+            - {label: Doorbell pressed, value: "17"}
+            - {label: Person, value: "6"}
+            - {label: Recognised face, value: "20"}
+            - {label: Vehicle, value: "8"}
+            - {label: Animal, value: "9"}
+
+    night_only:
+      name: Only at night
+      description: >-
+        Use the integration's own `notable` signal: an unfamiliar face inside
+        the night window set under Configure → Settings. On by default,
+        because an unknown face at three in the afternoon is a delivery and the
+        same face at three in the morning is not.
+      default: true
+      selector:
+        boolean:
+
+    armed_entity:
+      name: Only when
+      description: >-
+        Optional. An alarm panel, person or input_boolean that must be in the
+        state below. Leave empty to always respond.
+      default: ""
+      selector:
+        entity: {}
+
+    armed_state:
+      name: ...is in this state
+      description: The state the entity above must be in. Ignored if unset.
+      default: "armed_away"
+      selector:
+        text:
+
+    snooze_entity:
+      name: Snooze switch
+      description: >-
+        Optional. Do nothing while this is on. The hub's own "Notifications
+        snoozed" switch, which the `tapo_h500.snooze` action turns on for a set
+        number of minutes.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: switch
+              integration: tapo_h500
+
+    lights:
+      name: Lights
+      description: >-
+        Turned on when something matches. A light coming on is what actually
+        makes somebody leave, and it costs nothing when it is a delivery.
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain: [light, switch]
+          multiple: true
+
+    light_minutes:
+      name: Turn the lights off after
+      description: 0 leaves them on.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: minutes
+          mode: box
+
+    siren_entity:
+      name: Siren
+      description: >-
+        Optional, and empty on purpose. The hub's own siren entity, or any
+        other. Nothing sounds until you pick one.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: siren
+
+    siren_seconds:
+      name: Sound the siren for
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 300
+          unit_of_measurement: seconds
+          mode: box
+
+    tts_entity:
+      name: Text-to-speech engine
+      description: Optional. Needs a speaker below as well.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: tts
+
+    speaker:
+      name: Speaker
+      description: Where the announcement is played.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: media_player
+
+# One response at a time. Two people arriving together produce two events a
+# second apart, and running the whole sequence twice means the second run's
+# "turn the lights off" fires while the first is still waiting.
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input cameras
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state.state not in ['unknown', 'unavailable']
+         and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+  # detection_types lists everything that fired at once, so an unfamiliar face
+  # that also tripped motion still matches.
+  - condition: template
+    value_template: >-
+      {% set wanted = input_detections | map('int') | list %}
+      {{ (state_attr(trigger.entity_id, 'detection_types') or [])
+         | select('in', wanted) | list | count > 0 }}
+  # The night gate, decided by the integration rather than re-implemented
+  # here: a window that wraps midnight is the obvious thing to get wrong.
+  - condition: template
+    value_template: >-
+      {{ not input_night_only
+         or (state_attr(trigger.entity_id, 'notable') or false) }}
+  - condition: template
+    value_template: >-
+      {{ not input_armed_entity
+         or states(input_armed_entity) == input_armed_state }}
+  - condition: template
+    value_template: >-
+      {{ not input_snooze_entity
+         or states(input_snooze_entity) != 'on' }}
+
+variables:
+  input_detections: !input detections
+  input_night_only: !input night_only
+  input_armed_entity: !input armed_entity
+  input_armed_state: !input armed_state
+  input_snooze_entity: !input snooze_entity
+  input_lights: !input lights
+  input_light_minutes: !input light_minutes
+  input_siren_entity: !input siren_entity
+  input_siren_seconds: !input siren_seconds
+  input_tts_entity: !input tts_entity
+  input_speaker: !input speaker
+
+actions:
+  - variables:
+      codes: "{{ state_attr(trigger.entity_id, 'detection_types') or [] }}"
+      where: "{{ trigger.to_state.name | replace(' Activity', '') }}"
+      # Anyone recognised AND named. An automation cannot read the hub's name
+      # map itself, so the integration resolves it onto the event.
+      who: >-
+        {%- set names = state_attr(trigger.entity_id, 'faces') or [] -%}
+        {%- if names | count > 1 -%}
+          {{ names[:-1] | join(', ') }} and {{ names[-1] }}
+        {%- else -%}{{ names | join }}{%- endif -%}
+
+  - variables:
+      # Spoken aloud, so it is a sentence rather than a headline. An unnamed
+      # face is "someone" -- reading a twelve-digit id out to a room is worse
+      # than saying nothing.
+      spoken: >-
+        {% if who and 17 in codes %}{{ who }} is ringing the {{ where }}
+        {% elif who %}{{ who }} is at the {{ where }}
+        {% elif 17 in codes %}Somebody is ringing the {{ where }}
+        {% elif 19 in codes %}The {{ where }} camera is being tampered with
+        {% elif 22 in codes %}Somebody unrecognised is at the {{ where }}
+        {% else %}There is somebody at the {{ where }}{% endif %}
+
+  # Lights first. It is the fastest thing here and the one most likely to end
+  # the visit on its own.
+  - if:
+      - condition: template
+        value_template: "{{ input_lights | count > 0 }}"
+    then:
+      - action: homeassistant.turn_on
+        target:
+          entity_id: "{{ input_lights }}"
+
+  - if:
+      - condition: template
+        value_template: "{{ input_siren_entity != '' }}"
+    then:
+      - action: siren.turn_on
+        target:
+          entity_id: "{{ input_siren_entity }}"
+        data:
+          duration: "{{ input_siren_seconds | int }}"
+
+  # Both halves are needed: tts.speak names the engine and the speaker
+  # separately, and calling it with one missing fails the whole run.
+  - if:
+      - condition: template
+        value_template: >-
+          {{ input_tts_entity != '' and input_speaker != '' }}
+    then:
+      - action: tts.speak
+        target:
+          entity_id: "{{ input_tts_entity }}"
+        data:
+          media_player_entity_id: "{{ input_speaker }}"
+          message: "{{ spoken }}"
+
+  - if:
+      - condition: template
+        value_template: >-
+          {{ input_lights | count > 0 and input_light_minutes | int > 0 }}
+    then:
+      - delay:
+          minutes: "{{ input_light_minutes | int }}"
+      - action: homeassistant.turn_off
+        target:
+          entity_id: "{{ input_lights }}"
