@@ -106,6 +106,7 @@ async def async_setup_entry(
         H500CameraSilent(coordinator, index, camera)
         for index, camera in enumerate(coordinator.cameras)
     ]
+    entities.append(H500Prowling(coordinator, entry))
     entities += [
         H500DetectionFlag(coordinator, index, camera, code)
         for index, camera in enumerate(coordinator.cameras)
@@ -355,6 +356,49 @@ class H500CameraSilent(H500Entity, BinarySensorEntity):
         return {
             "silent_seconds": seconds,
             "threshold_hours": silent_threshold(self.coordinator) // 3600,
+        }
+
+
+class H500Prowling(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
+    """On when somebody has been round the house rather than up to the door.
+
+    A visitor passes each camera once. Somebody circling comes back to one
+    they have already been past, and that return is the whole signal -- it
+    needs no camera layout, so it works before anyone has filled one in.
+
+    On the hub rather than a camera, because a circuit is by definition not
+    about one camera. The `faces` attribute says who, using their name where
+    they have one.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "prowling"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_prowling"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    def _circling(self) -> list[dict]:
+        return [face for face in self.coordinator.faces_seen().values()
+                if face.get("prowling")]
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self._circling())
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            "faces": [
+                {"face_id": face["id"],
+                 # The name where there is one. An unnamed circuit is the more
+                 # interesting case, and reads as the id rather than nothing.
+                 "name": face.get("name"),
+                 "cameras": face.get("cameras", [])}
+                for face in self._circling()
+            ],
         }
 
 

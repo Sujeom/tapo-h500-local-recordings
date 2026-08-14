@@ -352,6 +352,38 @@ def direction(trail: list[dict], ranks: dict[str, int],
     return "approaching" if here > before else "leaving"
 
 
+def prowling(trail: list[dict], window: int) -> bool:
+    """Whether a trail reads as going round the house rather than through it.
+
+    `trail` is newest first, as faces_seen builds it.
+
+    Somebody arriving passes each camera once: gate, then door. Somebody
+    circling comes back to one they have already been past. That return is
+    the entire signal, and it is the one thing here that needs no camera
+    ranks -- it does not matter which camera is nearer the street, only that
+    the same place was reached twice with somewhere else in between.
+
+    Works with two cameras, which matters: front, side, front is a circuit,
+    and requiring three distinct places would make this useless on the
+    hardware it was written for.
+
+    Consecutive sightings at one camera are collapsed first. Standing in front
+    of the front door long enough for two clips is not a lap of the house.
+    """
+    recent = [hop for hop in trail
+              if hop.get("at") is not None and hop.get("camera")]
+    if not recent:
+        return False
+    newest = recent[0]["at"]
+    cameras = [hop["camera"] for hop in recent if newest - hop["at"] <= window]
+    path = [camera for position, camera in enumerate(cameras)
+            if position == 0 or camera != cameras[position - 1]]
+    # A repeat in the collapsed path is a return, and a return implies both
+    # two distinct cameras and three hops -- so those are not checked
+    # separately. Guards that cannot fire are guards no test can protect.
+    return len(path) > len(set(path))
+
+
 def in_night(hour: int, start: int, end: int) -> bool:
     """Whether an hour falls in the night window, which wraps midnight.
 

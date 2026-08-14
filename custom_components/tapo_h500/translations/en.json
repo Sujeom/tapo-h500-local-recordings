@@ -209,6 +209,9 @@
       },
       "camera_silent": {
         "name": "Silent"
+      },
+      "prowling": {
+        "name": "Prowling"
       }
     },
     "siren": {

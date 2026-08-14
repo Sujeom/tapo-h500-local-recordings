@@ -358,6 +358,17 @@ CONF_CAMERA_ORDER = "camera_order"
 # walking speed here -- so this is a judgement, and a generous one.
 DIRECTION_WINDOW = 180
 
+# How long a circuit of the house can take and still be one circuit.
+#
+# Longer than DIRECTION_WINDOW, which covers one hop between adjacent cameras.
+# Going round a house and coming back to where you started is a walk, not a
+# step, and somebody who passes the front door twice in ten minutes has done
+# something different from somebody who passes it twice in an afternoon.
+#
+# A judgement, like the direction window: there is no data here on how long
+# anybody takes to walk round a house.
+PROWL_WINDOW = 600
+
 # The hours an unfamiliar face counts as notable, as [start, end) local.
 #
 # An unknown face at three in the afternoon is a delivery; the same face at

@@ -476,6 +476,21 @@ Outside the poll window there is no value at all, rather than a stale one. Unnam
 still counted and still appear on the cards — naming decides who is worth an
 entity, not who gets tracked.
 
+### Prowling
+
+`binary_sensor.<hub>_prowling` is on when somebody has gone round the house
+rather than up to the door — they came back to a camera they had already been
+past, with somewhere else in between, inside ten minutes. Its `faces`
+attribute says who, by name where they have one.
+
+Unlike direction, this needs no camera layout: it does not matter which camera
+is nearer the street, only that the same place was reached twice. Two cameras
+are enough — front, side, front is a circuit.
+
+Consecutive sightings at one camera collapse first, so standing at the front
+door long enough for three clips is not a lap (that is the loitering sensor),
+and two visits hours apart are two visits.
+
 ### Snooze
 
 `switch.<hub>_notifications_snoozed` mutes notifications without disabling the

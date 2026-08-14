@@ -13,7 +13,7 @@ from homeassistant.util import dt as dt_util
 
 from .clips import (
     attach_detections, detection_types, direction, end_of, event_type,
-    face_ids, local_date, start_of,
+    face_ids, local_date, prowling, start_of,
 )
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
@@ -21,8 +21,8 @@ from .const import (
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS,
     CONF_CAMERA_ORDER, DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
-    LOOKBACK_SECONDS, POLL_BACKOFF_MAX, SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
-    STORAGE_SAMPLES,
+    LOOKBACK_SECONDS, POLL_BACKOFF_MAX, PROWL_WINDOW, SIGNAL_NEW_CLIP,
+    STATUS_MAX_AGE, STORAGE_SAMPLES,
 )
 from .media import (
     async_download_clip, async_prune, async_verify, existing_clip,
@@ -178,6 +178,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             # ...and which way they were going, when that is actually known.
             face["direction"] = direction(
                 face["trail"], self.camera_ranks, DIRECTION_WINDOW)
+            # ...and whether that trail is a circuit rather than a journey.
+            # Needs no ranks, so it works before anyone fills in the layout.
+            face["prowling"] = prowling(face["trail"], PROWL_WINDOW)
         return faces
 
     def _note_arrivals(self, clips: dict[int, list[dict]]) -> None:
