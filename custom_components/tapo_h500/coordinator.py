@@ -309,6 +309,38 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         return suggest_ranks([person.get("trail") or []
                               for person in self.everyone()], DIRECTION_WINDOW)
 
+    def household(self, window: int) -> dict:
+        """Who has been seen lately, who has been seen today, and who has not.
+
+        One entity per person is the right shape for automating and the wrong
+        one for looking at: with five people named, "is anybody about" means
+        reading five sensors and comparing five timestamps by eye.
+
+        Deliberately three lists rather than a presence guess. `not_seen`
+        especially: a camera watches a doorstep, not a house, so somebody
+        indoors is invisible to it and somebody who left through a door with
+        no camera on it is too. Not being seen is not evidence of absence, and
+        the names say so.
+        """
+        now = int(dt_util.utcnow().timestamp())
+        today = local_date(now)
+        people = self.people()
+        recent: list[str] = []
+        so_far: list[str] = []
+        for name in self.named_people:
+            last = (people.get(name) or {}).get("last_seen")
+            if last is None:
+                continue
+            if now - last <= window:
+                recent.append(name)
+            if local_date(last) == today:
+                so_far.append(name)
+        return {
+            "seen_recently": sorted(recent),
+            "seen_today": sorted(so_far),
+            "not_seen": sorted(set(self.named_people) - set(recent)),
+        }
+
     def person_for(self, face_id: str) -> dict:
         """The merged person an id belongs to, or the bare face if unnamed."""
         key = str(face_id)

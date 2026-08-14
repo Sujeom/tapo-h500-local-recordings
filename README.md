@@ -69,6 +69,10 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   cameras reads as *approaching* or *leaving* — warning before the doorbell.
 - **Prompts:** a face the hub keeps seeing but you have not named turns up as a
   repair notice, so regulars get named instead of staying numbers.
+- **Everyone at once:** `sensor.<hub>_people_seen_recently` lists who has been
+  seen just now, who has been seen today, and who has not — instead of five
+  sensors and five timestamps to compare by eye. Named for what it knows: not
+  being seen is not evidence of being out.
 - **One person, one entity:** the hub clusters the same face more than once.
   Give both clusters the same name and they merge — one sensor, one arrival,
   and a joined-up trail, which is the only way a direction can be worked out

@@ -22,7 +22,8 @@ from .clips import (
     unusual_threshold,
 )
 from .const import (
-    DATA_HUBS, DOMAIN, LOITER_GAP, LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED,
+    DATA_HUBS, DOMAIN, FACE_PRESENCE_WINDOW, LOITER_GAP, LOOKBACK_SECONDS,
+    SIGNAL_FACES_CHANGED,
 )
 from .coordinator import H500Coordinator
 from .entity import H500Entity
@@ -201,6 +202,7 @@ async def async_setup_entry(
         for index, camera in enumerate(coordinator.cameras)
     ]
     entities.append(H500StorageForecast(coordinator, entry))
+    entities.append(H500Household(coordinator, entry))
     async_add_entities(entities)
 
     # One per named PERSON, added as names appear rather than on a reload.
@@ -422,6 +424,49 @@ class H500StorageForecast(CoordinatorEntity[H500Coordinator], SensorEntity):
             # "not filling" and "not enough history yet".
             "percent_per_hour": None if rate is None else round(rate, 4),
             "samples": len(self.coordinator.storage_trend),
+        }
+
+
+class H500Household(CoordinatorEntity[H500Coordinator], SensorEntity):
+    """How many of the people you have named were seen in the last few minutes.
+
+    One entity per person is the right shape for automating and the wrong one
+    for looking at: with five people named, "is anybody about" means reading
+    five sensors and comparing five timestamps by eye.
+
+    Named for what it knows, like the per-person flag it sums up. A camera
+    watches a doorstep, not a house -- somebody indoors is invisible to it, and
+    so is somebody who left through a door with no camera on it. `not_seen` is
+    a list of people who have not been seen, which is not a list of people who
+    are out, and building an occupancy automation on it would be building on a
+    guess.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "people_seen_recently"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "people"
+    _attr_icon = "mdi:account-group"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_people_seen_recently"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    @property
+    def native_value(self) -> int:
+        return len(self.coordinator.household(
+            FACE_PRESENCE_WINDOW)["seen_recently"])
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            **self.coordinator.household(FACE_PRESENCE_WINDOW),
+            # Everyone who could appear in those lists, so an empty house and
+            # an installation where nobody has been named yet are different
+            # readings rather than both being zero.
+            "named": sorted(self.coordinator.named_people),
+            "window_minutes": FACE_PRESENCE_WINDOW // 60,
         }
 
 

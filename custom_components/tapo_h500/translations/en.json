@@ -192,6 +192,9 @@
           "busy": "Busy",
           "unusual": "Unusual"
         }
+      },
+      "people_seen_recently": {
+        "name": "People seen recently"
       }
     },
     "binary_sensor": {

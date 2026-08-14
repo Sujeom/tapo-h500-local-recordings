@@ -22,6 +22,7 @@ The hub gets its own device, and each paired camera gets one.
 | `sensor.*_clock_offset` | Seconds the hub's clock differs from Home Assistant's, signed. Clip filenames and the media browser's date folders come from hub timestamps, so drift files recordings under the wrong day. |
 | `sensor.*_timezone` | The hub's own timezone. |
 | `sensor.*_custom_sounds` | How many of the hub's five custom sound slots hold a recording, with their names as an attribute. |
+| `sensor.*_people_seen_recently` | How many of the people you have named were seen in the last ten minutes, with `seen_recently`, `seen_today`, `not_seen` and `named` as attributes. One entity per person is right for automating and wrong for looking at; this is the same information in one place. `not_seen` is people who have **not been seen** — a camera watches a doorstep, not a house, so it is not a list of people who are out. |
 
 **Hub settings you can change**
 
