@@ -476,6 +476,23 @@ Outside the poll window there is no value at all, rather than a stale one. Unnam
 still counted and still appear on the cards — naming decides who is worth an
 entity, not who gets tracked.
 
+### Calendar
+
+Each camera gets a `calendar.<camera>_recordings` entity, so the Calendar panel
+answers "what happened last Tuesday" — scroll to Tuesday. Each entry says what
+the hub detected, names anyone recognised, and carries the face ids of anyone
+not yet named.
+
+Entries come from the hub, not from the polled day. A calendar built on the
+24-hour window would show one day and nothing before it, which reads as a quiet
+fortnight rather than an absent one. Scrolling a long way back is capped at 31
+days per view, because the hub's detection search returns at most 1000 records
+and a year view would silently show a fraction of the year.
+
+The entity state is always off. A doorbell has no future, and a recording is
+indexed only once it has finished, so nothing is ever "in progress"; its
+attributes carry the most recent one.
+
 ### Prowling
 
 `binary_sensor.<hub>_prowling` is on when somebody has gone round the house

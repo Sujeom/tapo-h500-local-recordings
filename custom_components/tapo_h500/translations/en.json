@@ -256,6 +256,11 @@
       "latest_event": {
         "name": "Latest event"
       }
+    },
+    "calendar": {
+      "recordings": {
+        "name": "Recordings"
+      }
     }
   },
   "device_automation": {
