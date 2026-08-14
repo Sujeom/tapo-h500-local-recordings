@@ -93,7 +93,7 @@ class Visits(unittest.TestCase):
 
 class Entity(unittest.TestCase):
     def test_it_counts_visits_rather_than_recordings(self):
-        body = SOURCE.split("class H500Visits", 1)[1].split("\ndef ", 1)[0]
+        body = SOURCE.split("class H500Visits", 1)[1].split("\nclass ", 1)[0]
         self.assertIn("len(sessions(", body)
 
     def test_it_groups_with_the_same_gap_as_everything_else(self):
@@ -104,12 +104,12 @@ class Entity(unittest.TestCase):
         that merely reports the gap, so a count grouped by some other number
         passed.
         """
-        body = SOURCE.split("class H500Visits", 1)[1].split("\ndef ", 1)[0]
+        body = SOURCE.split("class H500Visits", 1)[1].split("\nclass ", 1)[0]
         counting = body.split("def native_value", 1)[1].split("@property", 1)[0]
         self.assertIn("LOITER_GAP", counting)
 
     def test_it_carries_the_shape_of_the_day(self):
-        body = SOURCE.split("class H500Visits", 1)[1].split("\ndef ", 1)[0]
+        body = SOURCE.split("class H500Visits", 1)[1].split("\nclass ", 1)[0]
         self.assertIn('"hourly": hourly_counts(', body)
         self.assertIn('"longest_seconds": longest_visit(', body)
 
@@ -123,7 +123,7 @@ class Entity(unittest.TestCase):
     def test_its_unique_id_is_the_camera_not_the_entry(self):
         """Per camera, like every other camera sensor; keyed on the entry it
         would collide the moment a second camera was added."""
-        body = SOURCE.split("class H500Visits", 1)[1].split("\ndef ", 1)[0]
+        body = SOURCE.split("class H500Visits", 1)[1].split("\nclass ", 1)[0]
         self.assertIn("camera['device_id']", body)
 
 
