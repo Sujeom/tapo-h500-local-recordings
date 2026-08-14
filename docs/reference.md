@@ -621,6 +621,9 @@ home at breakfast.
 | Seconds between activity checks | `2` | The whole notification delay — nothing arrives sooner than the next check. A check costs the hub about 40ms, so `1` is allowed. |
 | Download new recordings automatically | Every new recording | `Never`, `Doorbell presses only`, or `Every new recording`. |
 | Downloaded clips to keep per camera | `0` | `0` keeps everything. Any other number prunes the oldest automatic downloads. Manual downloads are never pruned. |
+| Doorbell presses to keep per camera | `0` | `0` treats them like everything else. Any other number keeps that many of the newest presses whatever their age. |
+| Recordings with a person to keep per camera | `0` | The same, for recordings with a person in them. Counted separately from presses. |
+| Hours of silence before a camera is flagged | `24` | Below 24, a quieter camera trips the silent sensor sooner. Cannot go higher — the hub is only asked about a day. |
 | Convert downloads to MP4 | On | Off keeps the hub's original MPEG-TS. |
 
 ## Media layout

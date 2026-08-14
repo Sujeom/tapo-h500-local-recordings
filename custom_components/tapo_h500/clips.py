@@ -198,6 +198,37 @@ def surplus(items, keep: int) -> list:
     return list(items[:-keep])
 
 
+def newest_matching(clips: list[dict], matches, keep: int) -> set[int]:
+    """Start times of the newest `keep` recordings this predicate accepts.
+
+    What retention must leave alone however old it gets. One number for
+    everything meant a busy afternoon of motion could evict the doorbell press
+    that was the whole reason for keeping anything, and it went silently.
+
+    Sorted explicitly. The hub promises no order for searchVideoWithUTC, and
+    slicing the list as it arrived protected whichever recordings happened to
+    come back first -- which on a hub answering oldest-first is exactly the
+    ones about to be deleted anyway, so the protection did nothing.
+
+    An empty set for keep <= 0, which is how "no special treatment" is
+    expressed. The caller subtracts this from what it deletes, so an
+    off-by-one here loses recordings.
+    """
+    if keep <= 0:
+        return set()
+    moments = sorted(
+        (moment for clip in clips
+         for moment in [start_of(clip)]
+         if moment is not None and matches(clip)),
+        reverse=True)
+    return set(moments[:keep])
+
+
+def has_detection(entry: dict, codes: set[int]) -> bool:
+    """Whether any of these alarm codes fired on this recording."""
+    return bool(codes & set(detection_types(entry)))
+
+
 def events_since(clips: list[dict], since: int) -> int:
     """How many of these recordings started at or after a moment."""
     return sum(1 for clip in clips

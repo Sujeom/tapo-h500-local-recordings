@@ -57,6 +57,20 @@ CONF_KEEP_DOWNLOADS = "keep_downloads"
 CONF_KEEP_RINGS = "keep_rings"
 DEFAULT_KEEP_RINGS = 0
 
+# ...and the same for recordings with a person in them.
+#
+# The two classes worth protecting separately, and deliberately only two. The
+# hub names nine detection codes, and a retention number for each would be
+# nine boxes on a form to express one idea: keep the clips that mattered. A
+# press is somebody at the door and a person is somebody there at all; motion
+# is a cat, vehicles are the road, and a face code never fires without the
+# person code beside it.
+CONF_KEEP_PERSON = "keep_person"
+DEFAULT_KEEP_PERSON = 0
+# Code 6. Named against three app-labelled events and confirmed by a doorbell
+# press that carried it; see DETECTION_NAMES.
+PERSON_CODES: set[int] = {6}
+
 # The daily digest is OFF unless asked for. A summary nobody requested is the
 # kind of notification people mute the whole integration over.
 CONF_DIGEST_TIME = "digest_time"
@@ -393,7 +407,7 @@ DEFAULT_NIGHT_END = 6
 # recording a name must not cost one.
 RELOAD_ON_CHANGE = (
     CONF_POLL_INTERVAL, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
-    CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS,
+    CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS, CONF_KEEP_PERSON,
 )
 
 # Video is remuxed, not re-encoded. Audio is re-encoded because the hub's TS

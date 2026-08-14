@@ -13,14 +13,15 @@ from homeassistant.util import dt as dt_util
 
 from .clips import (
     attach_detections, detection_types, direction, end_of, event_type,
-    face_ids, local_date, prowling, start_of,
+    face_ids, has_detection, local_date, newest_matching, prowling, start_of,
 )
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
     CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL, DEFAULT_AUTO_DOWNLOAD,
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS,
-    CONF_CAMERA_ORDER, DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
+    CONF_CAMERA_ORDER, CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON, PERSON_CODES,
+    DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     LOOKBACK_SECONDS, POLL_BACKOFF_MAX, PROWL_WINDOW, SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES,
 )
@@ -458,6 +459,29 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 f"{DOMAIN} download {start_of(clip)}",
             )
 
+    def _protected(self, index: int) -> set[int]:
+        """Clip start times retention must leave alone, however old they get.
+
+        Two classes, each with its own count, because they are the two people
+        actually go back for: somebody at the door, and somebody there at all.
+        A single retention number let a busy afternoon of motion evict the
+        press that was the whole reason for keeping anything.
+
+        Nine detection codes exist and only these two get a number. The rest
+        would be seven more boxes on a form saying the same thing -- motion is
+        a cat, vehicles are the road, and the face codes never fire without
+        the person code beside them.
+        """
+        options = self.entry.options
+        clips = self.clips_for(index)
+        return newest_matching(
+            clips, lambda clip: event_type(clip) == EVENT_RING,
+            options.get(CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS),
+        ) | newest_matching(
+            clips, lambda clip: has_detection(clip, PERSON_CODES),
+            options.get(CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON),
+        )
+
     async def _download(self, index, camera, clip) -> None:
         start_time = start_of(clip)
         end_time = end_of(clip)
@@ -490,16 +514,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Only automatic downloads are pruned. A manual download is a
         # deliberate choice and is left alone.
         keep = self.entry.options.get(CONF_KEEP_DOWNLOADS, DEFAULT_KEEP_DOWNLOADS)
-        # Doorbell presses survive the cull when a separate figure is set for
-        # them: a busy afternoon of motion should not evict the press that was
-        # the reason for keeping anything.
-        keep_rings = self.entry.options.get(CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS)
-        protected: set[int] = set()
-        if keep_rings:
-            rings = [clip for clip in self.clips_for(index)
-                     if event_type(clip) == EVENT_RING]
-            protected = {start_of(clip) for clip in rings[:keep_rings]
-                         if start_of(clip) is not None}
-        for removed in await async_prune(self.hass, camera, keep, protected):
+        for removed in await async_prune(self.hass, camera, keep,
+                                         self._protected(index)):
             _LOGGER.debug("Pruned %s to keep the newest %s", removed, keep)
         async_dispatcher_send(self.hass, self.signal("image", index))

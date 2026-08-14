@@ -14,6 +14,7 @@ from .const import (
     AUTO_DOWNLOAD_MODES, CONF_AUTO_DOWNLOAD, CONF_CLOUD_PASSWORD, CONF_FACE_NAMES,
     DATA_HUBS,
     CONF_CAMERA_ORDER, CONF_CONVERT_MP4, CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS,
+    CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON,
     CONF_POLL_INTERVAL, CONF_SILENT_HOURS,
     DEFAULT_AUTO_DOWNLOAD, DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     DEFAULT_KEEP_RINGS,
@@ -252,6 +253,10 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             vol.Required(
                 CONF_KEEP_RINGS,
                 default=options.get(CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS),
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=500)),
+            vol.Required(
+                CONF_KEEP_PERSON,
+                default=options.get(CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON),
             ): vol.All(vol.Coerce(int), vol.Range(min=0, max=500)),
             vol.Required(
                 CONF_CONVERT_MP4,
