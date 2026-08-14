@@ -709,6 +709,39 @@ Silent on the first check after a restart. The window holds a day of
 recordings, so otherwise restarting at teatime would announce everyone who came
 home at breakfast.
 
+### One notification per visitor
+
+The arrival event covers people you have named. `tapo_h500_visit` covers
+everybody, and answers the other half of the same problem: the hub reports
+moments rather than presence, so four minutes at the door arrives as a string
+of fifteen-second clips, and an automation wired to the detection event sends
+sixteen notifications about one visitor.
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: tapo_h500_visit
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      message: >-
+        {{ trigger.event.data.detection }} at the
+        {{ trigger.event.data.camera }}
+```
+
+Recordings less than two minutes apart are one visit — the same grouping the
+loitering sensor uses. The payload carries `camera`, `camera_index`, `at`,
+`detections` (the alarm codes), `detection` (the same phrase the cards show),
+`face_ids`, `names` for anyone you have named, and `recordings`.
+
+It fires at the **start** of the visit, so it only knows about the first
+recording. That is deliberate: at that moment somebody who is about to leave in
+ten seconds and somebody who is about to stay ten minutes look identical, which
+is why `binary_sensor.<camera>_possible_delivery` and
+`binary_sensor.<camera>_loitering` exist separately and are both retrospective.
+
+Silent until the first poll has completed, for the same reason arrivals are.
+
 ## More than one hub
 
 Add each hub separately; they are keyed by address, so two work. Actions all

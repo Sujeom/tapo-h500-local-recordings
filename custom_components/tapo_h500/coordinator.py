@@ -12,8 +12,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .clips import (
-    attach_detections, detection_types, direction, end_of, event_type,
-    face_ids, has_detection, local_date, newest_matching, prowling, start_of,
+    attach_detections, describe_codes, detection_types, direction, end_of,
+    event_type, face_ids, has_detection, local_date, newest_matching, prowling,
+    sessions, start_of,
 )
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
@@ -23,6 +24,7 @@ from .const import (
     CONF_CAMERA_ORDER, CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON, PERSON_CODES,
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
+    EVENT_VISIT, LOITER_GAP,
     LOOKBACK_SECONDS, POLL_BACKOFF_MAX, PROWL_WINDOW, SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES,
 )
@@ -71,6 +73,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Who has already been seen today, and which day that refers to.
         self._arrived: set[str] = set()
         self._arrival_day: str | None = None
+        # The start of the newest visit already announced, per camera.
+        self._visits: dict[int, int] = {}
         # How full the disk has been, so a rate can be fitted to it. Memory
         # only: the hub reports how full it is now and nothing about before.
         self.storage_trend: list[tuple[int, float]] = []
@@ -247,6 +251,68 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 "direction": face.get("direction"),
             })
 
+    def _visit_payload(self, index: int, clips: list[dict],
+                       visit: tuple[int, int, int]) -> dict:
+        """What one visit looks like to an automation."""
+        start, end, count = visit
+        during = [clip for clip in clips
+                  if start <= (start_of(clip) or -1) <= end]
+        codes = sorted({code for clip in during
+                        for code in detection_types(clip)})
+        names = self.face_names
+        faces = sorted({str(face) for clip in during
+                        for face in face_ids(clip)})
+        camera = (self.cameras[index] if index < len(self.cameras) else {})
+        return {
+            "entry_id": self.entry.entry_id,
+            "camera": camera.get("alias") or f"Camera {index}",
+            "camera_index": index,
+            "at": start,
+            # How many recordings the visit has so far, which at the moment it
+            # is announced is one. It grows; the event does not fire again.
+            "recordings": count,
+            "detections": codes,
+            "detection": describe_codes(codes),
+            "face_ids": faces,
+            # Who, where they have been named. An empty list is the ordinary
+            # case and means "nobody the hub matched to a name", not "nobody".
+            "names": sorted({names[face] for face in faces if face in names}),
+        }
+
+    def _note_visits(self, clips_by_camera: dict[int, list[dict]]) -> None:
+        """Fire once when a visit begins, rather than once per recording.
+
+        The detection event is the right grain for a doorbell press and the
+        wrong one for a person: the hub reports moments, so four minutes at the
+        door is a string of fifteen-second clips and an automation wired to
+        detections sends sixteen notifications about one visitor.
+
+        Announced at the start of the visit, because that is the only moment a
+        notification is worth sending. Nothing about how it ends is known then
+        -- everybody who is about to stay ten minutes has also been there for
+        one clip -- which is why the delivery and loitering signals exist
+        separately and are both retrospective.
+
+        Silent until primed, like arrivals and for the same reason: the window
+        holds a day, so a restart would otherwise announce every visit since
+        breakfast at once.
+        """
+        for index, clips in clips_by_camera.items():
+            visits = sessions(clips, LOITER_GAP)
+            if not visits:
+                continue
+            newest = visits[-1]
+            # Only ever forward. A clip arriving late cannot resurrect a visit
+            # already announced, and an earlier one appearing in the window is
+            # history rather than news.
+            if newest[0] <= self._visits.get(index, 0):
+                continue
+            self._visits[index] = newest[0]
+            if not self._primed:
+                continue
+            self.hass.bus.async_fire(
+                EVENT_VISIT, self._visit_payload(index, clips, newest))
+
     def clips_for(self, index: int) -> list[dict]:
         return (self.data or {}).get("clips", {}).get(index, [])
 
@@ -409,6 +475,10 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             self._note_arrivals(clips_by_camera)
         except Exception as err:  # noqa: BLE001 - never fail a poll over this
             _LOGGER.debug("Could not check arrivals: %s", err)
+        try:
+            self._note_visits(clips_by_camera)
+        except Exception as err:  # noqa: BLE001 - never fail a poll over this
+            _LOGGER.debug("Could not check visits: %s", err)
         self._polls += 1
         self._primed = True
         # Raise or clear the repair issues. Called every poll rather than only

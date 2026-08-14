@@ -88,6 +88,9 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   without disabling the automation. Nothing stops recording.
 - **Arrivals:** `tapo_h500_arrival` fires once per named person per day, on
   their first sighting — not the twelfth time they cross the front camera.
+- **One notification per visitor:** `tapo_h500_visit` fires once when somebody
+  arrives, not once per recording. Four minutes at the door is sixteen clips,
+  and sixteen notifications about one person is why people mute integrations.
 - **Waiting, and circling:** a sensor for an unrecognised face that has stayed
   more than three minutes, and one for somebody who came back to a camera they
   had already passed.

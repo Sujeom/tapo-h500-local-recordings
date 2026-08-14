@@ -369,6 +369,22 @@ SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
 # appearing, which is what the detection event already says.
 EVENT_ARRIVAL = f"{DOMAIN}_arrival"
 
+# Fired once when a visit begins, where the arrival event covers only people
+# who have been named.
+#
+# The detection event is per recording, and the hub reports moments rather than
+# presence: somebody standing at the door for four minutes arrives as a string
+# of fifteen-second clips, so an automation wired to detections sends sixteen
+# notifications about one visitor. Everything needed to fix that already
+# existed -- sessions() has grouped clips into visits since the loitering
+# sensor -- and nothing was announcing it.
+#
+# Fired at the START of a visit, which is the only time it can be useful for a
+# notification, and therefore carries only what is known by then: the first
+# recording. What the visit turned out to be is the delivery and loitering
+# sensors' job, and both are necessarily retrospective.
+EVENT_VISIT = f"{DOMAIN}_visit"
+
 # How many recent sightings to keep on a face's trail.
 #
 # Following one person between cameras is real rather than inferred: measured

@@ -149,12 +149,21 @@ def primary_type(entry: dict) -> int | None:
 
 
 def describe_detection(entry: dict) -> str | None:
-    """A short phrase for what the hub says triggered this recording.
+    """A short phrase for what the hub says triggered this recording."""
+    return describe_codes(detection_types(entry))
+
+
+def describe_codes(types: list[int]) -> str | None:
+    """The same phrase, from codes rather than from a recording.
+
+    Split out because a visit spans several recordings and its description is
+    the union of their codes -- there is no single entry to hand over. Building
+    a fake one with a hand-made events_1 mask was the alternative, and getting
+    that mask wrong is a mistake this codebase has already made once.
 
     Unnamed codes are shown as their number rather than guessed at, so an
     unfamiliar code reads as "type 22" instead of silently becoming "motion".
     """
-    types = detection_types(entry)
     if not types:
         return None
     # 10 is a property of a press, not an event beside it, and it has never
