@@ -16,6 +16,7 @@ from .const import (
     CONF_CAMERA_ORDER, CONF_CONVERT_MP4, CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS,
     CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON,
     CONF_POLL_INTERVAL, CONF_SILENT_HOURS,
+    CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DEFAULT_AUTO_DOWNLOAD, DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     DEFAULT_KEEP_RINGS,
     DEFAULT_POLL_INTERVAL, DEFAULT_SILENT_HOURS, DOMAIN, LOOKBACK_SECONDS,
@@ -91,11 +92,13 @@ class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class TapoH500OptionsFlow(config_entries.OptionsFlow):
-    """Two screens: how the integration behaves, and who the faces are."""
+    """Four screens: how the integration behaves, who the faces are, where the
+    cameras sit, and how busy each one has to get to be worth mentioning."""
 
     async def async_step_init(self, user_input=None):
         return self.async_show_menu(
-            step_id="init", menu_options=["settings", "faces", "layout"])
+            step_id="init",
+            menu_options=["settings", "faces", "layout", "sensitivity"])
 
     def _merged(self, user_input: dict) -> dict:
         """Options are replaced wholesale on save, so anything the current form
@@ -229,6 +232,42 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             for name in names
         })
         return self.async_show_form(step_id="layout", data_schema=schema)
+
+    async def async_step_sensitivity(self, user_input=None):
+        """How busy each camera has to be before it counts as unusual.
+
+        Three levels rather than the two numbers behind them. A multiplier
+        against the camera's own hourly average, and a floor below which
+        nothing is flagged, are the right model for the code and the wrong
+        question to ask a person: nobody knows what multiple of its own
+        average their front door reaches on a Saturday.
+
+        Per camera because the same numbers cannot fit two. Three times
+        typical is a busy afternoon on a doorbell facing a pavement and
+        somebody in the garden on a back gate.
+        """
+        levels = dict(self.config_entry.options.get(CONF_SENSITIVITY) or {})
+        if user_input is not None:
+            levels.update({str(name): str(value)
+                           for name, value in user_input.items()})
+            return self.async_create_entry(
+                data={**self.config_entry.options, CONF_SENSITIVITY: levels})
+
+        coordinator = self.hass.data[DOMAIN][DATA_HUBS][self.config_entry.entry_id]
+        names = [camera.get("alias") for camera in coordinator.cameras
+                 if camera.get("alias")]
+        if not names:
+            return self.async_abort(reason="no_cameras")
+
+        schema = vol.Schema({
+            vol.Required(name, default=levels.get(name, DEFAULT_SENSITIVITY)):
+                selector.SelectSelector(selector.SelectSelectorConfig(
+                    options=list(SENSITIVITY_LEVELS),
+                    translation_key=CONF_SENSITIVITY,
+                ))
+            for name in names
+        })
+        return self.async_show_form(step_id="sensitivity", data_schema=schema)
 
     async def async_step_settings(self, user_input=None):
         if user_input is not None:

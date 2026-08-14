@@ -259,6 +259,29 @@ DETECTION_HOLD = 30
 UNUSUAL_MULTIPLIER = 3.0
 UNUSUAL_FLOOR = 4
 
+# ...and per camera, because one pair of numbers cannot fit two cameras.
+#
+# The baseline is already the camera's own rate, which handles a busy door and
+# a quiet gate seeing different amounts. What it cannot handle is the two
+# meaning different things: on a doorbell facing a pavement, three times
+# typical is a Saturday, and on a back gate it is somebody in the garden.
+#
+# Offered as three levels rather than as two numbers per camera. A multiplier
+# and a floor are the right model for the code and the wrong question to ask a
+# person -- "how many times its own hourly average, and what is the minimum
+# count below which nothing counts" is not something anyone knows the answer
+# to about their own front door.
+#
+# "normal" is the pair that has always been used, so an existing installation
+# behaves exactly as it did.
+CONF_SENSITIVITY = "sensitivity"
+DEFAULT_SENSITIVITY = "normal"
+SENSITIVITY_LEVELS: dict[str, tuple[float, int]] = {
+    "sensitive": (2.0, 3),
+    "normal": (UNUSUAL_MULTIPLIER, UNUSUAL_FLOOR),
+    "relaxed": (5.0, 8),
+}
+
 # How far apart two recordings can be and still be one visit, and how long a
 # visit by an unrecognised face has to last before it is worth saying so.
 #

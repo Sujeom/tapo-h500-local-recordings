@@ -21,6 +21,7 @@ from .const import (
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS,
     CONF_CAMERA_ORDER, CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON, PERSON_CODES,
+    CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     LOOKBACK_SECONDS, POLL_BACKOFF_MAX, PROWL_WINDOW, SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES,
@@ -114,6 +115,23 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             except (TypeError, ValueError):
                 continue
         return ranks
+
+    def sensitivity(self, index: int) -> tuple[float, int]:
+        """How far above its own average this camera has to be to stand out.
+
+        Keyed by camera name rather than index, the same way the layout is: an
+        index shifts when a camera is unpaired and a name does not.
+
+        Falls back to the level that has always been used, so a hub configured
+        before this existed behaves exactly as it did -- and so does one whose
+        stored level is a word this version has never heard of.
+        """
+        stored = self.entry.options.get(CONF_SENSITIVITY) or {}
+        name = (self.cameras[index].get("alias")
+                if index < len(self.cameras) else None)
+        level = stored.get(name, DEFAULT_SENSITIVITY)
+        return SENSITIVITY_LEVELS.get(
+            level, SENSITIVITY_LEVELS[DEFAULT_SENSITIVITY])
 
     def faces_seen(self, index: int | None = None,
                    clips: dict[int, list[dict]] | None = None) -> dict[str, dict]:

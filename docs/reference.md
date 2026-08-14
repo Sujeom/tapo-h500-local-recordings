@@ -580,6 +580,23 @@ that reads the switch is affected, and the notification blueprint has a
 It does not survive a Home Assistant restart, deliberately: a snooze that
 outlived one would be a silent doorbell nobody remembered turning off.
 
+### Unusual activity, per camera
+
+`binary_sensor.<camera>_unusual_activity` compares the last hour against the
+camera's own recent rate, not a fixed number — a doorbell on a main road and a
+back gate do not agree on what busy means.
+
+**Configure → Unusual activity** sets how far above that average each camera
+has to get. *Sensitive* is twice its typical hour, *Normal* three times (what
+has always been used, and still the default), *Relaxed* five times and needs
+more activity before it considers the question at all.
+
+Per camera because the same numbers cannot fit two: three times typical is a
+Saturday afternoon on a doorbell facing a pavement, and somebody in the garden
+on a back gate. The `multiplier` and `minimum_per_hour` attributes say what the
+sensor is measuring against, so "why has this not fired" is answerable without
+reading the source.
+
 ### Storage forecast
 
 `sensor.<hub>_storage_full_in` is how many days until the hub starts

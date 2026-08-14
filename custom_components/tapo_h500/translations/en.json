@@ -49,7 +49,8 @@
         "menu_options": {
           "settings": "Settings",
           "faces": "Name faces",
-          "layout": "Camera layout"
+          "layout": "Camera layout",
+          "sensitivity": "Unusual activity"
         }
       },
       "faces": {
@@ -59,11 +60,16 @@
       "layout": {
         "title": "Camera layout",
         "description": "Give each camera a number for how close it is to your door: **0 for the one nearest the street**, higher as they get closer to the entrance. A gate camera might be 0 and the doorbell 1.\n\nThis is the one thing the integration cannot work out on its own — the hub reports no geometry. With it, a recognised person moving from one camera to another reads as *approaching* or *leaving* rather than just a list of places.\n\nLeave every camera on the same number to turn this off; no direction is reported unless it is genuinely known."
+      },
+      "sensitivity": {
+        "title": "Unusual activity",
+        "description": "How busy a camera has to get before it counts as unusual, measured against its own recent rate rather than a fixed number.\n\n**Sensitive** flags twice its typical hour. **Normal** three times. **Relaxed** five times, and needs more activity before it considers the question at all.\n\nSet these per camera: three times typical is a busy afternoon on a doorbell facing a pavement, and somebody in the garden on a back gate."
       }
     },
     "abort": {
       "no_faces": "The hub has not recognised any faces yet. It only reports one when its own face detection fires, and only for the period still held — try again after someone has been seen.",
-      "one_camera": "Only one camera is paired with this hub. A direction needs two places to be between."
+      "one_camera": "Only one camera is paired with this hub. A direction needs two places to be between.",
+      "no_cameras": "No cameras are paired with this hub yet."
     }
   },
   "selector": {
@@ -72,6 +78,13 @@
         "off": "Never",
         "rings": "Doorbell presses only",
         "all": "Every new recording"
+      }
+    },
+    "sensitivity": {
+      "options": {
+        "sensitive": "Sensitive",
+        "normal": "Normal",
+        "relaxed": "Relaxed"
       }
     }
   },

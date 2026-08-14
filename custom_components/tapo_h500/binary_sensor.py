@@ -255,10 +255,11 @@ class H500UnusualActivity(H500Entity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         from homeassistant.util import dt as dt_util
+        multiplier, floor = self.coordinator.sensitivity(self.index)
         return unusually_busy(
             self.coordinator.clips_for(self.index),
             int(dt_util.utcnow().timestamp()),
-            LOOKBACK_SECONDS, UNUSUAL_MULTIPLIER, UNUSUAL_FLOOR)
+            LOOKBACK_SECONDS, multiplier, floor)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -266,10 +267,15 @@ class H500UnusualActivity(H500Entity, BinarySensorEntity):
         from .clips import events_since, hourly_baseline
         clips = self.coordinator.clips_for(self.index)
         now = int(dt_util.utcnow().timestamp())
+        multiplier, floor = self.coordinator.sensitivity(self.index)
         return {
             "events_last_hour": events_since(clips, now - 3600),
             "typical_per_hour": round(
                 hourly_baseline(clips, now, LOOKBACK_SECONDS), 2),
+            # What it is being measured against, so "why has this not fired"
+            # is answerable from the entity rather than from the source.
+            "multiplier": multiplier,
+            "minimum_per_hour": floor,
         }
 
 
