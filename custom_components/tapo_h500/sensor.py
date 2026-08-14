@@ -17,10 +17,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .clips import (
-    busiest_hour, events_since, hourly_counts, longest_visit, sessions,
-    unique_faces, unknown_face_count,
+    ACTIVITY_LEVELS, activity_level, busiest_hour, events_since, hourly_baseline,
+    hourly_counts, longest_visit, sessions, unique_faces, unknown_face_count,
+    unusual_threshold,
 )
-from .const import DATA_HUBS, DOMAIN, LOITER_GAP, SIGNAL_FACES_CHANGED
+from .const import (
+    DATA_HUBS, DOMAIN, LOITER_GAP, LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED,
+)
 from .coordinator import H500Coordinator
 from .entity import H500Entity
 
@@ -193,6 +196,10 @@ async def async_setup_entry(
         H500Visits(coordinator, index, camera)
         for index, camera in enumerate(coordinator.cameras)
     ]
+    entities += [
+        H500ActivityLevel(coordinator, index, camera)
+        for index, camera in enumerate(coordinator.cameras)
+    ]
     entities.append(H500StorageForecast(coordinator, entry))
     async_add_entities(entities)
 
@@ -294,6 +301,57 @@ class H500Visits(H500Entity, SensorEntity):
             # What the grouping was, so a surprising count is explainable
             # without reading the source.
             "gap_seconds": LOITER_GAP,
+        }
+
+
+class H500ActivityLevel(H500Entity, SensorEntity):
+    """The last hour at this camera in one word.
+
+    Answering "is anything going on at the side gate" currently means reading
+    a recordings count, an unusual-activity flag and a last-activity timestamp
+    and joining them up by eye -- and each of those is a different question.
+    This is the join, made once, so a dashboard and an automation cannot reach
+    different conclusions from the same three numbers.
+
+    Judged against the camera's own recent rate, like the unusual flag, and
+    with the same per-camera sensitivity: a doorbell facing a pavement and a
+    back gate do not agree on what busy means. `busy` is exactly halfway to
+    `unusual` rather than a second pair of numbers, so the scale cannot go
+    backwards.
+    """
+
+    _attr_translation_key = "activity_level"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(ACTIVITY_LEVELS)
+    _attr_icon = "mdi:motion-sensor"
+
+    def __init__(self, coordinator, index: int, camera: dict) -> None:
+        super().__init__(coordinator, index, camera)
+        self._attr_unique_id = f"{camera['device_id']}_activity_level"
+
+    @property
+    def native_value(self) -> str:
+        multiplier, floor = self.coordinator.sensitivity(self.index)
+        return activity_level(
+            self.coordinator.clips_for(self.index),
+            int(dt_util.utcnow().timestamp()),
+            LOOKBACK_SECONDS, multiplier, floor)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        clips = self.coordinator.clips_for(self.index)
+        now = int(dt_util.utcnow().timestamp())
+        multiplier, floor = self.coordinator.sensitivity(self.index)
+        threshold = unusual_threshold(
+            clips, now, LOOKBACK_SECONDS, multiplier, floor)
+        return {
+            "events_last_hour": events_since(clips, now - 3600),
+            "typical_per_hour": round(
+                hourly_baseline(clips, now, LOOKBACK_SECONDS), 2),
+            # The two numbers the word was decided against, so "why does this
+            # say active" is answerable from the entity rather than the source.
+            "busy_at": round(threshold / 2, 2),
+            "unusual_at": round(threshold, 2),
         }
 
 

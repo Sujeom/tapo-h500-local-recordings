@@ -60,6 +60,7 @@ timezone (changing it would shift every clip timestamp).
 | `sensor.<name>_last_activity` | Timestamp of the newest recording. Drives "nothing seen since" automations. |
 | `sensor.<name>_recordings_24h` | How many clips the hub holds for this camera. |
 | `sensor.<name>_visits_24h` | How many separate **visitors**, which is a much smaller number: the hub reports moments, so one person waiting four minutes at the door files sixteen clips. Attributes: `hourly` (24 counts from local midnight, for a chart), `longest_seconds`, and the `gap_seconds` used to group them. |
+| `sensor.<name>_activity_level` | The last hour in one word: `quiet`, `active`, `busy` or `unusual`. Judged against the camera's own rate with the same sensitivity setting as the unusual flag, and `busy` is exactly halfway to `unusual` rather than a separate pair of numbers — so the scale cannot go backwards. Attributes say what it was measured against. |
 | `sensor.<name>_ai_enhance`, `_network_mode`, `_model` | Diagnostics. |
 | `binary_sensor.<name>_hub_storage`, `_24_7_recording`, `_ai_enhance_enabled`, `_wifi_backup` | Diagnostics. |
 

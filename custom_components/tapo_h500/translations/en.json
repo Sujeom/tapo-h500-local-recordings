@@ -168,6 +168,15 @@
       },
       "visits_24h": {
         "name": "Visits (24h)"
+      },
+      "activity_level": {
+        "name": "Activity",
+        "state": {
+          "quiet": "Quiet",
+          "active": "Active",
+          "busy": "Busy",
+          "unusual": "Unusual"
+        }
       }
     },
     "binary_sensor": {

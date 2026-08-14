@@ -80,6 +80,8 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Unusual activity:** each camera flags an hour that stands out against its
   own recent rate, so a busy street and a back gate are judged separately. Set how
   far above that counts under **Configure → Unusual activity**.
+- **In one word:** `sensor.<camera>_activity_level` — quiet, active, busy or
+  unusual — instead of joining a count, a flag and a timestamp up by eye.
 - **Do something about it:** a second
   [blueprint](blueprints/automation/tapo_h500/respond_to_activity.yaml) turns
   the lights on, sounds the siren and announces who is at the door. Quiet by

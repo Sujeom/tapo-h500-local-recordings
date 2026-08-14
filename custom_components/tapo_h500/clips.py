@@ -304,22 +304,59 @@ def hourly_baseline(clips: list[dict], now: int, window: int) -> float:
     return counted / hours
 
 
-def unusually_busy(clips: list[dict], now: int, window: int,
-                   multiplier: float, floor: int) -> bool:
-    """Whether the last hour stands out against this camera's own baseline.
+def unusual_threshold(clips: list[dict], now: int, window: int,
+                      multiplier: float, floor: int) -> float:
+    """How many events in an hour would count as standing out, for this camera.
 
     Two guards, because a ratio alone is useless at both ends. A camera that
     normally sees nothing has a baseline of zero, and any event at all would
     be infinitely unusual -- hence the floor, below which nothing is flagged.
     And a camera that is always busy should not flag continuously, which is
     what the multiplier is for.
+
+    One expression, deliberately: an earlier version also returned early below
+    the floor, which enforced it twice. Removing either guard then changed no
+    behaviour, so no test could tell a broken one from a working one -- the
+    floor lives here and only here.
+    """
+    return max(floor, hourly_baseline(clips, now, window) * multiplier)
+
+
+def unusually_busy(clips: list[dict], now: int, window: int,
+                   multiplier: float, floor: int) -> bool:
+    """Whether the last hour stands out against this camera's own baseline."""
+    return events_since(clips, now - 3600) >= unusual_threshold(
+        clips, now, window, multiplier, floor)
+
+
+# What each level means, in the order they escalate. Exported so the entity's
+# `options` and the translations cannot drift from the function.
+ACTIVITY_LEVELS = ("quiet", "active", "busy", "unusual")
+
+
+def activity_level(clips: list[dict], now: int, window: int,
+                   multiplier: float, floor: int) -> str:
+    """The last hour in one word, rather than in three separate booleans.
+
+    "Is anything happening" currently means reading a recording count, an
+    unusual-activity flag and a last-activity timestamp and joining them up by
+    eye. This is the join, done once and named.
+
+    The busy step is derived rather than given numbers of its own: it is
+    exactly halfway to unusual, on both guards at once. Two independent pairs
+    of numbers could be set so that a camera was busy but not unusual at four
+    events and unusual but not busy at five, and a scale that goes backwards is
+    worse than no scale.
     """
     recent = events_since(clips, now - 3600)
-    # One expression, deliberately: an earlier version also returned early
-    # below the floor, which enforced it twice. Removing either guard then
-    # changed no behaviour, so no test could tell a broken one from a working
-    # one -- the floor lives here and only here.
-    return recent >= max(floor, hourly_baseline(clips, now, window) * multiplier)
+    if not recent:
+        return "quiet"
+    threshold = unusual_threshold(clips, now, window, multiplier, floor)
+    if recent >= threshold:
+        return "unusual"
+    if recent >= threshold / 2:
+        return "busy"
+    return "active"
 
 
 def sessions(clips: list[dict], gap: int) -> list[tuple[int, int, int]]:
