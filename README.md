@@ -125,7 +125,8 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   automation *condition*.
 - **Automations:** the doorbells appear under **Device** triggers — *When a
   person is detected*, *was rung*, *saw an unfamiliar face* — so no templates
-  are needed.
+  are needed. The worked-out signals are there too: someone waiting, a likely
+  delivery, a circuit of the house, an arrival, and a visit beginning.
 - **Cards:** add a card, search **Tapo**. All eight have a visual editor,
   including one grouped by person rather than by camera.
 - **Statistics:** busiest hour, people seen and unfamiliar-face counts per

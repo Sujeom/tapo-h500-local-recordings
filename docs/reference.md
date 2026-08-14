@@ -645,6 +645,29 @@ that already happens. That means:
 
 `percent_per_hour` and `samples` attributes say which of those applies.
 
+### Picking a trigger without writing a template
+
+**Settings → Automations → Create → Device** lists everything this integration
+works out, in three groups.
+
+Pick a **camera** and you get one trigger per detection the hub can report —
+*detected a person*, *was rung*, *saw an unfamiliar face*, *reported tampering*
+— plus *someone the hub does not recognise has waited there* and *a visit that
+looked like a delivery*. Detections match against the full `events_1` mask, so
+a person who also tripped plain motion fires the person trigger as well as the
+motion one, which is what anyone building an automation expects.
+
+Pick the **hub** and you get the three that are about the house rather than one
+camera: *someone went round the house*, *someone you have named arrives home*,
+and *a visit begins*. The last two are bus events, so they carry data no entity
+state can — who, which cameras, what the hub saw — and they fire once per
+person rather than once per recording. Both are filtered to that hub, so a
+two-hub installation does not announce the other house's front door.
+
+The state-backed triggers fire only on turning **on**. They all clear
+themselves, and firing again as somebody walks away is how an automation gets
+muted.
+
 ### A camera being handled
 
 Detection code 19 is the hub's own tamper alarm, confirmed by lifting the front

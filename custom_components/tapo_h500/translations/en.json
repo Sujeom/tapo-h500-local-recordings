@@ -321,7 +321,12 @@
       "pet": "{entity_name} detected an animal",
       "theft": "{entity_name} reported tampering",
       "unknown_face": "{entity_name} saw an unfamiliar face",
-      "vehicle": "{entity_name} detected a vehicle"
+      "vehicle": "{entity_name} detected a vehicle",
+      "loitering": "{entity_name}: someone the hub does not recognise has waited there",
+      "possible_delivery": "{entity_name}: a visit that looked like a delivery",
+      "prowling": "Someone went round the house rather than up to the door",
+      "arrival": "Someone you have named arrives home",
+      "visit": "A visit begins (once per visitor, not once per recording)"
     }
   },
   "issues": {
