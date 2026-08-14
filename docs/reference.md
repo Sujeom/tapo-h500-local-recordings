@@ -795,6 +795,7 @@ they slug to the same directory.
 | --- | --- | --- |
 | Seconds between activity checks | `2` | The whole notification delay — nothing arrives sooner than the next check. A check costs the hub about 40ms, so `1` is allowed. |
 | Download new recordings automatically | Every new recording | `Never`, `Doorbell presses only`, or `Every new recording`. |
+| Only download these detections | *nothing ticked* | Empty means no filter, which is what happens today. Tick some and a recording has to carry one of them to be downloaded — person and doorbell are the clips people go back for; vehicles on a camera facing a road are the traffic. It narrows the setting above rather than overriding it, so `Doorbell presses only` plus `Person` downloads presses that also had a person in them. Changing it does not reload the integration, so it costs no hub login. |
 | Downloaded clips to keep per camera | `0` | `0` keeps everything. Any other number prunes the oldest automatic downloads. Manual downloads are never pruned. |
 | Doorbell presses to keep per camera | `0` | `0` treats them like everything else. Any other number keeps that many of the newest presses whatever their age. |
 | Recordings with a person to keep per camera | `0` | The same, for recordings with a person in them. Counted separately from presses. |

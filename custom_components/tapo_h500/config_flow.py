@@ -13,7 +13,8 @@ from .media import clip_path, signed_url
 from .const import (
     AUTO_DOWNLOAD_MODES, CONF_AUTO_DOWNLOAD, CONF_CLOUD_PASSWORD, CONF_FACE_NAMES,
     DATA_HUBS,
-    CONF_CAMERA_ORDER, CONF_CONVERT_MP4, CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS,
+    CONF_CAMERA_ORDER, CONF_CONVERT_MP4, CONF_DOWNLOAD_TYPES,
+    CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS, DETECTION_NAMES,
     CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON,
     CONF_POLL_INTERVAL, CONF_SILENT_HOURS,
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
@@ -310,6 +311,21 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             ): selector.SelectSelector(selector.SelectSelectorConfig(
                 options=AUTO_DOWNLOAD_MODES,
                 translation_key=CONF_AUTO_DOWNLOAD,
+            )),
+            # Narrows "every new recording" to the ones worth the disk. Empty
+            # is no filter, which is what an installation made before this
+            # existed has and what it keeps.
+            #
+            # Optional rather than Required: a Required multi-select with an
+            # empty default is a form that cannot be submitted until something
+            # is ticked, and "nothing" is the setting most people want.
+            vol.Optional(
+                CONF_DOWNLOAD_TYPES,
+                default=list(options.get(CONF_DOWNLOAD_TYPES) or []),
+            ): selector.SelectSelector(selector.SelectSelectorConfig(
+                options=[str(code) for code in sorted(DETECTION_NAMES)],
+                translation_key=CONF_DOWNLOAD_TYPES,
+                multiple=True,
             )),
             vol.Required(
                 CONF_KEEP_DOWNLOADS,

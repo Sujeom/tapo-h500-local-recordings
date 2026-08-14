@@ -112,6 +112,9 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   of when the hub will start overwriting.
 - **Backups:** `tapo_h500.backup_names` hands back the face names and camera
   layout — the only things here a hub cannot reproduce.
+- **Download what matters:** pick which detections are worth the disk instead
+  of choosing between presses and everything — a road-facing camera fills a
+  drive with traffic, and the clips people go back for have a person in them.
 - **History:** each camera gets a `binary_sensor` per detection — motion,
   person, animal, unfamiliar face, tampering — on for 30 seconds after the
   hub reports it, so activity appears on a history graph and can be used as an

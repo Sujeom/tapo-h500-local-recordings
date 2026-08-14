@@ -83,6 +83,20 @@ PERSON_CODES: set[int] = {6}
 CONF_DIGEST_TIME = "digest_time"
 DEFAULT_DIGEST_TIME = ""
 
+# Which detections are worth the disk, as alarm codes. Empty means all of them,
+# which is what every existing installation has and what it keeps.
+#
+# off / rings / all was the only choice, and on this firmware two of those three
+# are the same: a TD21 doorbell labels every clip video_type "2", so ring-only
+# matched nothing and downloaded nothing until code 17 was identified. Even
+# now, "rings" and "everything" is a poor pair of options for a camera facing a
+# road -- the clips people actually go back for are the ones with a person in
+# them, and vehicles are the traffic.
+#
+# Stored as the codes rather than as labels, because the labels are a reading of
+# what the hub means and have already been corrected once.
+CONF_DOWNLOAD_TYPES = "download_types"
+
 AUTO_DOWNLOAD_OFF = "off"
 AUTO_DOWNLOAD_RINGS = "rings"
 AUTO_DOWNLOAD_ALL = "all"

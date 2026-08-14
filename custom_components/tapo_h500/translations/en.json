@@ -33,7 +33,8 @@
           "keep_downloads": "Downloaded clips to keep per camera",
           "keep_rings": "Doorbell presses to keep per camera",
           "silent_hours": "Hours of silence before a camera is flagged",
-          "keep_person": "Recordings with a person to keep per camera"
+          "keep_person": "Recordings with a person to keep per camera",
+          "download_types": "Only download these detections"
         },
         "data_description": {
           "convert_mp4": "MP4 plays in the browser; turn this off to keep the hub's original MPEG-TS.",
@@ -41,7 +42,8 @@
           "poll_interval": "The whole notification delay: nothing reaches Home Assistant sooner than the next check. About 40ms of hub time per check, so low values are cheap.",
           "keep_rings": "0 treats presses like everything else. Any other number keeps that many of the newest presses whatever their age, so a busy afternoon of motion cannot evict the press that mattered.",
           "silent_hours": "A camera off the Wi-Fi or flat looks exactly like a quiet one: the hub reports no online flag and no battery, so silence is the only evidence there is. Lower this for a busy doorbell, raise it for a back gate that genuinely sees nobody all day. Capped at 24 because that is how far back the hub is asked.",
-          "keep_person": "0 treats them like everything else. Any other number keeps that many of the newest recordings with a person in them whatever their age, so a windy afternoon of motion cannot evict the one recording of somebody at the door. Counted separately from doorbell presses; a press with a person in it is protected by both."
+          "keep_person": "0 treats them like everything else. Any other number keeps that many of the newest recordings with a person in them whatever their age, so a windy afternoon of motion cannot evict the one recording of somebody at the door. Counted separately from doorbell presses; a press with a person in it is protected by both.",
+          "download_types": "Leave empty to download everything, which is what happens now. Tick a few and only recordings carrying one of them are kept -- the clips people go back for are usually the ones with a person or a doorbell press in them, not the traffic."
         }
       },
       "init": {
@@ -85,6 +87,19 @@
         "sensitive": "Sensitive",
         "normal": "Normal",
         "relaxed": "Relaxed"
+      }
+    },
+    "download_types": {
+      "options": {
+        "2": "Motion",
+        "6": "Person",
+        "8": "Vehicle",
+        "9": "Pet",
+        "10": "Missed doorbell",
+        "17": "Doorbell",
+        "19": "Theft",
+        "20": "Face",
+        "22": "Unknown face"
       }
     }
   },
