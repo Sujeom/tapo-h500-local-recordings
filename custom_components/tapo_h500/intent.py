@@ -14,7 +14,7 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 
-from .clips import describe_detection, start_of, summarise
+from .clips import describe_detection, distinct, start_of, summarise
 from .const import DATA_HUBS, DOMAIN
 
 INTENT_LAST_EVENT = "TapoH500LastEvent"
@@ -79,11 +79,19 @@ class TodayIntent(intent.IntentHandler):
         hass = request.hass
         from homeassistant.util import dt as dt_util
         now = int(dt_util.utcnow().timestamp())
-        per_camera: dict[str, list[dict]] = {}
+        # Names and their clips, kept as a list until the names are known to
+        # be distinct. Two hubs can each have a "Front Doorbell", and putting
+        # those straight into a dictionary drops one without a word -- the
+        # answer then describes half the house as though it were all of it.
+        found: list[tuple[str, str, list[dict]]] = []
         for coordinator in _hubs(hass):
             for index, camera in enumerate(coordinator.cameras):
-                name = camera.get("alias") or f"Camera {index}"
-                per_camera[name] = coordinator.clips_for(index)
+                found.append((camera.get("alias") or f"Camera {index}",
+                              coordinator.entry.title,
+                              coordinator.clips_for(index)))
+        labels = distinct([(name, hub) for name, hub, _ in found])
+        per_camera = {label: clips
+                      for label, (_, _, clips) in zip(labels, found)}
 
         response = request.create_response()
         response.async_set_speech(summarise(per_camera, now) if per_camera

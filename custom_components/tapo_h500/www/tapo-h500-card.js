@@ -180,7 +180,10 @@ const FIELD = {
     selector: { number: { min: 0, max: 15, mode: "box" } } },
   max_height: { name: "max_height",
     selector: { number: { min: 0, max: 2000, step: 20, mode: "box" } } },
-  entry_id: { name: "entry_id", selector: { text: {} } },
+  // A picker rather than a box to type an opaque id into. It only matters
+  // with more than one hub, which is exactly when nobody knows the id.
+  entry_id: { name: "entry_id",
+    selector: { config_entry: { integration: "tapo_h500" } } },
   // A map of face id to name. There is no key/value selector, and the object
   // one gives a small YAML editor, which is the right shape for a dictionary
   // whose keys are 12-digit numbers the hub invented.
@@ -191,7 +194,7 @@ const LABELS = {
   days: "Days to show",
   camera_index: "Camera (leave empty for a picker)",
   max_height: "Scroll after (pixels, 0 for none)",
-  entry_id: "Config entry (leave empty for the first hub)",
+  entry_id: "Hub (leave empty for the first one)",
   names: "Face names, as id: name (the card shows the id of anyone unnamed)",
 };
 

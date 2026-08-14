@@ -313,6 +313,10 @@
     "camera_silent": {
       "title": "A camera has gone quiet",
       "description": "{cameras} has recorded nothing for {hours} hours.\n\nThat usually means it is off the Wi-Fi, flat or unplugged, but it can also mean nothing has happened there. The hub cannot tell you which: its paired-device record has no online flag, no signal strength and no battery, so silence is the only evidence available. Every entity for that camera is still showing its last known value.\n\nCheck the camera, or raise the threshold under Configure → Settings if it is simply somewhere quiet."
+    },
+    "clashing_camera_names": {
+      "title": "Two cameras share a name",
+      "description": "More than one paired camera is called {cameras}, so their downloads are filed in the same folder.\n\nRecordings are stored under a slug of the camera's own name, which is what makes \"already downloaded\" a check of the files on disk rather than a separate index that could disagree with them. Two cameras sharing a name means one camera's recording answers that question for the other, and clips from both appear under whichever card you open.\n\nRename one of them in the Tapo app. Anything already downloaded stays where it is; new recordings go to the new folder."
     }
   }
 }

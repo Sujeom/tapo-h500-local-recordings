@@ -1,9 +1,11 @@
 """Conditions worth interrupting someone about, raised as Home Assistant issues.
 
-The alternative is a debug log line nobody reads. Both of these are silent
-until footage is already lost: a hub at 99% is overwriting the oldest
-recordings to make room, and a hub that stopped answering is not recording
-anything at all while every entity keeps showing its last known value.
+The alternative is a debug log line nobody reads, and every one of these is
+silent until footage is already lost or gone unrecorded: a hub at 99% is
+overwriting its oldest recordings, a hub that stopped answering is recording
+nothing while every entity keeps showing its last known value, a camera that
+has gone quiet looks exactly like a quiet camera, and two cameras sharing a
+name file their downloads over each other.
 
 Deliberately not raised: a single failed poll, which is normal on a busy
 network and recovers by itself, and low free space in gigabytes, which means
@@ -14,9 +16,10 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
+from .clips import clashing_names
 from .const import (
-    CONF_SILENT_HOURS, DEFAULT_SILENT_HOURS, DOMAIN, LOOKBACK_SECONDS,
-    NAME_PROMPT_SIGHTINGS,
+    CONF_SILENT_HOURS, DATA_HUBS, DEFAULT_SILENT_HOURS, DOMAIN,
+    LOOKBACK_SECONDS, NAME_PROMPT_SIGHTINGS,
 )
 
 # Percent used at which the hub is about to start overwriting. Loop recording
@@ -28,6 +31,7 @@ STORAGE_ISSUE = "storage_nearly_full"
 UNREACHABLE_ISSUE = "hub_unreachable"
 UNNAMED_FACE_ISSUE = "unnamed_face"
 SILENT_CAMERA_ISSUE = "camera_silent"
+CLASHING_NAMES_ISSUE = "clashing_camera_names"
 
 
 def _issue_id(entry_id: str, kind: str) -> str:
@@ -35,11 +39,16 @@ def _issue_id(entry_id: str, kind: str) -> str:
 
 
 def async_check(hass: HomeAssistant, entry_id: str, coordinator) -> None:
-    """Raise or clear both issues for one hub. Safe to call every poll."""
+    """Raise or clear every issue for one hub. Safe to call every poll.
+
+    Each check clears its own issue when the condition has gone. One that
+    never clears is worse than one that never appears.
+    """
     _storage(hass, entry_id, coordinator)
     _reachable(hass, entry_id, coordinator)
     _unnamed_faces(hass, entry_id, coordinator)
     _silent_cameras(hass, entry_id, coordinator)
+    _clashing_names(hass, entry_id, coordinator)
 
 
 def _storage(hass: HomeAssistant, entry_id: str, coordinator) -> None:
@@ -73,6 +82,42 @@ def _reachable(hass: HomeAssistant, entry_id: str, coordinator) -> None:
         is_fixable=False,
         severity=ir.IssueSeverity.ERROR,
         translation_key=UNREACHABLE_ISSUE,
+    )
+
+
+def _clashing_names(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+    """Warn when two cameras would write to the same folder.
+
+    Downloads are filed under a slug of the camera's own name --
+    <camera>/<date>/<time>.mp4 -- and that is deliberate: it makes "already
+    downloaded" a path check rather than an index that could disagree with
+    the files on disk.
+
+    It also means two cameras called the same thing share a folder, and then
+    "already downloaded" is answered for one camera by the other's recording.
+    Two hubs make that likely rather than theoretical.
+
+    Reported rather than worked around. Renaming a camera in the Tapo app
+    fixes it in seconds; putting the hub into the path would orphan every
+    recording anyone has already downloaded, to fix a case most installations
+    do not have.
+    """
+    issue_id = _issue_id(entry_id, CLASHING_NAMES_ISSUE)
+    every_camera = [
+        camera
+        for hub in (hass.data.get(DOMAIN, {}).get(DATA_HUBS, {}) or {}).values()
+        for camera in getattr(hub, "cameras", [])
+    ]
+    clashing = clashing_names(every_camera, coordinator.cameras)
+    if not clashing:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    ir.async_create_issue(
+        hass, DOMAIN, issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=CLASHING_NAMES_ISSUE,
+        translation_placeholders={"cameras": ", ".join(clashing)},
     )
 
 

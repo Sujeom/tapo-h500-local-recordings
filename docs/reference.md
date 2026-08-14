@@ -709,6 +709,23 @@ Silent on the first check after a restart. The window holds a day of
 recordings, so otherwise restarting at teatime would announce everyone who came
 home at breakfast.
 
+## More than one hub
+
+Add each hub separately; they are keyed by address, so two work. Actions all
+take a `config_entry_id`, the cards have a **Hub** picker (leave it empty and
+they use the first one, so existing cards keep working), and the spoken
+"what happened today" covers every hub.
+
+One thing to watch: downloads are filed under a slug of the camera's own name,
+which is what makes "already downloaded" a check of the files on disk rather
+than a separate index. Two cameras called the same thing — likely across two
+hubs — share a folder, and one camera's recording then answers that question
+for the other. The integration raises a repair issue naming them; rename one in
+the Tapo app and new recordings go to the new folder.
+
+Aliases that differ only in case or spacing count as the same name, because
+they slug to the same directory.
+
 ## Options
 
 

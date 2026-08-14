@@ -23,6 +23,52 @@ def camera_slug(camera: dict) -> str:
     return (slug or "camera")[:60]
 
 
+def distinct(labels: list[tuple[str, str]]) -> list[str]:
+    """Display names for (name, qualifier) pairs, qualifying only the clashes.
+
+    Two hubs can each have a camera called "Front Doorbell", and so can one
+    hub if somebody names them that way. Anything keyed on the name alone --
+    a summary, a spoken answer -- silently drops one of them and reads as
+    though only one camera exists.
+
+    Qualifying every name would put a hub address into every spoken sentence,
+    so only names that actually appear twice are qualified. Both of them are,
+    not just the second: "Front Doorbell" and "Front Doorbell (192.168.11.5)"
+    side by side is worse than neither being bare, because the first looks
+    like the real one.
+    """
+    counts: dict[str, int] = {}
+    for name, _ in labels:
+        counts[name] = counts.get(name, 0) + 1
+    return [f"{name} ({qualifier})" if counts[name] > 1 else name
+            for name, qualifier in labels]
+
+
+def clashing_names(every_camera: list[dict], mine: list[dict]) -> list[str]:
+    """Folder names more than one camera would write to, limited to `mine`.
+
+    Downloads are filed under a slug of the camera's own name, which is what
+    makes "already downloaded" a check of the files on disk rather than a
+    separate index that could disagree with them. It also means two cameras
+    called the same thing share a folder, and that question is then answered
+    for one camera by the other's recording. Two hubs make that likely rather
+    than theoretical.
+
+    Compared as slugs, not aliases: "Front Door" and "front-door" look
+    different in the app and are the same directory on disk.
+
+    Limited to `mine` so a warning names something the person reading it can
+    actually find.
+    """
+    counts: dict[str, int] = {}
+    for camera in every_camera:
+        slug = camera_slug(camera)
+        counts[slug] = counts.get(slug, 0) + 1
+    ours = {camera_slug(camera) for camera in mine}
+    return sorted(slug for slug, count in counts.items()
+                  if count > 1 and slug in ours)
+
+
 def _as_int(value) -> int | None:
     try:
         return int(value)

@@ -21,8 +21,8 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
 from .clips import (
-    describe_detection, detection_types, end_of, event_type, face_ids,
-    start_of, summarise,
+    describe_detection, detection_types, distinct, end_of, event_type,
+    face_ids, start_of, summarise,
 )
 from .const import (
     CARD_URL, CONF_CLOUD_PASSWORD, CONF_CONVERT_MP4, DATA_CARD, DATA_HUBS,
@@ -490,11 +490,16 @@ def _register_services(hass: HomeAssistant) -> None:
         """
         coordinator = _coordinator(hass, call.data["config_entry_id"])
         window = call.data["hours"] * 3600
-        per_camera = {
-            (camera.get("alias") or f"Camera {index}"):
-                coordinator.clips_for(index)
-            for index, camera in enumerate(coordinator.cameras)
-        }
+        # Qualified only where two cameras share a name, which one hub can
+        # manage on its own if somebody names them that way -- a dictionary
+        # keyed on the name would drop one and read as though it did not
+        # exist.
+        cameras = list(enumerate(coordinator.cameras))
+        labels = distinct([
+            (camera.get("alias") or f"Camera {index}", f"camera {index}")
+            for index, camera in cameras])
+        per_camera = {label: coordinator.clips_for(index)
+                      for label, (index, _) in zip(labels, cameras)}
         now = int(dt_util.utcnow().timestamp())
         return {"hours": call.data["hours"],
                 "summary": summarise(per_camera, now, window)}
