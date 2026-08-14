@@ -619,6 +619,23 @@ because that is how far back the hub is asked.
 
 Unknown, not off, before the first check completes.
 
+### Possible delivery
+
+`binary_sensor.<camera>_possible_delivery` comes on for five minutes after a
+visit that looked like a delivery: somebody was there, the hub did not
+recognise them, they stayed under a minute, and it was daylight.
+
+**Retrospective, and it has to be.** At the moment the hub reports a detection
+the person has been there for one clip — and so has everybody who is about to
+stay for ten minutes. A visit's length is only known once it is over, so this
+cannot answer "is that a delivery at my door right now". It answers "was that a
+delivery", and holds the answer long enough for an automation to see it.
+
+A guess, and named like one. Nothing the hub reports says *courier*. A
+canvasser looks identical, and so does somebody checking whether the house is
+empty — which is why it is a signal to describe an afternoon with, not a reason
+to stay quiet.
+
 ### Loitering
 
 `binary_sensor.<camera>_loitering` is on while a face the hub could **not**

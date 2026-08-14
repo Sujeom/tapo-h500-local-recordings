@@ -15,9 +15,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .clips import detection_types, loitering, unusually_busy
+from .clips import (
+    detection_types, likely_delivery, loitering, unusually_busy,
+)
 from .const import (
-    CONF_SILENT_HOURS, DATA_HUBS, DEFAULT_SILENT_HOURS, DETECTION_HOLD,
+    CONF_NIGHT_END, CONF_NIGHT_START, CONF_SILENT_HOURS, DATA_HUBS,
+    DEFAULT_NIGHT_END, DEFAULT_NIGHT_START, DEFAULT_SILENT_HOURS,
+    DELIVERY_HOLD, DELIVERY_SECONDS, DETECTION_HOLD,
     DETECTION_NAMES, DOMAIN, FACE_PRESENCE_WINDOW,
     LOITER_GAP, LOITER_SECONDS,
     LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED, UNUSUAL_FLOOR, UNUSUAL_MULTIPLIER,
@@ -104,6 +108,10 @@ async def async_setup_entry(
     ]
     entities += [
         H500CameraSilent(coordinator, index, camera)
+        for index, camera in enumerate(coordinator.cameras)
+    ]
+    entities += [
+        H500Delivery(coordinator, index, camera)
         for index, camera in enumerate(coordinator.cameras)
     ]
     entities.append(H500Prowling(coordinator, entry))
@@ -357,6 +365,40 @@ class H500CameraSilent(H500Entity, BinarySensorEntity):
             "silent_seconds": seconds,
             "threshold_hours": silent_threshold(self.coordinator) // 3600,
         }
+
+
+class H500Delivery(H500Entity, BinarySensorEntity):
+    """On for a few minutes after a visit that looked like a delivery.
+
+    Somebody was there, the hub did not recognise them, and they did not stay
+    -- in daylight. That is a courier far more often than anything else.
+
+    Retrospective, which is the part worth understanding: at the moment the
+    hub reports a detection the person has been there for one clip, and so has
+    everybody about to stay for ten minutes. The length of a visit is only
+    known once it has ended, so this cannot answer "is that a delivery at my
+    door right now". It answers "was that a delivery", and holds the answer
+    long enough for an automation to see it.
+    """
+
+    _attr_translation_key = "possible_delivery"
+    _attr_icon = "mdi:package-variant-closed"
+
+    def __init__(self, coordinator, index: int, camera: dict) -> None:
+        super().__init__(coordinator, index, camera)
+        self._attr_unique_id = f"{camera['device_id']}_possible_delivery"
+
+    @property
+    def is_on(self) -> bool:
+        from homeassistant.util import dt as dt_util
+        now = dt_util.utcnow()
+        options = self.coordinator.entry.options
+        return likely_delivery(
+            self.coordinator.clips_for(self.index),
+            int(now.timestamp()), LOITER_GAP, DELIVERY_SECONDS, DELIVERY_HOLD,
+            dt_util.as_local(now).hour,
+            options.get(CONF_NIGHT_START, DEFAULT_NIGHT_START),
+            options.get(CONF_NIGHT_END, DEFAULT_NIGHT_END))
 
 
 class H500Prowling(CoordinatorEntity[H500Coordinator], BinarySensorEntity):

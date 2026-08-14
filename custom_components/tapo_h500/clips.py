@@ -291,6 +291,18 @@ def sessions(clips: list[dict], gap: int) -> list[tuple[int, int, int]]:
     return visits
 
 
+def last_visit(clips: list[dict], gap: int, matches) -> tuple[int, int] | None:
+    """The most recent visit whose recordings this predicate accepts.
+
+    (first sighting, last sighting), or None if there were none.
+    """
+    visits = sessions([clip for clip in clips if matches(clip)], gap)
+    if not visits:
+        return None
+    start, end, _ = visits[-1]
+    return (start, end)
+
+
 def loitering(clips: list[dict], now: int, gap: int, minimum: int) -> int:
     """How long an unrecognised face has been around, if it still is.
 
@@ -305,16 +317,58 @@ def loitering(clips: list[dict], now: int, gap: int, minimum: int) -> int:
     fifteen-second clip is evidence of fifteen seconds; counting the silence
     since would inflate every brief visit the moment it ended.
     """
-    unknown = [clip for clip in clips if 22 in detection_types(clip)]
-    visits = sessions(unknown, gap)
-    if not visits:
+    visit = last_visit(clips, gap, lambda clip: has_detection(clip, {22}))
+    if visit is None:
         return 0
-    start, end, _ = visits[-1]
+    start, end = visit
     # Over. Someone who left two hours ago is not loitering now.
     if now - end > gap:
         return 0
     lasted = end - start
     return lasted if lasted >= minimum else 0
+
+
+def likely_delivery(clips: list[dict], now: int, gap: int, longest: int,
+                    hold: int, hour: int, night_start: int,
+                    night_end: int) -> bool:
+    """Whether the visit that just ended reads like a delivery.
+
+    Three things at once: somebody was there, the hub did not recognise them,
+    and they did not stay. In daylight, that is a courier far more often than
+    it is anything else.
+
+    Retrospective on purpose, and this is the part worth understanding. The
+    length of a visit is not known while it is happening -- at the moment the
+    hub reports a detection, the person has been there for one clip, and so
+    has everybody who is about to stay for ten minutes. So this cannot answer
+    "is the thing at my door right now a delivery"; it answers "was that a
+    delivery", once the visit is over, and stays true for a while afterwards
+    so an automation has time to see it.
+
+    A guess, and named like one. Nothing the hub reports says "courier". A
+    canvasser looks identical, and so does somebody checking whether the house
+    is empty -- which is why this is a signal to describe an afternoon with,
+    not a reason to stay quiet.
+    """
+    if in_night(hour, night_start, night_end):
+        return False
+    visit = last_visit(clips, gap,
+                       lambda clip: has_detection(clip, {6}))
+    if visit is None:
+        return False
+    start, end = visit
+    # Still happening, so its length is not final yet.
+    if now - end <= gap:
+        return False
+    # Over long enough ago to no longer be news.
+    if now - end > hold:
+        return False
+    if end - start > longest:
+        return False
+    # Recognised at any point during the visit. Somebody the hub knows,
+    # arriving and leaving quickly, is a member of the household in a hurry.
+    return not any(has_detection(clip, {20}) for clip in clips
+                   if start <= (start_of(clip) or -1) <= end)
 
 
 def summarise(per_camera: dict[str, list[dict]], now: int,

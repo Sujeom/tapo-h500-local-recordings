@@ -276,6 +276,20 @@ UNUSUAL_FLOOR = 4
 LOITER_GAP = 120
 LOITER_SECONDS = 180
 
+# The other end of the same measurement: a visit short enough to be a delivery.
+#
+# Under a minute at the door, in daylight, by somebody the hub did not
+# recognise. A guess and named like one -- nothing the hub reports says
+# "courier", a canvasser looks identical, and so does somebody checking whether
+# the house is empty.
+#
+# The hold exists because this can only be known afterwards. While somebody is
+# at the door they have been there for one clip, and so has everybody who is
+# about to stay ten minutes; the length is final only once the visit has ended.
+# Five minutes is long enough for an automation to notice.
+DELIVERY_SECONDS = 60
+DELIVERY_HOLD = 300
+
 # How many hours of nothing at all before a camera is called silent.
 #
 # Silence is the only evidence available. The 16 fields in the paired-device
