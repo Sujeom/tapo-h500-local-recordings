@@ -97,6 +97,7 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **One notification per visitor:** `tapo_h500_visit` fires once when somebody
   arrives, not once per recording. Four minutes at the door is sixteen clips,
   and sixteen notifications about one person is why people mute integrations.
+  Two doorbells watching the same path still fire once between them.
 - **Waiting, and circling:** a sensor for an unrecognised face that has stayed
   more than three minutes, and one for somebody who came back to a camera they
   had already passed.

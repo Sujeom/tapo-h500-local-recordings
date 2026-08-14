@@ -383,6 +383,24 @@ SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
 # appearing, which is what the detection event already says.
 EVENT_ARRIVAL = f"{DOMAIN}_arrival"
 
+# How close together two CAMERAS' visits have to be to be one arrival.
+#
+# Two doorbells covering one path see the same person twice, and a visit event
+# per camera is two notifications about one arrival -- the thing this whole
+# event exists to stop, reappearing one level up.
+#
+# Thirty seconds covers cameras with overlapping views and somebody walking
+# straight past. Beyond that, a shared face id is required as well: a person
+# the hub recognised at the gate and again at the door within the direction
+# window is evidently one journey, where two strangers two minutes apart at
+# different cameras are evidently not. Only ever across cameras -- one camera's
+# own recordings are already grouped into visits, and re-grouping them here
+# would swallow a genuine second visitor.
+#
+# A judgement, like the other windows here. There is no data on how long people
+# take to walk between two doorbells.
+ENCOUNTER_SECONDS = 30
+
 # Fired once when a visit begins, where the arrival event covers only people
 # who have been named.
 #

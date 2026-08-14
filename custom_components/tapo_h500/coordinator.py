@@ -12,9 +12,10 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .clips import (
-    attach_detections, describe_codes, detection_types, direction, end_of,
-    event_type, face_ids, has_detection, local_date, newest_matching, prowling,
-    sessions, start_of, suggest_ranks,
+    attach_detections, combine_visits, describe_codes, detection_types,
+    direction, end_of, event_type, face_ids, has_detection, local_date,
+    merge_visits, newest_matching, prowling, same_encounter, sessions,
+    start_of, suggest_ranks,
 )
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
@@ -25,7 +26,7 @@ from .const import (
     CONF_DOWNLOAD_TYPES,
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
-    EVENT_VISIT, LOITER_GAP,
+    ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
     LOOKBACK_SECONDS, POLL_BACKOFF_MAX, PROWL_WINDOW, SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES,
 )
@@ -74,8 +75,12 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Who has already been seen today, and which day that refers to.
         self._arrived: set[str] = set()
         self._arrival_day: str | None = None
-        # The start of the newest visit already announced, per camera.
+        # The start of the newest visit already announced, per camera...
         self._visits: dict[int, int] = {}
+        # ...and the visits announced recently, whatever camera they came from,
+        # so a second camera seeing the same arrival on the next poll does not
+        # announce it again.
+        self._encounters: list[dict] = []
         # How full the disk has been, so a rate can be fitted to it. Memory
         # only: the hub reports how full it is now and nothing about before.
         self.storage_trend: list[tuple[int, float]] = []
@@ -413,6 +418,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         holds a day, so a restart would otherwise announce every visit since
         breakfast at once.
         """
+        fresh: list[dict] = []
         for index, clips in clips_by_camera.items():
             visits = sessions(clips, LOITER_GAP)
             if not visits:
@@ -426,8 +432,25 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             self._visits[index] = newest[0]
             if not self._primed:
                 continue
-            self.hass.bus.async_fire(
-                EVENT_VISIT, self._visit_payload(index, clips, newest))
+            fresh.append(self._visit_payload(index, clips, newest))
+
+        for group in merge_visits(fresh, ENCOUNTER_SECONDS, DIRECTION_WINDOW):
+            combined = combine_visits(group)
+            # Cameras rarely index a shared arrival on the same poll -- at two
+            # seconds apart they usually land on consecutive ones -- so the
+            # merge above catches only half the cases. The other half is
+            # answered by remembering what was just announced.
+            if any(same_encounter(before, combined, ENCOUNTER_SECONDS,
+                                  DIRECTION_WINDOW)
+                   for before in self._encounters):
+                continue
+            self._encounters.append(combined)
+            self.hass.bus.async_fire(EVENT_VISIT, combined)
+        # Nothing older than the longest window either rule looks at can
+        # suppress anything, and this is memory that would otherwise only grow.
+        cutoff = int(dt_util.utcnow().timestamp()) - DIRECTION_WINDOW
+        self._encounters = [entry for entry in self._encounters
+                            if entry["at"] >= cutoff]
 
     def clips_for(self, index: int) -> list[dict]:
         return (self.data or {}).get("clips", {}).get(index, [])

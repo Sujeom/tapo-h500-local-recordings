@@ -529,6 +529,75 @@ def direction(trail: list[dict], ranks: dict[str, int],
     return "approaching" if here > before else "leaving"
 
 
+def same_encounter(earlier: dict, later: dict, window: int,
+                   journey: int) -> bool:
+    """Whether two cameras' visits are one person arriving once.
+
+    Two doorbells covering one path see the same arrival twice, and an event
+    per camera is two notifications about one person -- exactly what the visit
+    event exists to stop, reappearing a level up.
+
+    Two rules, both needed. Within `window` the visits are simultaneous enough
+    to be the same thing whoever it was; beyond that a shared face id is
+    required as well, because a person recognised at the gate and again at the
+    door is evidently one journey where two strangers two minutes apart at
+    different cameras are evidently not.
+
+    Never within one camera. Its own recordings are already grouped into visits
+    by `sessions`, and re-grouping them here would swallow a real second
+    visitor.
+    """
+    if earlier.get("camera") == later.get("camera"):
+        return False
+    gap = later["at"] - earlier["at"]
+    if gap <= window:
+        return True
+    return gap <= journey and bool(
+        set(earlier.get("face_ids") or []) & set(later.get("face_ids") or []))
+
+
+def merge_visits(visits: list[dict], window: int,
+                 journey: int) -> list[list[dict]]:
+    """Group per-camera visits that are one arrival, oldest group first.
+
+    Compared against the newest visit already in the group rather than against
+    the first, so a walk past four cameras stays one encounter instead of
+    splitting once it outruns the window from where it started.
+    """
+    groups: list[list[dict]] = []
+    for visit in sorted(visits, key=lambda entry: entry["at"]):
+        for group in groups:
+            if any(same_encounter(member, visit, window, journey)
+                   for member in group):
+                group.append(visit)
+                break
+        else:
+            groups.append([visit])
+    return groups
+
+
+def combine_visits(group: list[dict]) -> dict:
+    """One event from several cameras' views of one arrival.
+
+    Keyed on the earliest, because where somebody was seen FIRST is where they
+    came from, which is the useful half of a two-camera sighting.
+    """
+    first = min(group, key=lambda entry: entry["at"])
+    codes = sorted({code for entry in group
+                    for code in entry.get("detections") or []})
+    return {
+        **first,
+        "cameras": sorted({entry["camera"] for entry in group}),
+        "recordings": sum(entry.get("recordings", 0) for entry in group),
+        "detections": codes,
+        "detection": describe_codes(codes),
+        "face_ids": sorted({face for entry in group
+                            for face in entry.get("face_ids") or []}),
+        "names": sorted({name for entry in group
+                         for name in entry.get("names") or []}),
+    }
+
+
 def suggest_ranks(trails: list[list[dict]], window: int) -> dict[str, int]:
     """Where the cameras sit between the street and the door, inferred.
 

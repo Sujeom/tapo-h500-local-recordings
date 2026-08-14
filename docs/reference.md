@@ -758,8 +758,17 @@ actions:
 
 Recordings less than two minutes apart are one visit — the same grouping the
 loitering sensor uses. The payload carries `camera`, `camera_index`, `at`,
-`detections` (the alarm codes), `detection` (the same phrase the cards show),
-`face_ids`, `names` for anyone you have named, and `recordings`.
+`cameras`, `detections` (the alarm codes), `detection` (the same phrase the
+cards show), `face_ids`, `names` for anyone you have named, and `recordings`.
+
+**Two cameras watching one path still fire once.** Visits at different cameras
+within 30 seconds are one arrival, and so are visits up to three minutes apart
+that carry the same face id — recognised at the gate and again at the door is
+one person walking, where two strangers two minutes apart are not. The event is
+keyed on where they were seen **first**, because that is where they came from,
+and `cameras` lists everywhere that saw them. One camera's own recordings are
+never merged this way; they are already grouped into visits, and merging them
+again would swallow a real second visitor at the same door.
 
 It fires at the **start** of the visit, so it only knows about the first
 recording. That is deliberate: at that moment somebody who is about to leave in
