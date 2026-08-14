@@ -476,6 +476,37 @@ Outside the poll window there is no value at all, rather than a stale one. Unnam
 still counted and still appear on the cards — naming decides who is worth an
 entity, not who gets tracked.
 
+### Backing the names up
+
+Face names and the camera layout are the only state here a hub cannot
+reproduce. Recordings and settings live on the hub and every sensor is derived;
+these two came out of your head after opening photographs to work out who a
+twelve-digit number is — and they live on the config entry, so deleting the
+integration takes them with it without warning.
+
+```yaml
+action: tapo_h500.backup_names
+data:
+  config_entry_id: <hub>
+```
+
+The response pastes straight back:
+
+```yaml
+action: tapo_h500.restore_names
+data:
+  config_entry_id: <hub>
+  face_names: {"272465657857": "Alice"}
+  camera_order: {"Front Doorbell": 1, "Side Gate": 0}
+  replace: false      # the default: merge rather than discard
+```
+
+Merging is the default because the usual restore is an older backup onto an
+entry that has learned a few more names since. A blank name removes rather than
+stores it, the same rule the card and the options screen use. Leave
+`camera_order` out and the layout is untouched — a backup taken before the
+layout existed must not read as "the layout is empty".
+
 ### Calendar
 
 Each camera gets a `calendar.<camera>_recordings` entity, so the Calendar panel

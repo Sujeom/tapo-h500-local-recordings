@@ -35,10 +35,15 @@ from .const import (
     SERVICE_FIND_FACE,
     SERVICE_EXPORT_RECORDING,
     SERVICE_SNOOZE,
+    SERVICE_BACKUP_NAMES,
+    SERVICE_RESTORE_NAMES,
     SIGNAL_FACES_CHANGED,
     RELOAD_ON_CHANGE,
     DESCRIBE_PROMPT,
     CONF_FACE_NAMES,
+)
+from .backup import (
+    merge_names, merge_ranks, restored_options, snapshot,
 )
 from .coordinator import H500Coordinator
 from .media import (
@@ -109,6 +114,23 @@ NAME_FACE_SCHEMA = vol.Schema({
     # Omitted or empty clears the name rather than storing a blank one.
     vol.Optional("name", default=""): cv.string,
 })
+BACKUP_SCHEMA = vol.Schema({
+    vol.Required("config_entry_id"): cv.string,
+})
+# Validated rather than trusted. This writes straight into the config entry's
+# options, and a restore is exactly the moment somebody pastes a hand-edited
+# blob in: an id that is not a string or a rank that is not a number would sit
+# there until something else tripped over it, a long way from here.
+RESTORE_SCHEMA = vol.Schema({
+    vol.Required("config_entry_id"): cv.string,
+    vol.Required("face_names"): vol.Schema({cv.string: cv.string}),
+    vol.Optional("camera_order"): vol.Schema({
+        cv.string: vol.All(vol.Coerce(int), vol.Range(min=0, max=20))}),
+    # Merging by default. Replacing is the destructive one, and losing a name
+    # means going back through the photographs to work out who a
+    # twelve-digit number was.
+    vol.Optional("replace", default=False): cv.boolean,
+})
 SNOOZE_SCHEMA = vol.Schema({
     vol.Required("config_entry_id"): cv.string,
     # 0 cancels a snooze already running. Omitted means indefinitely, which is
@@ -120,19 +142,24 @@ FORMAT_SCHEMA = vol.Schema({
     vol.Required("confirm"): vol.All(cv.boolean, vol.Equal(True)),
 })
 
+# Removed when the last hub unloads. Service names only: this had collected
+# SIGNAL_FACES_CHANGED, RELOAD_ON_CHANGE, DESCRIBE_PROMPT and CONF_FACE_NAMES
+# over time, none of which name a service. Nothing broke -- has_service simply
+# answered no -- which is why it went unnoticed, and it made the tuple useless
+# as a statement of what gets cleaned up.
 SERVICES = (
     SERVICE_LIST_RECORDINGS,
+    SERVICE_DOWNLOAD_RECORDING,
+    SERVICE_DELETE_RECORDING,
+    SERVICE_FORMAT_HUB_STORAGE,
     SERVICE_NAME_FACE,
     SERVICE_DESCRIBE_RECORDING,
     SERVICE_DAILY_SUMMARY,
     SERVICE_FIND_FACE,
     SERVICE_EXPORT_RECORDING,
     SERVICE_SNOOZE,
-    SIGNAL_FACES_CHANGED,
-    RELOAD_ON_CHANGE,
-    DESCRIBE_PROMPT,
-    CONF_FACE_NAMES, SERVICE_DOWNLOAD_RECORDING,
-    SERVICE_DELETE_RECORDING, SERVICE_FORMAT_HUB_STORAGE,
+    SERVICE_BACKUP_NAMES,
+    SERVICE_RESTORE_NAMES,
 )
 
 
@@ -518,6 +545,44 @@ def _register_services(hass: HomeAssistant) -> None:
         return await async_export(hass, camera, call.data["start_time"],
                                   call.data["destination"])
 
+    async def backup_names(call: ServiceCall):
+        """Hand back everything that was typed in rather than measured.
+
+        Face names and the camera layout are the only state here a hub cannot
+        reproduce. Recordings live on the hub, settings live on the hub, and
+        every sensor is derived. These two came out of somebody's head --
+        months of looking at photographs to work out who a twelve-digit number
+        is -- and they live on the config entry, so deleting the entry takes
+        them with it and nothing warns first.
+
+        Shaped so the answer can be pasted straight into restore_names.
+        """
+        coordinator = _coordinator(hass, call.data["config_entry_id"])
+        return snapshot(coordinator.face_names, coordinator.camera_ranks)
+
+    async def restore_names(call: ServiceCall):
+        """Put a backup back, merging by default.
+
+        Merging rather than replacing unless asked, because the common case is
+        restoring an old backup onto an entry that has since learned a few
+        more names, and a replace there quietly discards them.
+        """
+        coordinator = _coordinator(hass, call.data["config_entry_id"])
+        replace = call.data["replace"]
+        names = merge_names(coordinator.face_names,
+                            call.data["face_names"], replace)
+        # None, not {}: a backup taken before the layout existed carries no
+        # camera_order at all, and must not be read as "the layout is empty".
+        supplied = call.data.get("camera_order")
+        ranks = None if supplied is None else merge_ranks(
+            coordinator.camera_ranks, supplied, replace)
+        hass.config_entries.async_update_entry(
+            coordinator.entry,
+            options=restored_options(coordinator.entry.options, names, ranks))
+        return {"restored": len(names), "face_names": names,
+                "camera_order": ranks if ranks is not None
+                else coordinator.camera_ranks}
+
     async def snooze(call: ServiceCall):
         """Mute notifications for a while, without disabling the automation.
 
@@ -548,6 +613,8 @@ def _register_services(hass: HomeAssistant) -> None:
         (SERVICE_FIND_FACE, find_face, FIND_FACE_SCHEMA),
         (SERVICE_EXPORT_RECORDING, export_recording, EXPORT_SCHEMA),
         (SERVICE_SNOOZE, snooze, SNOOZE_SCHEMA),
+        (SERVICE_BACKUP_NAMES, backup_names, BACKUP_SCHEMA),
+        (SERVICE_RESTORE_NAMES, restore_names, RESTORE_SCHEMA),
     ):
         hass.services.async_register(
             DOMAIN, service, handler, schema=schema,

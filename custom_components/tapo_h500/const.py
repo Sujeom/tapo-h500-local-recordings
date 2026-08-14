@@ -16,6 +16,13 @@ SERVICE_DAILY_SUMMARY = "daily_summary"
 SERVICE_FIND_FACE = "find_face"
 SERVICE_EXPORT_RECORDING = "export_recording"
 SERVICE_SNOOZE = "snooze"
+SERVICE_BACKUP_NAMES = "backup_names"
+SERVICE_RESTORE_NAMES = "restore_names"
+
+# Stamped into a backup so a future format change can be told from this one.
+# Nothing reads it yet, and that is the point: by the time there is a second
+# format, the first one's files are already out there unlabelled.
+BACKUP_VERSION = 1
 
 # What to ask a vision model about a still from a doorbell clip.
 #

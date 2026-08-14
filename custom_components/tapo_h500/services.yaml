@@ -287,3 +287,57 @@ snooze:
       example: 60
       selector:
         number: {min: 0, max: 1440, mode: box, unit_of_measurement: min}
+
+backup_names:
+  name: Back up face names
+  description: >-
+    Return the face names and camera layout as data you can keep. These are the
+    only things here a hub cannot reproduce -- recordings and settings live on
+    the hub, every sensor is derived, and these two came out of your head after
+    looking at photographs to work out who a twelve-digit number is. They live
+    on the config entry, so deleting the integration takes them with it without
+    warning. The answer pastes straight into Restore face names.
+  fields:
+    config_entry_id:
+      name: Hub
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+
+restore_names:
+  name: Restore face names
+  description: >-
+    Put a backup back. Merges with whatever is already there unless you ask it
+    to replace, because the usual case is restoring an older backup onto an
+    entry that has since learned a few more names.
+  fields:
+    config_entry_id:
+      name: Hub
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    face_names:
+      name: Face names
+      description: The face_names object from a backup, id to name.
+      required: true
+      example: '{"272465657857": "Alice"}'
+      selector:
+        object:
+    camera_order:
+      name: Camera layout
+      description: >-
+        The camera_order object from a backup. Left out, the current layout is
+        untouched.
+      example: '{"Front Doorbell": 1, "Side Gate": 0}'
+      selector:
+        object:
+    replace:
+      name: Replace instead of merging
+      description: >-
+        Discard every name not in this backup. Off by default: losing one means
+        going back through the photographs to work out who that number was.
+      default: false
+      selector:
+        boolean:
