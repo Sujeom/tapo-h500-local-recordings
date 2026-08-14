@@ -72,6 +72,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # How full the disk has been, so a rate can be fitted to it. Memory
         # only: the hub reports how full it is now and nothing about before.
         self.storage_trend: list[tuple[int, float]] = []
+        # When the notification snooze ends. None is not snoozed; infinity is
+        # snoozed until somebody says otherwise.
+        self.snoozed_until: float | None = None
         self._base_interval = interval_or_default(entry)
         # Turn "refresh this every N seconds" into a poll count once, here, so
         # a longer interval configured in options does not silently turn into
@@ -229,6 +232,42 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         moments = [start_of(clip) for clip in self.clips_for(index)]
         moments = [moment for moment in moments if moment is not None]
         return max(moments) if moments else None
+
+    @property
+    def snoozed(self) -> bool:
+        """Whether notifications are muted right now.
+
+        A flag, not a filter. Nothing here stops recording, downloading or
+        firing events while it is set -- footage during a snooze is the
+        footage most likely to be wanted afterwards. What it mutes is the
+        automation, which is where notifications are decided.
+
+        Expiry needs no timer. Every entity reading this redraws on each poll,
+        which is every couple of seconds.
+        """
+        if self.snoozed_until is None:
+            return False
+        if dt_util.utcnow().timestamp() >= self.snoozed_until:
+            # Tidy up so the attribute does not keep showing a past time.
+            self.snoozed_until = None
+            return False
+        return True
+
+    def snooze(self, seconds: float | None) -> float | None:
+        """Mute for this long. None is indefinite, 0 cancels.
+
+        Deliberately not written to disk. A snooze is a "not for the next
+        hour" decision, and one that outlived a restart would be a silent
+        doorbell nobody remembered turning off.
+        """
+        if seconds is not None and seconds <= 0:
+            self.snoozed_until = None
+        elif seconds is None:
+            self.snoozed_until = float("inf")
+        else:
+            self.snoozed_until = dt_util.utcnow().timestamp() + seconds
+        self.async_update_listeners()
+        return self.snoozed_until
 
     def days_until_full(self) -> float | None:
         """When the hub starts overwriting, at the rate seen so far."""

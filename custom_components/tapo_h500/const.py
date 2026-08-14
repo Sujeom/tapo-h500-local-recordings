@@ -15,6 +15,7 @@ SERVICE_DESCRIBE_RECORDING = "describe_recording"
 SERVICE_DAILY_SUMMARY = "daily_summary"
 SERVICE_FIND_FACE = "find_face"
 SERVICE_EXPORT_RECORDING = "export_recording"
+SERVICE_SNOOZE = "snooze"
 
 # What to ask a vision model about a still from a doorbell clip.
 #

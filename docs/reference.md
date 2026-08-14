@@ -476,6 +476,27 @@ Outside the poll window there is no value at all, rather than a stale one. Unnam
 still counted and still appear on the cards — naming decides who is worth an
 entity, not who gets tracked.
 
+### Snooze
+
+`switch.<hub>_notifications_snoozed` mutes notifications without disabling the
+automation — the thing people forget to turn back on. Flip it by hand for an
+indefinite snooze, or give it a duration:
+
+```yaml
+action: tapo_h500.snooze
+data:
+  config_entry_id: <hub>
+  minutes: 60        # omit for indefinite, 0 to cancel
+```
+
+Nothing stops recording, downloading or firing events. Footage taken during a
+snooze is the footage most likely to be wanted afterwards. Only an automation
+that reads the switch is affected, and the notification blueprint has a
+**Snooze switch** input for exactly that — left empty, nothing changes.
+
+It does not survive a Home Assistant restart, deliberately: a snooze that
+outlived one would be a silent doorbell nobody remembered turning off.
+
 ### Storage forecast
 
 `sensor.<hub>_storage_full_in` is how many days until the hub starts

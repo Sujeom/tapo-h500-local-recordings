@@ -73,6 +73,20 @@ blueprint:
       selector:
         text:
 
+    snooze_entity:
+      name: Snooze switch
+      description: >-
+        Optional. Stay silent while this is on. Pick the hub's own
+        "Notifications snoozed" switch, which the `tapo_h500.snooze` action
+        turns on for a set number of minutes — an afternoon of gardening or a
+        party, without disabling this automation and forgetting to put it back.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: switch
+              integration: tapo_h500
+
     repeat_minutes:
       name: Repeat suppression
       description: >-
@@ -158,6 +172,12 @@ conditions:
             value_template: >-
               {{ not input_quiet_entity
                  or states(input_quiet_entity) == input_quiet_state }}
+          # Snoozed. A deliberate "not for the next hour", set from the phone
+          # or a dashboard button, that does not stop anything being recorded.
+          - condition: template
+            value_template: >-
+              {{ not input_snooze_entity
+                 or states(input_snooze_entity) != 'on' }}
           # Repeat suppression. last_triggered belongs to the automation, so this
           # covers every camera it watches rather than each one separately.
           - condition: template
@@ -174,6 +194,7 @@ variables:
   input_detections: !input detections
   input_quiet_entity: !input quiet_entity
   input_quiet_state: !input quiet_state
+  input_snooze_entity: !input snooze_entity
   input_repeat_minutes: !input repeat_minutes
   input_send_photo: !input send_photo
   service: !input notify_service

@@ -262,3 +262,28 @@ export_recording:
       example: /media/nas/doorbell
       selector:
         text:
+
+snooze:
+  name: Snooze notifications
+  description: >-
+    Mute notifications for a while without disabling the automation, which is
+    the thing people forget to turn back on. Nothing stops recording,
+    downloading or firing events -- footage during a snooze is the footage most
+    likely to be wanted afterwards. Only an automation that was told to check
+    switch.<hub>_notifications_snoozed is affected. A snooze does not survive a
+    Home Assistant restart.
+  fields:
+    config_entry_id:
+      name: Hub
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    minutes:
+      name: Minutes
+      description: >-
+        Leave empty to snooze until it is turned off by hand. 0 cancels a
+        snooze already running.
+      example: 60
+      selector:
+        number: {min: 0, max: 1440, mode: box, unit_of_measurement: min}

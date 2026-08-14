@@ -34,6 +34,7 @@ from .const import (
     SERVICE_DAILY_SUMMARY,
     SERVICE_FIND_FACE,
     SERVICE_EXPORT_RECORDING,
+    SERVICE_SNOOZE,
     SIGNAL_FACES_CHANGED,
     RELOAD_ON_CHANGE,
     DESCRIBE_PROMPT,
@@ -108,6 +109,12 @@ NAME_FACE_SCHEMA = vol.Schema({
     # Omitted or empty clears the name rather than storing a blank one.
     vol.Optional("name", default=""): cv.string,
 })
+SNOOZE_SCHEMA = vol.Schema({
+    vol.Required("config_entry_id"): cv.string,
+    # 0 cancels a snooze already running. Omitted means indefinitely, which is
+    # what the switch does when flipped by hand.
+    vol.Optional("minutes"): vol.All(vol.Coerce(int), vol.Range(min=0, max=1440)),
+})
 FORMAT_SCHEMA = vol.Schema({
     vol.Required("config_entry_id"): cv.string,
     vol.Required("confirm"): vol.All(cv.boolean, vol.Equal(True)),
@@ -120,6 +127,7 @@ SERVICES = (
     SERVICE_DAILY_SUMMARY,
     SERVICE_FIND_FACE,
     SERVICE_EXPORT_RECORDING,
+    SERVICE_SNOOZE,
     SIGNAL_FACES_CHANGED,
     RELOAD_ON_CHANGE,
     DESCRIBE_PROMPT,
@@ -510,6 +518,25 @@ def _register_services(hass: HomeAssistant) -> None:
         return await async_export(hass, camera, call.data["start_time"],
                                   call.data["destination"])
 
+    async def snooze(call: ServiceCall):
+        """Mute notifications for a while, without disabling the automation.
+
+        Turning the automation off is the alternative, and it is a thing
+        people forget to turn back on. Nothing stops recording, downloading or
+        firing events -- footage during a snooze is the footage most likely to
+        be wanted afterwards. Only the automation reads this, and only if it
+        was told to.
+        """
+        coordinator = _coordinator(hass, call.data["config_entry_id"])
+        minutes = call.data.get("minutes")
+        until = coordinator.snooze(None if minutes is None else minutes * 60)
+        return {
+            "snoozed": coordinator.snoozed,
+            # Null for an indefinite snooze, which has no end to report.
+            "until": (dt_util.utc_from_timestamp(until).isoformat()
+                      if until not in (None, float("inf")) else None),
+        }
+
     for service, handler, schema in (
         (SERVICE_LIST_RECORDINGS, list_recordings, LIST_SCHEMA),
         (SERVICE_DOWNLOAD_RECORDING, download_recording, DOWNLOAD_SCHEMA),
@@ -520,6 +547,7 @@ def _register_services(hass: HomeAssistant) -> None:
         (SERVICE_DAILY_SUMMARY, daily_summary, SUMMARY_SCHEMA),
         (SERVICE_FIND_FACE, find_face, FIND_FACE_SCHEMA),
         (SERVICE_EXPORT_RECORDING, export_recording, EXPORT_SCHEMA),
+        (SERVICE_SNOOZE, snooze, SNOOZE_SCHEMA),
     ):
         hass.services.async_register(
             DOMAIN, service, handler, schema=schema,
