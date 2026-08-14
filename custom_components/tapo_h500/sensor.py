@@ -372,11 +372,22 @@ class H500ActivityLevel(H500Entity, SensorEntity):
 def hub_device(coordinator: H500Coordinator, entry: ConfigEntry):
     from homeassistant.helpers.device_registry import DeviceInfo
 
+    # Fetched once at connect rather than polled: pytapo asks getDeviceInfo to
+    # work out what it is talking to, and the answer was being thrown away
+    # after one model check. It costs no round trip to keep it.
+    info = coordinator.client.info
     return DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},
         name=entry.title,
         manufacturer="TP-Link",
-        model="H500",
+        # The hub's own word for itself, falling back to what this integration
+        # only supports anyway.
+        model=info.get("device_model") or "H500",
+        # None where the hub did not say, which is what every other reading
+        # here does. Home Assistant simply leaves the field off the device
+        # page rather than showing "unknown".
+        sw_version=info.get("sw_version"),
+        hw_version=info.get("hw_version"),
         configuration_url=f"https://{entry.data.get('host')}",
     )
 

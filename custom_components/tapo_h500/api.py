@@ -15,7 +15,7 @@ from pytapo.media_stream.crypto import AESHelper
 from pytapo.media_stream.session import HttpMediaSession
 
 from .clips import attach_detections, flatten_clips, start_of
-from .status import HUB_STATUS_REQUESTS, unpack_multiple
+from .status import HUB_STATUS_REQUESTS, basic_info, unpack_multiple
 
 
 class _EmptyNonce(bytes):
@@ -84,6 +84,10 @@ class H500Client:
         self.password = password
         self.cloud_password = cloud_password
         self.player_id = str(uuid.uuid4())
+        # What the hub says it is: model, firmware and hardware revision.
+        # Filled by connect() and read by the device registry, so Home
+        # Assistant's device page has a firmware version on it.
+        self.info: dict = {}
         self._hub = None
         self._client_id = 1
         self._super_secret_key = ""
@@ -100,8 +104,12 @@ class H500Client:
             playerID=self.player_id, redactConfidentialInformation=True,
             printDebugInformation=self.debug,
         )
-        info = self._hub.basicInfo
-        model = str(info.get("device_model", info.get("model", ""))).upper()
+        # The record is nested two levels down. Reading device_model off the
+        # outer dictionary always found nothing, so the default fired, the
+        # model came back empty and the guard below never ran -- this
+        # integration would have attached happily to a C200.
+        self.info = basic_info(self._hub.basicInfo)
+        model = str(self.info.get("device_model") or "").upper()
         if model and model != "H500":
             raise ValueError(f"Expected an H500, found {model}")
         try:
@@ -112,7 +120,7 @@ class H500Client:
             self._client_id = 1
         self._super_secret_key = self._hub.superSecretKey
         self._encryption_method = self._hub.getEncryptionMethod()
-        return info
+        return self.info
 
     def close(self):
         if self._hub:

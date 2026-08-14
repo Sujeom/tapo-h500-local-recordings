@@ -41,6 +41,10 @@ SAFE_READINGS = (
     "custom_sounds",
 )
 
+# What the hub says it is. Everything else in the record -- mac, dev_id,
+# device_alias, oem_id -- identifies this installation and stays out.
+SAFE_DEVICE = ("device_model", "sw_version", "hw_version")
+
 # Per-camera fields safe to include. Aliases are the owner's own words and can
 # name a room or a person, so they are replaced by their position instead.
 SAFE_CAMERA = (
@@ -89,6 +93,13 @@ async def async_get_config_entry_diagnostics(
             # How many faces are named, never who they are.
             "named_faces": len(entry.options.get(CONF_FACE_NAMES) or {}),
         },
+        # Firmware and hardware revision, which is the first thing anyone
+        # reading a bug report about an undocumented protocol wants to know.
+        # Model-wide values: they identify the device type, never the
+        # installation, and the rest of the record -- mac, dev_id, alias -- is
+        # deliberately left out.
+        "device": {key: coordinator.client.info.get(key)
+                   for key in SAFE_DEVICE},
         "hub": {key: coordinator.readings.get(key) for key in SAFE_READINGS},
         "cameras": cameras,
         "coordinator": {

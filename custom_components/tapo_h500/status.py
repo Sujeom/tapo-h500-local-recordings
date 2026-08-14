@@ -64,6 +64,23 @@ def gigabytes(value) -> float | None:
     return round(float(match.group(1)) * UNITS[match.group(2).upper()], 2)
 
 
+def basic_info(response) -> dict:
+    """The device record inside whatever shape pytapo's basicInfo returned.
+
+    `getDeviceInfo` answers `{"device_info": {"basic_info": {...}}}`, and
+    reading `device_model` off the outer dictionary finds nothing at all --
+    which is exactly what the H500 model check did, so the guard that was meant
+    to stop this integration attaching to a C200 has never once run.
+
+    Two shapes because pytapo has two: its KLAP branch returns the record flat.
+    Its own code tests for both, and so does this.
+    """
+    nested = dig(response, "device_info", "basic_info")
+    if isinstance(nested, dict):
+        return nested
+    return response if isinstance(response, dict) else {}
+
+
 def disk(status: dict) -> dict:
     """The first disk's record, which is nested one level deeper than it looks.
 
