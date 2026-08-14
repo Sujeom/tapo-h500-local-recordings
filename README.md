@@ -113,6 +113,9 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   including one grouped by person rather than by camera.
 - **Statistics:** busiest hour, people seen and unfamiliar-face counts per
   camera, plus a hub health sensor — all recorded for long-term graphs.
+- **Visitors, not clips:** `sensor.<camera>_visits_24h` counts people rather
+  than recordings — one person waiting four minutes files sixteen of those —
+  and carries the day's shape hour by hour as an attribute.
 - **Clips:** **Media → Tapo H500**, by camera and date.
 - **Settings:** the integration's **Configure** page.
 

@@ -549,12 +549,16 @@ def notable(entry: dict, hour: int, start: int, end: int) -> bool:
     return 22 in detection_types(entry) and in_night(hour, start, end)
 
 
-def busiest_hour(clips: list[dict]) -> int | None:
-    """The local hour with the most recordings, or None if there are none.
+def hourly_counts(clips: list[dict]) -> list[int]:
+    """Recordings per local hour of the day, as 24 numbers starting at midnight.
 
-    Ties go to the earlier hour. Deliberately: a quiet camera has many hours
-    holding one event each, and picking the latest would make the answer jump
-    around as the day filled up.
+    The shape of a day rather than a total. "40 recordings" says nothing about
+    whether the camera was busy all afternoon or for ten minutes at 3am, and
+    that difference is the whole question anyone looks at a doorbell log to
+    answer.
+
+    Local hours, not UTC. An hour-of-day chart in the wrong zone is not
+    slightly wrong, it is a chart of somebody else's day.
     """
     hours = [0] * 24
     for clip in clips:
@@ -562,8 +566,30 @@ def busiest_hour(clips: list[dict]) -> int | None:
         if moment is None:
             continue
         hours[_local_hour(moment)] += 1
+    return hours
+
+
+def busiest_hour(clips: list[dict]) -> int | None:
+    """The local hour with the most recordings, or None if there are none.
+
+    Ties go to the earlier hour. Deliberately: a quiet camera has many hours
+    holding one event each, and picking the latest would make the answer jump
+    around as the day filled up.
+    """
+    hours = hourly_counts(clips)
     peak = max(hours)
     return hours.index(peak) if peak else None
+
+
+def longest_visit(clips: list[dict], gap: int) -> int:
+    """How long the longest visit in the window lasted, in seconds.
+
+    First sighting to last, like every other duration here, so a single
+    fifteen-second clip is evidence of fifteen seconds. Zero when there is
+    nothing, rather than None: this is read into a template beside a count.
+    """
+    visits = sessions(clips, gap)
+    return max((end - start for start, end, _ in visits), default=0)
 
 
 def _local(moment: int):

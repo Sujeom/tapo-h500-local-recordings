@@ -17,9 +17,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .clips import (
-    busiest_hour, events_since, unique_faces, unknown_face_count,
+    busiest_hour, events_since, hourly_counts, longest_visit, sessions,
+    unique_faces, unknown_face_count,
 )
-from .const import DATA_HUBS, DOMAIN, SIGNAL_FACES_CHANGED
+from .const import DATA_HUBS, DOMAIN, LOITER_GAP, SIGNAL_FACES_CHANGED
 from .coordinator import H500Coordinator
 from .entity import H500Entity
 
@@ -188,6 +189,10 @@ async def async_setup_entry(
         for index, camera in enumerate(coordinator.cameras)
         for description in CAMERA_SENSORS
     ]
+    entities += [
+        H500Visits(coordinator, index, camera)
+        for index, camera in enumerate(coordinator.cameras)
+    ]
     entities.append(H500StorageForecast(coordinator, entry))
     async_add_entities(entities)
 
@@ -244,6 +249,52 @@ class H500CameraSensor(H500Entity, SensorEntity):
     def native_value(self):
         return self.entity_description.value(
             self.coordinator, self.index, self.camera)
+
+
+class H500Visits(H500Entity, SensorEntity):
+    """How many separate visitors this camera saw, rather than how many clips.
+
+    `recordings_24h` counts what the hub filed, which is a different question
+    and a misleading one: the hub reports moments, not presence, so a single
+    person waiting four minutes at the door produces sixteen recordings. A day
+    reading "48 recordings" and a day reading "3 visits" can be the same day.
+
+    Its own class rather than another entry in CAMERA_SENSORS because those
+    carry one value each and the useful part here is the attributes -- the
+    shape of the day and the longest anybody stayed.
+    """
+
+    _attr_translation_key = "visits_24h"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "visits"
+    _attr_icon = "mdi:account-clock"
+
+    def __init__(self, coordinator, index: int, camera: dict) -> None:
+        super().__init__(coordinator, index, camera)
+        self._attr_unique_id = f"{camera['device_id']}_visits_24h"
+
+    @property
+    def _clips(self) -> list[dict]:
+        return self.coordinator.clips_for(self.index)
+
+    @property
+    def native_value(self) -> int:
+        return len(sessions(self._clips, LOITER_GAP))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            # 24 numbers from local midnight. A card can draw this straight;
+            # `busiest_hour` is the same data reduced to its peak, and loses
+            # the difference between a steady afternoon and one loud minute.
+            "hourly": hourly_counts(self._clips),
+            # First sighting to last, so a lone fifteen-second clip counts as
+            # fifteen seconds rather than as however long ago it was.
+            "longest_seconds": longest_visit(self._clips, LOITER_GAP),
+            # What the grouping was, so a surprising count is explainable
+            # without reading the source.
+            "gap_seconds": LOITER_GAP,
+        }
 
 
 def hub_device(coordinator: H500Coordinator, entry: ConfigEntry):

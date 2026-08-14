@@ -59,6 +59,7 @@ timezone (changing it would shift every clip timestamp).
 | `event.<name>_activity` | Fires `ring` or `motion`, with `start_time`, `end_time`, `duration` and the hub's raw `hub_type` label as attributes. |
 | `sensor.<name>_last_activity` | Timestamp of the newest recording. Drives "nothing seen since" automations. |
 | `sensor.<name>_recordings_24h` | How many clips the hub holds for this camera. |
+| `sensor.<name>_visits_24h` | How many separate **visitors**, which is a much smaller number: the hub reports moments, so one person waiting four minutes at the door files sixteen clips. Attributes: `hourly` (24 counts from local midnight, for a chart), `longest_seconds`, and the `gap_seconds` used to group them. |
 | `sensor.<name>_ai_enhance`, `_network_mode`, `_model` | Diagnostics. |
 | `binary_sensor.<name>_hub_storage`, `_24_7_recording`, `_ai_enhance_enabled`, `_wifi_backup` | Diagnostics. |
 

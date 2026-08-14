@@ -165,6 +165,9 @@
       },
       "storage_full_in": {
         "name": "Storage full in"
+      },
+      "visits_24h": {
+        "name": "Visits (24h)"
       }
     },
     "binary_sensor": {
