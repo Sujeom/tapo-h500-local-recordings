@@ -260,6 +260,9 @@
     "image": {
       "latest_event": {
         "name": "Latest event"
+      },
+      "contact_sheet": {
+        "name": "Today"
       }
     },
     "calendar": {

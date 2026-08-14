@@ -182,6 +182,11 @@
       "recordings": {
         "name": "Recordings"
       }
+    },
+    "image": {
+      "contact_sheet": {
+        "name": "Today"
+      }
     }
   }
 }

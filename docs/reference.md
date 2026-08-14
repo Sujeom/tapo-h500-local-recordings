@@ -619,6 +619,19 @@ because that is how far back the hub is asked.
 
 Unknown, not off, before the first check completes.
 
+### Today, in one picture
+
+`image.<camera>_today` is a contact sheet: every frame from today's recordings,
+four across, newest twenty-four, oldest first. A doorbell produces dozens of
+near-identical fifteen-second clips a day, and looking through them means
+opening dozens of things.
+
+Built with ffmpeg, which already makes every thumbnail here — no image library
+was added for it. It rebuilds when a clip downloads, not when the hub reports
+an event, because the frame it needs is written by the download.
+
+Unavailable on a quiet day rather than showing a blank sheet.
+
 ### Possible delivery
 
 `binary_sensor.<camera>_possible_delivery` comes on for five minutes after a
