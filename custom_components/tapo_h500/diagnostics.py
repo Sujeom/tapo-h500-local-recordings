@@ -39,6 +39,9 @@ SAFE_READINGS = (
     "auto_upgrade", "loop_recording", "led_on", "siren_volume",
     "siren_duration", "clock_offset", "timezone", "face_detection",
     "custom_sounds",
+    # A hub that reboots itself explains a gap in recordings that would
+    # otherwise be reported as a camera fault.
+    "scheduled_reboot",
 )
 
 # What the hub says it is. Everything else in the record -- mac, dev_id,

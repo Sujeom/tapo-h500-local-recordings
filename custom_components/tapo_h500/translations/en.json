@@ -198,6 +198,9 @@
       },
       "auto_upgrade_time": {
         "name": "Automatic update time"
+      },
+      "scheduled_reboot": {
+        "name": "Scheduled reboot"
       }
     },
     "binary_sensor": {

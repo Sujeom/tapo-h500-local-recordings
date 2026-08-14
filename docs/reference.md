@@ -22,6 +22,8 @@ The hub gets its own device, and each paired camera gets one.
 | `sensor.*_clock_offset` | Seconds the hub's clock differs from Home Assistant's, signed. Clip filenames and the media browser's date folders come from hub timestamps, so drift files recordings under the wrong day. |
 | `sensor.*_timezone` | The hub's own timezone. |
 | `sensor.*_custom_sounds` | How many of the hub's five custom sound slots hold a recording, with their names as an attribute. |
+| `sensor.*_auto_upgrade_time` | The hour the hub installs firmware, with `enabled` and the `random_range` window it spreads updates over. The switch says *whether*; this says *when*, and a hub that reboots itself to update mid-afternoon is worth knowing about first. |
+| `sensor.*_scheduled_reboot` | `off`, or the time the hub reboots itself. Read only — `setReboot`'s params are ambiguous between scheduling a reboot and performing one. Unknown rather than `off` if the hub does not answer. A reboot schedule explains a gap in recordings that the silent-camera watchdog would otherwise call a broken camera. |
 | `sensor.*_people_seen_recently` | How many of the people you have named were seen in the last ten minutes, with `seen_recently`, `seen_today`, `not_seen` and `named` as attributes. One entity per person is right for automating and wrong for looking at; this is the same information in one place. `not_seen` is people who have **not been seen** — a camera watches a doorstep, not a house, so it is not a list of people who are out. |
 
 **Hub settings you can change**
@@ -67,6 +69,10 @@ timezone (changing it would shift every clip timestamp).
 
 Everything above comes from one extra `multipleRequest`, batched into a
 single round trip because this hub is easy to overload.
+
+The hub device itself carries a **Firmware** and **Hardware** version, read
+from the `getDeviceInfo` reply pytapo already fetches during login — no extra
+call, and it cannot change while the integration is loaded.
 
 **No battery level.** None of the battery getters work on an H500 — the reading
 lives on the camera, and the hub exposes no way to address a camera child. See

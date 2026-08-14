@@ -119,6 +119,25 @@ HUB_SENSORS: tuple[HubSensor, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda r: r.get("timezone"),
     ),
+    # "off", or the hour the hub reboots itself. A hub on a reboot schedule
+    # has a gap in its recordings at that hour, and a gap in recordings is
+    # indistinguishable from a camera that has stopped working -- which is
+    # precisely what the silent-camera watchdog would report it as.
+    #
+    # Read only. setReboot stays uncalled: its params are ambiguous between
+    # scheduling a reboot and performing one.
+    HubSensor(
+        key="scheduled_reboot", translation_key="scheduled_reboot",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value=lambda r: r.get("scheduled_reboot"),
+        attributes=lambda r: {
+            "enabled": r.get("scheduled_reboot_enabled"),
+            # The hub's own numbering, passed through rather than translated
+            # into a weekday: the only value seen was 0, on a schedule that
+            # was switched off, which says nothing about what 0 means.
+            "day": r.get("scheduled_reboot_day"),
+        },
+    ),
     # The hub holds five custom sound slots. Empty ones come back as empty
     # strings rather than being absent, so this counts named slots.
     #

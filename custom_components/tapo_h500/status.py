@@ -30,6 +30,14 @@ HUB_STATUS_REQUESTS = (
     ("getClockStatus", {"system": {"name": "clock_status"}}),
     ("getTimezone", {"system": {"name": ["basic"]}}),
     ("getUsrDefAudioList", {"usr_def_audio": {"name": "config"}}),
+    # Read only, and deliberately. The hub can reboot itself on a schedule,
+    # and a hub that does that is a hub with a gap in its recordings -- which
+    # looks exactly like a camera that stopped working.
+    #
+    # `setReboot` is not called from anywhere and will not be: its params
+    # (`timing_reboot`) are ambiguous between scheduling a reboot and
+    # performing one, and a wrong guess reboots the hub mid-download.
+    ("getReboot", {"timing_reboot": {"name": ["reboot"]}}),
 )
 
 SIZE = re.compile(r"([0-9.]+)\s*([KMGT]?B)", re.IGNORECASE)
@@ -168,6 +176,25 @@ def auto_upgrade_config(readings: dict, on: bool) -> dict:
     return config
 
 
+def reboot_schedule(block: dict) -> str | None:
+    """The hub's own scheduled reboot, as one readable state.
+
+    None when the hub said nothing at all, which is different from "off" and
+    has to stay different: this is a getter whose params came from pytapo
+    rather than from a live probe, so an unanswered call must read as unknown
+    rather than as a hub that never reboots itself.
+
+    The time is reported only while the schedule is on. It is stored either
+    way, and showing "03:00:00" for a hub that is not going to reboot would be
+    the more alarming of the two wrong answers.
+    """
+    if not block:
+        return None
+    if not _on(block.get("enabled")):
+        return "off"
+    return str(block.get("time") or "").strip() or "on"
+
+
 def _int(value) -> int | None:
     """The hub sends numbers as strings about half the time."""
     try:
@@ -201,6 +228,7 @@ def hub_readings(status: dict, now: float | None = None) -> dict:
                "face_detection", "detection") or {}
     clock = dig(status.get("getClockStatus"), "system", "clock_status") or {}
     basic = dig(status.get("getTimezone"), "system", "basic") or {}
+    reboot = dig(status.get("getReboot"), "timing_reboot", "reboot") or {}
     return {
         "siren_tone": siren_config.get("siren_type"),
         # 1-10 as a string on the wire; kept numeric for the volume slider.
@@ -245,6 +273,15 @@ def hub_readings(status: dict, now: float | None = None) -> dict:
         "timezone": basic.get("zone_id") or basic.get("timezone"),
         "custom_sounds": len(used_audio_slots(status)),
         "custom_sound_names": used_audio_slots(status),
+        # A hub that reboots itself on a schedule has a gap in its recordings
+        # at that hour, which looks exactly like a camera that stopped
+        # working. Read only; nothing here writes it.
+        "scheduled_reboot": reboot_schedule(reboot),
+        "scheduled_reboot_enabled": _on(reboot.get("enabled")),
+        # The hub's own numbering, unverified -- 0 was seen on a schedule that
+        # was switched off, which says nothing about which day it means. Passed
+        # through as it arrived rather than translated into a weekday.
+        "scheduled_reboot_day": reboot.get("day"),
     }
 
 
