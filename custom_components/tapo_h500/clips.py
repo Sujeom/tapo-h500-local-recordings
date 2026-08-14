@@ -236,6 +236,56 @@ def unusually_busy(clips: list[dict], now: int, window: int,
     return recent >= max(floor, hourly_baseline(clips, now, window) * multiplier)
 
 
+def sessions(clips: list[dict], gap: int) -> list[tuple[int, int, int]]:
+    """Recordings grouped into visits, as (start, end, recordings).
+
+    The hub reports moments, not presence: someone standing at the door for
+    four minutes produces a string of short clips, not one long one, and every
+    count in this integration treats those as separate events. Two recordings
+    closer together than `gap` are one visit.
+
+    Oldest first. Recordings with no start time are dropped -- there is
+    nowhere to put them in a timeline.
+    """
+    spans = sorted((start, end_of(clip) or start)
+                   for clip in clips
+                   for start in [start_of(clip)] if start is not None)
+    visits: list[tuple[int, int, int]] = []
+    for start, end in spans:
+        if visits and start - visits[-1][1] <= gap:
+            began, finished, count = visits[-1]
+            visits[-1] = (began, max(finished, end), count + 1)
+        else:
+            visits.append((start, end, 1))
+    return visits
+
+
+def loitering(clips: list[dict], now: int, gap: int, minimum: int) -> int:
+    """How long an unrecognised face has been around, if it still is.
+
+    Zero unless all three hold: the face is one the hub could not match,
+    the visit is still open, and it has lasted long enough to be worth the
+    word. This is the difference between someone reading a house number and
+    someone standing at the door for four minutes, and nothing else here can
+    tell them apart -- the busy-camera signal is a rate over an hour, and the
+    night signal is about the clock.
+
+    Measured from the first sighting to the last, not to `now`. A single
+    fifteen-second clip is evidence of fifteen seconds; counting the silence
+    since would inflate every brief visit the moment it ended.
+    """
+    unknown = [clip for clip in clips if 22 in detection_types(clip)]
+    visits = sessions(unknown, gap)
+    if not visits:
+        return 0
+    start, end, _ = visits[-1]
+    # Over. Someone who left two hours ago is not loitering now.
+    if now - end > gap:
+        return 0
+    lasted = end - start
+    return lasted if lasted >= minimum else 0
+
+
 def summarise(per_camera: dict[str, list[dict]], now: int,
               window: int = 86400) -> str:
     """A day in one sentence per camera, for a digest or a spoken answer.

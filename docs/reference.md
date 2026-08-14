@@ -476,6 +476,21 @@ Outside the poll window there is no value at all, rather than a stale one. Unnam
 still counted and still appear on the cards — naming decides who is worth an
 entity, not who gets tracked.
 
+### Loitering
+
+`binary_sensor.<camera>_loitering` is on while a face the hub could **not**
+recognise has been at that camera for more than three minutes. Its `seconds`
+attribute is how long.
+
+The hub reports moments, never presence — four minutes at the door arrives as a
+string of short clips, and every other signal here counts those as separate
+events. Recordings less than two minutes apart are treated as one visit, and
+the duration is measured from the first sighting to the last, not to now: a
+single fifteen-second clip is evidence of fifteen seconds.
+
+A recognised face never triggers it, however long they wait. Nor does motion
+alone, and nor does a visit that has already ended.
+
 ### Arriving home, once
 
 The detection event fires every time anyone crosses a camera. For a household

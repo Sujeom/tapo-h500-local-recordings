@@ -237,6 +237,23 @@ DETECTION_HOLD = 30
 UNUSUAL_MULTIPLIER = 3.0
 UNUSUAL_FLOOR = 4
 
+# How far apart two recordings can be and still be one visit, and how long a
+# visit by an unrecognised face has to last before it is worth saying so.
+#
+# The hub reports moments, not presence. Someone standing at the door for four
+# minutes produces a string of short clips, and every other count here treats
+# those as separate events -- which is why nothing yet notices the difference
+# between reading a house number and waiting by the door. The busy-camera
+# signal is a rate over an hour and the night signal is about the clock;
+# neither sees this.
+#
+# Two minutes for the gap, because a clip is about fifteen seconds and a person
+# who moves out of frame and back is one visitor. Three minutes for the
+# threshold: a delivery is under a minute at the door, and a judgement rather
+# than a measurement -- there is no data here on how long people loiter.
+LOITER_GAP = 120
+LOITER_SECONDS = 180
+
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
 SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
 

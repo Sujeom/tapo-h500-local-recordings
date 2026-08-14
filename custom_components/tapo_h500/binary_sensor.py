@@ -15,9 +15,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .clips import detection_types, unusually_busy
+from .clips import detection_types, loitering, unusually_busy
 from .const import (
     DATA_HUBS, DETECTION_HOLD, DETECTION_NAMES, DOMAIN, FACE_PRESENCE_WINDOW,
+    LOITER_GAP, LOITER_SECONDS,
     LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED, UNUSUAL_FLOOR, UNUSUAL_MULTIPLIER,
 )
 from .coordinator import H500Coordinator
@@ -94,6 +95,10 @@ async def async_setup_entry(
     ]
     entities += [
         H500UnusualActivity(coordinator, index, camera)
+        for index, camera in enumerate(coordinator.cameras)
+    ]
+    entities += [
+        H500Loitering(coordinator, index, camera)
         for index, camera in enumerate(coordinator.cameras)
     ]
     entities += [
@@ -252,6 +257,42 @@ class H500UnusualActivity(H500Entity, BinarySensorEntity):
             "typical_per_hour": round(
                 hourly_baseline(clips, now, LOOKBACK_SECONDS), 2),
         }
+
+
+class H500Loitering(H500Entity, BinarySensorEntity):
+    """On while an unrecognised face has been at this camera for a while.
+
+    The one signal here about how long somebody stayed. Everything else counts
+    events: the busy-camera flag is a rate over an hour, the night flag is
+    about the clock, and both would read a four-minute wait at the door exactly
+    the same as somebody walking past. A visit is what tells them apart, and
+    the hub does not report visits -- it reports moments, so they have to be
+    grouped back together.
+    """
+
+    _attr_translation_key = "loitering"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator, index: int, camera: dict) -> None:
+        super().__init__(coordinator, index, camera)
+        self._attr_unique_id = f"{camera['device_id']}_loitering"
+
+    @property
+    def _seconds(self) -> int:
+        from homeassistant.util import dt as dt_util
+        return loitering(
+            self.coordinator.clips_for(self.index),
+            int(dt_util.utcnow().timestamp()), LOITER_GAP, LOITER_SECONDS)
+
+    @property
+    def is_on(self) -> bool:
+        return self._seconds > 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        # Zero rather than absent when nobody is there: an automation reading
+        # this in a template gets a number either way.
+        return {"seconds": self._seconds}
 
 
 class H500FaceSeenRecently(CoordinatorEntity[H500Coordinator], BinarySensorEntity):

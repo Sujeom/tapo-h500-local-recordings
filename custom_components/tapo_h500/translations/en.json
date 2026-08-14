@@ -50,15 +50,15 @@
       },
       "faces": {
         "title": "Name faces",
-        "description": "The hub recognises people and gives each a number, but will not say who they are \u2014 there is no name to look up. Open a face's photo to see who it is, then put a name against that number and every card and sensor uses it. Clear a box to remove a name.\n\n{faces}\n\nA face has no photo link until its recording has downloaded."
+        "description": "The hub recognises people and gives each a number, but will not say who they are — there is no name to look up. Open a face's photo to see who it is, then put a name against that number and every card and sensor uses it. Clear a box to remove a name.\n\n{faces}\n\nA face has no photo link until its recording has downloaded."
       },
       "layout": {
         "title": "Camera layout",
-        "description": "Give each camera a number for how close it is to your door: **0 for the one nearest the street**, higher as they get closer to the entrance. A gate camera might be 0 and the doorbell 1.\n\nThis is the one thing the integration cannot work out on its own \u2014 the hub reports no geometry. With it, a recognised person moving from one camera to another reads as *approaching* or *leaving* rather than just a list of places.\n\nLeave every camera on the same number to turn this off; no direction is reported unless it is genuinely known."
+        "description": "Give each camera a number for how close it is to your door: **0 for the one nearest the street**, higher as they get closer to the entrance. A gate camera might be 0 and the doorbell 1.\n\nThis is the one thing the integration cannot work out on its own — the hub reports no geometry. With it, a recognised person moving from one camera to another reads as *approaching* or *leaving* rather than just a list of places.\n\nLeave every camera on the same number to turn this off; no direction is reported unless it is genuinely known."
       }
     },
     "abort": {
-      "no_faces": "The hub has not recognised any faces yet. It only reports one when its own face detection fires, and only for the period still held \u2014 try again after someone has been seen.",
+      "no_faces": "The hub has not recognised any faces yet. It only reports one when its own face detection fires, and only for the period still held — try again after someone has been seen.",
       "one_camera": "Only one camera is paired with this hub. A direction needs two places to be between."
     }
   },
@@ -198,6 +198,9 @@
       },
       "face_present": {
         "name": "Seen recently"
+      },
+      "loitering": {
+        "name": "Loitering"
       }
     },
     "siren": {
@@ -265,7 +268,7 @@
     },
     "unnamed_face": {
       "title": "A face the hub keeps seeing has no name",
-      "description": "Face {face_id} has been seen {sightings} times on {cameras} and has not been named. Naming it makes every card, sensor and notification say who it is instead of a number \u2014 \"Alice rang the Front Doorbell\".\n\nName it under Configure \u2192 Name faces, where each face is listed with a link to its photograph, or with the Name this face button on the faces card.\n\n{others} other face(s) are also waiting to be named."
+      "description": "Face {face_id} has been seen {sightings} times on {cameras} and has not been named. Naming it makes every card, sensor and notification say who it is instead of a number — \"Alice rang the Front Doorbell\".\n\nName it under Configure → Name faces, where each face is listed with a link to its photograph, or with the Name this face button on the faces card.\n\n{others} other face(s) are also waiting to be named."
     }
   }
 }
