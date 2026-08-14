@@ -1,0 +1,218 @@
+blueprint:
+  name: Tapo H500 announce a visit
+  description: >-
+    One notification per visitor, not one per recording.
+
+    The other blueprints trigger on detections, which is right for a doorbell
+    press and wrong for a person: the hub reports moments rather than presence,
+    so four minutes at the door arrives as sixteen fifteen-second clips and
+    sixteen notifications about one visitor. Sixteen notifications about one
+    visitor is why people mute integrations.
+
+    This triggers on `tapo_h500_visit` instead, which the integration fires once
+    when somebody arrives — and once between two doorbells watching the same
+    path, so a walk past both is still one message.
+
+    It says who where a name is known, what the hub saw otherwise, and nothing
+    at all while the snooze switch is on.
+  domain: automation
+  source_url: https://github.com/Sujeom/tapo-h500-local-recordings/blob/main/blueprints/automation/tapo_h500/announce_a_visit.yaml
+  author: tapo-h500-local-recordings
+  homeassistant:
+    min_version: "2024.10.0"
+
+  input:
+    notify_service:
+      name: Notify service
+      description: >-
+        The full service to call, including the `notify.` prefix — for a phone
+        this is usually `notify.mobile_app_` followed by the device name.
+      default: notify.persistent_notification
+      selector:
+        text:
+
+    detections:
+      name: Only for these
+      description: >-
+        Leave empty for every visit. A visit is announced as it begins, so it
+        carries only what the first recording saw — asking for a doorbell press
+        here means "the visit opened with a press", not "somebody pressed it at
+        some point during the visit".
+      default: []
+      selector:
+        select:
+          multiple: true
+          options:
+            - {label: Person, value: "6"}
+            - {label: Doorbell pressed, value: "17"}
+            - {label: Unfamiliar face, value: "22"}
+            - {label: Recognised face, value: "20"}
+            - {label: Vehicle, value: "8"}
+            - {label: Animal, value: "9"}
+            - {label: Camera tampering, value: "19"}
+
+    who:
+      name: Who to announce
+      description: >-
+        Strangers only is the useful setting on a busy door: the household
+        crossing the front camera is not news, and the hub only knows who
+        somebody is once you have named their face.
+      default: anyone
+      selector:
+        select:
+          options:
+            - {label: Anyone, value: anyone}
+            - {label: Only people you have named, value: named}
+            - {label: Only people you have not, value: strangers}
+
+    night_only:
+      name: Only after dark
+      description: >-
+        Uses the night window set under Configure → Settings, decided by the
+        integration rather than re-implemented here — a window that wraps
+        midnight is the obvious thing to get wrong. Off by default, because the
+        point of a once-per-visitor message is that it is quiet enough to leave
+        on all day.
+      default: false
+      selector:
+        boolean:
+
+    snooze_entity:
+      name: Snooze switch
+      description: >-
+        Optional. Stay silent while this is on. The hub's own "Notifications
+        snoozed" switch, which the `tapo_h500.snooze` action turns on for a set
+        number of minutes.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: switch
+              integration: tapo_h500
+
+    tts_entity:
+      name: Text-to-speech engine
+      description: Optional. Needs a speaker below as well.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: tts
+
+    speaker:
+      name: Speaker
+      description: Where the announcement is played, if you want it spoken.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: media_player
+
+    dashboard_path:
+      name: Dashboard path
+      description: >-
+        Where tapping the notification should go. `0` is your first dashboard.
+      default: "0"
+      selector:
+        text:
+
+# Two people arriving at the same moment is two visits, and both deserve their
+# message -- unlike the respond blueprint, nothing here waits or turns anything
+# off afterwards, so there is no sequence for a second run to trample.
+mode: parallel
+max: 10
+
+triggers:
+  - trigger: event
+    event_type: tapo_h500_visit
+
+conditions:
+  # Empty means every visit. Codes rather than labels, because the labels are a
+  # reading of what the hub means and have been corrected once already.
+  - condition: template
+    value_template: >-
+      {% set wanted = input_detections | map('int') | list %}
+      {{ not wanted
+         or (trigger.event.data.detections or [])
+            | select('in', wanted) | list | count > 0 }}
+  - condition: template
+    value_template: >-
+      {% set names = trigger.event.data.names or [] %}
+      {% if input_who == 'named' %}{{ names | count > 0 }}
+      {% elif input_who == 'strangers' %}{{ names | count == 0 }}
+      {% else %}true{% endif %}
+  - condition: template
+    value_template: >-
+      {{ not input_night_only or (trigger.event.data.night or false) }}
+  - condition: template
+    value_template: >-
+      {{ not input_snooze_entity
+         or states(input_snooze_entity) != 'on' }}
+
+variables:
+  input_detections: !input detections
+  input_who: !input who
+  input_night_only: !input night_only
+  input_snooze_entity: !input snooze_entity
+  input_tts_entity: !input tts_entity
+  input_speaker: !input speaker
+  service: !input notify_service
+  dashboard: !input dashboard_path
+
+actions:
+  - variables:
+      codes: "{{ trigger.event.data.detections or [] }}"
+      where: "{{ trigger.event.data.camera }}"
+      # Every camera that saw this one arrival. Usually one; two doorbells
+      # watching the same path give two, and the message says so rather than
+      # arriving twice.
+      also: >-
+        {%- set seen = trigger.event.data.cameras or [] -%}
+        {{ seen | reject('eq', where) | list | join(', ') }}
+      when: >-
+        {{ (trigger.event.data.at | as_datetime | as_local)
+           .strftime('%-I:%M %p') }}
+      # Resolved by the integration: an automation cannot read the hub's name
+      # map itself, and a twelve-digit face id means nothing to anybody.
+      named: >-
+        {%- set names = trigger.event.data.names or [] -%}
+        {%- if names | count > 1 -%}
+          {{ names[:-1] | join(', ') }} and {{ names[-1] }}
+        {%- else -%}{{ names | join }}{%- endif -%}
+      headline: >-
+        {% if named and 17 in codes %}{{ named }} rang the {{ where }}
+        {% elif named %}{{ named }} is at the {{ where }}
+        {% elif 17 in codes %}Someone rang the {{ where }}
+        {% elif 19 in codes %}Tampering at the {{ where }}
+        {% elif 22 in codes %}Someone unrecognised at the {{ where }}
+        {% else %}Someone at the {{ where }}{% endif %}
+      link: "/lovelace/{{ dashboard }}?more-info-entity-id=sensor.{{ where | slugify }}_last_activity"
+
+  - action: "{{ service }}"
+    data:
+      title: "{{ headline }}"
+      message: >-
+        {{ trigger.event.data.detection | default('activity', true) }},
+        {{ when }}{% if also %} (also seen at the {{ also }}){% endif %}
+      data:
+        # One tag per camera, so a second visit replaces the first rather than
+        # stacking. The whole point of this blueprint is one message at a time.
+        tag: "tapo-h500-visit-{{ where | slugify }}"
+        channel: "{{ 'Tapo H500 alerts' if trigger.event.data.night else 'Tapo H500' }}"
+        importance: "{{ 'high' if trigger.event.data.night else 'default' }}"
+        clickAction: "{{ link }}"
+        url: "{{ link }}"
+
+  # Both halves are needed: tts.speak names the engine and the speaker
+  # separately, and calling it with one missing fails the whole run.
+  - if:
+      - condition: template
+        value_template: >-
+          {{ input_tts_entity != '' and input_speaker != '' }}
+    then:
+      - action: tts.speak
+        target:
+          entity_id: "{{ input_tts_entity }}"
+        data:
+          media_player_entity_id: "{{ input_speaker }}"
+          message: "{{ headline }}"

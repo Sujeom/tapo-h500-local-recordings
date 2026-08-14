@@ -48,7 +48,7 @@ def at_hour(hour, minute=0):
     """A moment at this LOCAL hour today, in the harness's -07:00 zone."""
     for back in range(0, 24):
         moment = NOW - back * 3600
-        if clips._local_hour(moment) == hour:
+        if clips.local_hour(moment) == hour:
             return moment - moment % 3600 + minute * 60
     raise AssertionError(f"no {hour}:00 within the window")
 

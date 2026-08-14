@@ -13,9 +13,9 @@ from homeassistant.util import dt as dt_util
 
 from .clips import (
     attach_detections, combine_visits, describe_codes, detection_types,
-    direction, end_of, event_type, face_ids, has_detection, local_date,
-    merge_visits, newest_matching, prowling, same_encounter, sessions,
-    start_of, suggest_ranks,
+    direction, end_of, event_type, face_ids, has_detection, in_night,
+    local_date, local_hour, merge_visits, newest_matching, prowling,
+    same_encounter, sessions, start_of, suggest_ranks,
 )
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
@@ -23,7 +23,8 @@ from .const import (
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS,
     CONF_CAMERA_ORDER, CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON, PERSON_CODES,
-    CONF_DOWNLOAD_TYPES,
+    CONF_DOWNLOAD_TYPES, CONF_NIGHT_END, CONF_NIGHT_START,
+    DEFAULT_NIGHT_END, DEFAULT_NIGHT_START,
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
@@ -416,11 +417,20 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         faces = sorted({str(face) for clip in during
                         for face in face_ids(clip)})
         camera = (self.cameras[index] if index < len(self.cameras) else {})
+        options = self.entry.options
         return {
             "entry_id": self.entry.entry_id,
             "camera": camera.get("alias") or f"Camera {index}",
             "camera_index": index,
             "at": start,
+            # Decided here rather than in whatever reads this. A window that
+            # wraps midnight is the obvious thing to get wrong -- 23 is inside
+            # 22-to-6 and 12 is not, and comparing naively marks the whole day
+            # as night -- and every consumer would get it wrong separately.
+            "night": in_night(
+                local_hour(start),
+                options.get(CONF_NIGHT_START, DEFAULT_NIGHT_START),
+                options.get(CONF_NIGHT_END, DEFAULT_NIGHT_END)),
             # How many recordings the visit has so far, which at the moment it
             # is announced is one. It grows; the event does not fire again.
             "recordings": count,

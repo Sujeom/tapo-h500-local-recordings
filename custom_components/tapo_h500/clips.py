@@ -546,7 +546,7 @@ def highlights(per_camera: dict[str, list[dict]], now: int, window: int,
                 f"({peak} recordings)")
         after_dark = sum(1 for clip in recent
                          if 22 in detection_types(clip)
-                         and in_night(_local_hour(start_of(clip)),
+                         and in_night(local_hour(start_of(clip)),
                                       night_start, night_end))
         if after_dark:
             lines.append(f"{after_dark} unfamiliar face"
@@ -781,7 +781,7 @@ def hourly_counts(clips: list[dict]) -> list[int]:
         moment = start_of(clip)
         if moment is None:
             continue
-        hours[_local_hour(moment)] += 1
+        hours[local_hour(moment)] += 1
     return hours
 
 
@@ -813,7 +813,7 @@ def _local(moment: int):
     return dt_util.as_local(dt_util.utc_from_timestamp(moment))
 
 
-def _local_hour(moment: int) -> int:
+def local_hour(moment: int) -> int:
     return _local(moment).hour
 
 

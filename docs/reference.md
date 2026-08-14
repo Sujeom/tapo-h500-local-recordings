@@ -830,7 +830,14 @@ actions:
 Recordings less than two minutes apart are one visit — the same grouping the
 loitering sensor uses. The payload carries `camera`, `camera_index`, `at`,
 `cameras`, `detections` (the alarm codes), `detection` (the same phrase the
-cards show), `face_ids`, `names` for anyone you have named, and `recordings`.
+cards show), `face_ids`, `names` for anyone you have named, `night` — whether
+it fell inside the configured night window, decided by the integration so
+nothing downstream re-implements a window that wraps midnight — and
+`recordings`.
+
+The **Tapo H500 announce a visit** blueprint is built on it: one message per
+visitor, with an optional strangers-only filter, an after-dark gate, and the
+snooze switch.
 
 **Two cameras watching one path still fire once.** Visits at different cameras
 within 30 seconds are one arrival, and so are visits up to three minutes apart
