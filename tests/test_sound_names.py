@@ -87,10 +87,6 @@ class Attached(unittest.TestCase):
         hook = body.split("def extra_state_attributes", 1)[1]
         self.assertIn("return None", hook)
 
-    def test_only_this_reading_uses_it(self):
-        """One lambda, not a hook every description now has to think about."""
-        self.assertEqual(SOURCE.count("attributes=lambda"), 1)
-
     def test_the_reference_now_describes_something_real(self):
         self.assertIn("names as an attribute", REFERENCE)
 

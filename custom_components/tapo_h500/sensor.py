@@ -84,6 +84,26 @@ HUB_SENSORS: tuple[HubSensor, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda r: r.get("firmware_state"),
     ),
+    # When the hub installs firmware, which is the half of that setting that
+    # actually decides anything. The switch says whether it happens; this says
+    # at what hour, and a hub that reboots itself to update at three in the
+    # afternoon is worth knowing about before it does.
+    #
+    # Read from the same block the switch has to send back whole on every
+    # toggle, so the two cannot disagree about the schedule.
+    HubSensor(
+        key="auto_upgrade_time", translation_key="auto_upgrade_time",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value=lambda r: r.get("auto_upgrade_time"),
+        attributes=lambda r: {
+            # The time is stored whether or not updates are on, so on its own
+            # it reads as a schedule that is running when it may not be.
+            "enabled": r.get("auto_upgrade"),
+            # The hub spreads updates over a window after that time.
+            "random_range": (r.get("auto_upgrade_config") or {})
+            .get("random_range"),
+        },
+    ),
     # Clip filenames and the media browser's date folders come from hub
     # timestamps, so drift here files recordings under the wrong day. Signed:
     # ahead and behind are different faults.
