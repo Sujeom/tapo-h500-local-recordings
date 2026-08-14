@@ -9,7 +9,9 @@ from __future__ import annotations
 import re
 
 from .const import (
-    DETECTION_NAMES, EVENT_MOTION, EVENT_RING, RING_ALARM_TYPES, RING_HINTS,
+    DETECTION_NAMES, EVENT_MOTION, EVENT_RING, LOITER_GAP, LOITER_SECONDS,
+    RING_ALARM_TYPES, RING_HINTS, TAMPER_CODES, UNUSUAL_FLOOR,
+    UNUSUAL_MULTIPLIER,
 )
 
 # Fields the hub has been seen to label activity with, most specific first.
@@ -494,6 +496,69 @@ def summarise(per_camera: dict[str, list[dict]], now: int,
         detail = ", ".join(f"{count} {label}" for label, count in ranked)
         lines.append(f"{name}: {len(recent)} recordings ({detail})")
     return "; ".join(lines) if lines else "nothing"
+
+
+def _clock(hour: int) -> str:
+    """An hour of the day as people say it, for a sentence rather than a chart."""
+    if hour == 0:
+        return "midnight"
+    if hour == 12:
+        return "midday"
+    return f"{hour % 12 or 12}{'am' if hour < 12 else 'pm'}"
+
+
+def highlights(per_camera: dict[str, list[dict]], now: int, window: int,
+               night_start: int, night_end: int) -> list[str]:
+    """What was different about the day, rather than what was in it.
+
+    `summarise` counts, which is the honest thing to do and not what anyone
+    reads a digest for: "Front: 48 recordings (12 person, 3 vehicle)" is the
+    same sentence every day, and a day worth knowing about looks exactly like
+    a day that was not.
+
+    So this reports only the things a day can have that most days do not, and
+    returns nothing at all when there were none -- an empty list is the common
+    case and is the point. Every one of them is computed from the same polled
+    window as everything else here, which is a day; none of it is a comparison
+    against last week, because there is no last week to compare against.
+
+    Ordered by how much they matter rather than by camera. A camera reporting
+    tampering goes first however far down the list its name would put it.
+    """
+    lines: list[str] = []
+    quiet: list[str] = []
+    for name, clips in per_camera.items():
+        recent = [clip for clip in clips
+                  if (start_of(clip) or 0) >= now - window]
+        if not recent:
+            quiet.append(name)
+            continue
+        if any(has_detection(clip, TAMPER_CODES) for clip in recent):
+            lines.insert(0, f"{name} reported being tampered with")
+        hours = hourly_counts(recent)
+        peak = max(hours)
+        # Against a flat day rather than against the hours that had anything
+        # in them: a camera that saw ten people in one hour and nothing else
+        # had a peak, and dividing by "hours with activity" would hide it.
+        if peak >= max(UNUSUAL_FLOOR, len(recent) / 24 * UNUSUAL_MULTIPLIER):
+            lines.append(
+                f"{name} was busiest around {_clock(hours.index(peak))} "
+                f"({peak} recordings)")
+        after_dark = sum(1 for clip in recent
+                         if 22 in detection_types(clip)
+                         and in_night(_local_hour(start_of(clip)),
+                                      night_start, night_end))
+        if after_dark:
+            lines.append(f"{after_dark} unfamiliar face"
+                         f"{'s' if after_dark != 1 else ''} at {name} "
+                         f"after dark")
+        longest = longest_visit(recent, LOITER_GAP)
+        if longest >= LOITER_SECONDS:
+            lines.append(f"somebody was at {name} for "
+                         f"{round(longest / 60)} minutes")
+    if quiet:
+        lines.append(f"{', '.join(sorted(quiet))} recorded nothing")
+    return lines
 
 
 def direction(trail: list[dict], ranks: dict[str, int],

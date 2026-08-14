@@ -14,8 +14,13 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 
-from .clips import describe_detection, distinct, start_of, summarise
-from .const import DATA_HUBS, DOMAIN
+from .clips import (
+    describe_detection, distinct, highlights, start_of, summarise,
+)
+from .const import (
+    CONF_NIGHT_END, CONF_NIGHT_START, DATA_HUBS, DEFAULT_NIGHT_END,
+    DEFAULT_NIGHT_START, DOMAIN, LOOKBACK_SECONDS,
+)
 
 INTENT_LAST_EVENT = "TapoH500LastEvent"
 INTENT_TODAY = "TapoH500Today"
@@ -94,8 +99,26 @@ class TodayIntent(intent.IntentHandler):
                       for label, (_, _, clips) in zip(labels, found)}
 
         response = request.create_response()
-        response.async_set_speech(summarise(per_camera, now) if per_camera
-                                  else "No cameras are set up.")
+        if not per_camera:
+            response.async_set_speech("No cameras are set up.")
+            return response
+        # What was different first, because that is the answer, and the counts
+        # after it. Spoken aloud a bare list of totals is the same sentence
+        # every day, and the day worth mentioning sounds exactly like the day
+        # that was not.
+        spoken = summarise(per_camera, now)
+        # This answer covers every hub at once and "after dark" is configured
+        # per hub, so it takes the first hub's night window. Two hubs in one
+        # house with different ideas of night is not a real arrangement, and
+        # the alternative is ignoring the setting altogether.
+        options = _hubs(hass)[0].entry.options
+        notable = highlights(
+            per_camera, now, LOOKBACK_SECONDS,
+            options.get(CONF_NIGHT_START, DEFAULT_NIGHT_START),
+            options.get(CONF_NIGHT_END, DEFAULT_NIGHT_END))
+        if notable:
+            spoken = f"{'. '.join(notable)}. {spoken}"
+        response.async_set_speech(spoken)
         return response
 
 

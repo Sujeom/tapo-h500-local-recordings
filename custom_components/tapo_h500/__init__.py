@@ -22,11 +22,13 @@ from homeassistant.util import dt as dt_util
 
 from .clips import (
     describe_detection, detection_types, distinct, end_of, event_type,
-    face_ids, start_of, summarise,
+    face_ids, highlights, start_of, summarise,
 )
 from .const import (
-    CARD_URL, CONF_CLOUD_PASSWORD, CONF_CONVERT_MP4, DATA_CARD, DATA_HUBS,
-    DATA_PREVIEW, DEFAULT_CONVERT_MP4, DOMAIN, SERVICE_DELETE_RECORDING,
+    CARD_URL, CONF_CLOUD_PASSWORD, CONF_CONVERT_MP4, CONF_NIGHT_END,
+    CONF_NIGHT_START, DATA_CARD, DATA_HUBS,
+    DATA_PREVIEW, DEFAULT_CONVERT_MP4, DEFAULT_NIGHT_END, DEFAULT_NIGHT_START,
+    DOMAIN, SERVICE_DELETE_RECORDING,
     SERVICE_DOWNLOAD_RECORDING, SERVICE_FORMAT_HUB_STORAGE,
     SERVICE_LIST_RECORDINGS,
     SERVICE_NAME_FACE,
@@ -501,8 +503,18 @@ def _register_services(hass: HomeAssistant) -> None:
         per_camera = {label: coordinator.clips_for(index)
                       for label, (index, _) in zip(labels, cameras)}
         now = int(dt_util.utcnow().timestamp())
-        return {"hours": call.data["hours"],
-                "summary": summarise(per_camera, now, window)}
+        options = coordinator.entry.options
+        return {
+            "hours": call.data["hours"],
+            "summary": summarise(per_camera, now, window),
+            # What was different, which is what anybody reading a digest is
+            # actually after. Usually empty, and that is the point: a list
+            # that always has something in it says nothing.
+            "highlights": highlights(
+                per_camera, now, window,
+                options.get(CONF_NIGHT_START, DEFAULT_NIGHT_START),
+                options.get(CONF_NIGHT_END, DEFAULT_NIGHT_END)),
+        }
 
     async def find_face(call: ServiceCall):
         """Every recording a person appears in, newest first.

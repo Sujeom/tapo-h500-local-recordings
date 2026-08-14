@@ -646,6 +646,33 @@ that already happens. That means:
 
 `percent_per_hour` and `samples` attributes say which of those applies.
 
+### What was different about today
+
+`tapo_h500.daily_summary` returns `summary` — a count per camera — and
+`highlights`, which is the part worth reading. Counts are the honest thing to
+report and not what anybody opens a digest for: "Front: 48 recordings (12
+person, 3 vehicle)" is the same sentence every day, so a day worth knowing
+about looks exactly like a day that was not.
+
+`highlights` is usually **empty**, and that is the whole design. It only ever
+says:
+
+- a camera reported being tampered with — always first, however far down its
+  camera's name would put it;
+- a camera had a genuine peak — measured against its own flat-day average, so a
+  doorbell on a pavement seeing five an hour all day has no peak while a back
+  gate seeing five in one hour does;
+- unfamiliar faces after dark, using the configured night window — the same
+  face at three in the afternoon is a delivery;
+- somebody who stayed at a camera longer than three minutes;
+- a camera that recorded nothing at all.
+
+Everything comes from the same 24-hour window as the rest of the integration.
+There is no comparison against last week, because there is no last week here.
+
+Assist's "what happened today" leads with these lines and then reads the
+counts, so a dull day sounds dull.
+
 ### Picking a trigger without writing a template
 
 **Settings → Automations → Create → Device** lists everything this integration

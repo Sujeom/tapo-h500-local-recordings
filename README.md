@@ -79,7 +79,9 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   when the gate and the door were recognised as different people.
 - **Ask it:** "who was at the door?" and "what happened today?" work in Assist.
 - **Summaries:** call `tapo_h500.daily_summary` from an automation for a digest
-  — a service, not a schedule, so nothing arrives unless you ask for it.
+  — a service, not a schedule, so nothing arrives unless you ask for it. It
+  also returns `highlights`: what was *different* about the day, and usually
+  nothing at all, which is the point. Assist leads with the same lines.
 - **Captions:** `tapo_h500.describe_recording` asks a vision model what is in a
   clip. Nothing is sent anywhere unless you name an agent.
 - **Bug reports:** the integration's three-dot menu offers **Download
