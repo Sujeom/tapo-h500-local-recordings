@@ -4,7 +4,8 @@ Home Assistant integration for a Tapo H500 HomeBase. Browse, download and
 automate the hub's recordings, entirely over your LAN.
 
 Gives you a camera and an event entity per doorbell, automatic downloads with
-thumbnails, six dashboard cards, and hub controls such as the siren.
+thumbnails, eight dashboard cards, a calendar of everything it saw, and hub
+controls such as the siren.
 
 > **Work in progress.** Reverse engineered against one setup (firmware `1.3.20`,
 > two TD21 doorbells). Entity names and options may change without a migration.
@@ -77,7 +78,27 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   diagnostics** — hub state and detection counts, with no credentials, camera
   names or timestamps in it.
 - **Unusual activity:** each camera flags an hour that stands out against its
-  own recent rate, so a busy street and a back gate are judged separately.
+  own recent rate, so a busy street and a back gate are judged separately. Set how
+  far above that counts under **Configure → Unusual activity**.
+- **Do something about it:** a second
+  [blueprint](blueprints/automation/tapo_h500/respond_to_activity.yaml) turns
+  the lights on, sounds the siren and announces who is at the door. Quiet by
+  default: an unrecognised face at night only, and no siren until you pick one.
+- **Quiet for an hour:** `tapo_h500.snooze` mutes notifications for a set time
+  without disabling the automation. Nothing stops recording.
+- **Arrivals:** `tapo_h500_arrival` fires once per named person per day, on
+  their first sighting — not the twelfth time they cross the front camera.
+- **Waiting, and circling:** a sensor for an unrecognised face that has stayed
+  more than three minutes, and one for somebody who came back to a camera they
+  had already passed.
+- **Calendar:** every detection in the Calendar panel, read from the hub, so
+  scrolling back to last Tuesday actually shows last Tuesday.
+- **The day at a glance:** `image.<camera>_today` tiles the day's frames into
+  one picture.
+- **Watchdogs:** a camera that has recorded nothing for a day, and a forecast
+  of when the hub will start overwriting.
+- **Backups:** `tapo_h500.backup_names` hands back the face names and camera
+  layout — the only things here a hub cannot reproduce.
 - **History:** each camera gets a `binary_sensor` per detection — motion,
   person, animal, unfamiliar face, tampering — on for 30 seconds after the
   hub reports it, so activity appears on a history graph and can be used as an
