@@ -32,6 +32,10 @@ from .entity import H500Entity
 @dataclass(frozen=True, kw_only=True)
 class HubSensor(SensorEntityDescription):
     value: Callable[[dict], object]
+    # What the number leaves out. Only one reading needs it -- a count of
+    # custom sound slots says nothing about which sounds -- and the
+    # alternative was a whole class for one lambda.
+    attributes: Callable[[dict], dict] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -97,11 +101,17 @@ HUB_SENSORS: tuple[HubSensor, ...] = (
     ),
     # The hub holds five custom sound slots. Empty ones come back as empty
     # strings rather than being absent, so this counts named slots.
+    #
+    # The names were parsed from the start, documented as an attribute, and
+    # never actually attached to anything -- the reference described a field
+    # that did not exist. "3" is a poor answer to "which sounds does the hub
+    # hold"; the names are the whole content of the reading.
     HubSensor(
         key="custom_sounds", translation_key="custom_sounds",
         entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda r: r.get("custom_sounds"),
+        attributes=lambda r: {"names": r.get("custom_sound_names") or []},
     ),
     # Health, so a hub that is quietly struggling is visible before it stops.
     # Assembled from readings already collected rather than new calls.
@@ -258,6 +268,17 @@ class H500HubSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
     @property
     def native_value(self):
         return self.entity_description.value(self.coordinator.readings)
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        """None rather than {} where a reading has nothing to add.
+
+        An empty dictionary is a set of attributes, and Home Assistant records
+        it as one on every state change of every hub sensor.
+        """
+        if self.entity_description.attributes is None:
+            return None
+        return self.entity_description.attributes(self.coordinator.readings)
 
 
 class H500CameraSensor(H500Entity, SensorEntity):
