@@ -17,7 +17,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .clips import detection_types, loitering, unusually_busy
 from .const import (
-    DATA_HUBS, DETECTION_HOLD, DETECTION_NAMES, DOMAIN, FACE_PRESENCE_WINDOW,
+    CONF_SILENT_HOURS, DATA_HUBS, DEFAULT_SILENT_HOURS, DETECTION_HOLD,
+    DETECTION_NAMES, DOMAIN, FACE_PRESENCE_WINDOW,
     LOITER_GAP, LOITER_SECONDS,
     LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED, UNUSUAL_FLOOR, UNUSUAL_MULTIPLIER,
 )
@@ -99,6 +100,10 @@ async def async_setup_entry(
     ]
     entities += [
         H500Loitering(coordinator, index, camera)
+        for index, camera in enumerate(coordinator.cameras)
+    ]
+    entities += [
+        H500CameraSilent(coordinator, index, camera)
         for index, camera in enumerate(coordinator.cameras)
     ]
     entities += [
@@ -293,6 +298,64 @@ class H500Loitering(H500Entity, BinarySensorEntity):
         # Zero rather than absent when nobody is there: an automation reading
         # this in a template gets a number either way.
         return {"seconds": self._seconds}
+
+
+def silent_threshold(coordinator) -> int:
+    """The configured silence threshold in seconds, capped at the window.
+
+    Capped rather than validated away: the option can only be set within
+    range, but an entry saved before the range existed could hold anything,
+    and a threshold beyond the window would make the sensor permanently off
+    for a reason nobody could see.
+    """
+    hours = coordinator.entry.options.get(
+        CONF_SILENT_HOURS, DEFAULT_SILENT_HOURS)
+    try:
+        seconds = int(hours) * 3600
+    except (TypeError, ValueError):
+        seconds = DEFAULT_SILENT_HOURS * 3600
+    return min(max(3600, seconds), LOOKBACK_SECONDS)
+
+
+class H500CameraSilent(H500Entity, BinarySensorEntity):
+    """On when this camera has produced nothing for longer than expected.
+
+    A camera that has fallen off the Wi-Fi, run flat or been unplugged is
+    invisible here: the hub's paired-device record has 16 fields and not one
+    of them is an online flag, a signal strength or a battery -- measured, and
+    written up in the protocol notes beside the eleven battery methods that
+    all answer -40106. Every entity simply keeps showing its last value, which
+    looks exactly like a quiet week.
+
+    So this watches for silence, which is the only evidence there is, and is
+    named for what it actually knows. A back gate that genuinely sees nobody
+    for a day will trip it, which is why the threshold is adjustable.
+    """
+
+    _attr_translation_key = "camera_silent"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, index: int, camera: dict) -> None:
+        super().__init__(coordinator, index, camera)
+        self._attr_unique_id = f"{camera['device_id']}_silent"
+
+    @property
+    def is_on(self) -> bool | None:
+        seconds = self.coordinator.silent_seconds(self.index)
+        # Unknown before the first poll. None reads as "unknown" in the
+        # frontend, which is the truth, where False would say "fine".
+        if seconds is None:
+            return None
+        return seconds >= silent_threshold(self.coordinator)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        seconds = self.coordinator.silent_seconds(self.index)
+        return {
+            "silent_seconds": seconds,
+            "threshold_hours": silent_threshold(self.coordinator) // 3600,
+        }
 
 
 class H500FaceSeenRecently(CoordinatorEntity[H500Coordinator], BinarySensorEntity):

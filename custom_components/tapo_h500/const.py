@@ -254,6 +254,25 @@ UNUSUAL_FLOOR = 4
 LOITER_GAP = 120
 LOITER_SECONDS = 180
 
+# How many hours of nothing at all before a camera is called silent.
+#
+# Silence is the only evidence available. The 16 fields in the paired-device
+# record carry no online flag, no signal strength and no battery -- measured,
+# and recorded in the protocol notes along with the eleven battery methods that
+# all answer -40106. A camera that has fallen off the Wi-Fi, run flat or been
+# unplugged looks exactly like a camera where nothing has happened, and Home
+# Assistant shows both as a set of entities holding their last value.
+#
+# So this is a weak signal, and named accordingly: "silent", not "offline". It
+# is still the difference between noticing in a day and noticing when you next
+# need the footage.
+#
+# Capped at the poll window, because nothing longer is knowable: the hub is
+# asked for a day of recordings, and "nothing in three days" cannot be
+# distinguished from "nothing in one" without a database this does not have.
+CONF_SILENT_HOURS = "silent_hours"
+DEFAULT_SILENT_HOURS = 24
+
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
 SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
 

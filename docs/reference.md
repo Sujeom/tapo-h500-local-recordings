@@ -476,6 +476,24 @@ Outside the poll window there is no value at all, rather than a stale one. Unnam
 still counted and still appear on the cards — naming decides who is worth an
 entity, not who gets tracked.
 
+### A camera that has gone quiet
+
+`binary_sensor.<camera>_silent` is on when a camera has recorded nothing for
+longer than the configured threshold (default 24 hours). It also raises a
+repair issue.
+
+A camera off the Wi-Fi, flat or unplugged is otherwise invisible — every entity
+keeps showing its last value, and the usual way to find out is needing the
+footage. The hub offers nothing to check instead: its paired-device record has
+16 fields and not one is an online flag, a signal strength or a battery.
+
+So silence is the only evidence, and the entity is named for what it knows.
+A back gate that genuinely sees nobody all day will trip it; raise the
+threshold under **Configure → Settings**. It cannot go above 24 hours,
+because that is how far back the hub is asked.
+
+Unknown, not off, before the first check completes.
+
 ### Loitering
 
 `binary_sensor.<camera>_loitering` is on while a face the hub could **not**

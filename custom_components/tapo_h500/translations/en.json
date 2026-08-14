@@ -31,13 +31,15 @@
           "auto_download": "Download new recordings automatically",
           "convert_mp4": "Convert downloads to MP4",
           "keep_downloads": "Downloaded clips to keep per camera",
-          "keep_rings": "Doorbell presses to keep per camera"
+          "keep_rings": "Doorbell presses to keep per camera",
+          "silent_hours": "Hours of silence before a camera is flagged"
         },
         "data_description": {
           "convert_mp4": "MP4 plays in the browser; turn this off to keep the hub's original MPEG-TS.",
           "keep_downloads": "0 keeps everything. Any other number prunes the oldest automatic downloads once a camera holds more than that. Manual downloads are never pruned.",
           "poll_interval": "The whole notification delay: nothing reaches Home Assistant sooner than the next check. About 40ms of hub time per check, so low values are cheap.",
-          "keep_rings": "0 treats presses like everything else. Any other number keeps that many of the newest presses whatever their age, so a busy afternoon of motion cannot evict the press that mattered."
+          "keep_rings": "0 treats presses like everything else. Any other number keeps that many of the newest presses whatever their age, so a busy afternoon of motion cannot evict the press that mattered.",
+          "silent_hours": "A camera off the Wi-Fi or flat looks exactly like a quiet one: the hub reports no online flag and no battery, so silence is the only evidence there is. Lower this for a busy doorbell, raise it for a back gate that genuinely sees nobody all day. Capped at 24 because that is how far back the hub is asked."
         }
       },
       "init": {
@@ -201,6 +203,9 @@
       },
       "loitering": {
         "name": "Loitering"
+      },
+      "camera_silent": {
+        "name": "Silent"
       }
     },
     "siren": {
@@ -269,6 +274,10 @@
     "unnamed_face": {
       "title": "A face the hub keeps seeing has no name",
       "description": "Face {face_id} has been seen {sightings} times on {cameras} and has not been named. Naming it makes every card, sensor and notification say who it is instead of a number — \"Alice rang the Front Doorbell\".\n\nName it under Configure → Name faces, where each face is listed with a link to its photograph, or with the Name this face button on the faces card.\n\n{others} other face(s) are also waiting to be named."
+    },
+    "camera_silent": {
+      "title": "A camera has gone quiet",
+      "description": "{cameras} has recorded nothing for {hours} hours.\n\nThat usually means it is off the Wi-Fi, flat or unplugged, but it can also mean nothing has happened there. The hub cannot tell you which: its paired-device record has no online flag, no signal strength and no battery, so silence is the only evidence available. Every entity for that camera is still showing its last known value.\n\nCheck the camera, or raise the threshold under Configure → Settings if it is simply somewhere quiet."
     }
   }
 }

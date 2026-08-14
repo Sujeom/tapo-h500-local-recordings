@@ -126,6 +126,9 @@
       },
       "loitering": {
         "name": "Loitering"
+      },
+      "camera_silent": {
+        "name": "Silent"
       }
     },
     "siren": {

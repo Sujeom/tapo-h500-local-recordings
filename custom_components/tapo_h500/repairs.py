@@ -14,7 +14,10 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
-from .const import DOMAIN, NAME_PROMPT_SIGHTINGS
+from .const import (
+    CONF_SILENT_HOURS, DEFAULT_SILENT_HOURS, DOMAIN, LOOKBACK_SECONDS,
+    NAME_PROMPT_SIGHTINGS,
+)
 
 # Percent used at which the hub is about to start overwriting. Loop recording
 # does not fail at 100%, it silently discards the oldest footage, so the
@@ -24,6 +27,7 @@ STORAGE_WARN_PERCENT = 95
 STORAGE_ISSUE = "storage_nearly_full"
 UNREACHABLE_ISSUE = "hub_unreachable"
 UNNAMED_FACE_ISSUE = "unnamed_face"
+SILENT_CAMERA_ISSUE = "camera_silent"
 
 
 def _issue_id(entry_id: str, kind: str) -> str:
@@ -35,6 +39,7 @@ def async_check(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     _storage(hass, entry_id, coordinator)
     _reachable(hass, entry_id, coordinator)
     _unnamed_faces(hass, entry_id, coordinator)
+    _silent_cameras(hass, entry_id, coordinator)
 
 
 def _storage(hass: HomeAssistant, entry_id: str, coordinator) -> None:
@@ -68,6 +73,38 @@ def _reachable(hass: HomeAssistant, entry_id: str, coordinator) -> None:
         is_fixable=False,
         severity=ir.IssueSeverity.ERROR,
         translation_key=UNREACHABLE_ISSUE,
+    )
+
+
+def _silent_cameras(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+    """Say when a camera has stopped producing anything at all.
+
+    Worth interrupting someone about because the failure is invisible
+    otherwise: a camera off the Wi-Fi or flat looks identical to a quiet one,
+    all its entities keep showing their last value, and the usual way to find
+    out is needing the footage. The hub reports no online flag to check
+    instead -- 16 fields in the paired-device record and not one of them says.
+    """
+    issue_id = _issue_id(entry_id, SILENT_CAMERA_ISSUE)
+    hours = coordinator.entry.options.get(
+        CONF_SILENT_HOURS, DEFAULT_SILENT_HOURS)
+    try:
+        threshold = min(max(3600, int(hours) * 3600), LOOKBACK_SECONDS)
+    except (TypeError, ValueError):
+        threshold = DEFAULT_SILENT_HOURS * 3600
+    quiet = coordinator.silent_cameras(threshold)
+    if not quiet:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    ir.async_create_issue(
+        hass, DOMAIN, issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=SILENT_CAMERA_ISSUE,
+        translation_placeholders={
+            "cameras": ", ".join(quiet),
+            "hours": str(threshold // 3600),
+        },
     )
 
 

@@ -14,10 +14,10 @@ from .const import (
     AUTO_DOWNLOAD_MODES, CONF_AUTO_DOWNLOAD, CONF_CLOUD_PASSWORD, CONF_FACE_NAMES,
     DATA_HUBS,
     CONF_CAMERA_ORDER, CONF_CONVERT_MP4, CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS,
-    CONF_POLL_INTERVAL,
+    CONF_POLL_INTERVAL, CONF_SILENT_HOURS,
     DEFAULT_AUTO_DOWNLOAD, DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     DEFAULT_KEEP_RINGS,
-    DEFAULT_POLL_INTERVAL, DOMAIN,
+    DEFAULT_POLL_INTERVAL, DEFAULT_SILENT_HOURS, DOMAIN, LOOKBACK_SECONDS,
 )
 
 
@@ -257,5 +257,14 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
                 CONF_CONVERT_MP4,
                 default=options.get(CONF_CONVERT_MP4, DEFAULT_CONVERT_MP4),
             ): bool,
+            # Capped at the poll window: the hub is asked for a day of
+            # recordings, so "nothing in three days" is not a question it can
+            # answer. Offering 72 here would produce a sensor that never
+            # turned on, for a reason nobody could see.
+            vol.Required(
+                CONF_SILENT_HOURS,
+                default=options.get(CONF_SILENT_HOURS, DEFAULT_SILENT_HOURS),
+            ): vol.All(vol.Coerce(int),
+                       vol.Range(min=1, max=LOOKBACK_SECONDS // 3600)),
         })
         return self.async_show_form(step_id="settings", data_schema=schema)

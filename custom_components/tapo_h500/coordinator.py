@@ -226,6 +226,34 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         moments = [moment for moment in moments if moment is not None]
         return max(moments) if moments else None
 
+    def silent_seconds(self, index: int) -> int | None:
+        """How long this camera has produced nothing, as far as can be told.
+
+        None until the first poll has completed -- before that, an empty list
+        means "not asked yet", not "nothing happened", and reporting every
+        camera silent on startup would be an alarm about the integration
+        rather than the hardware.
+
+        Capped at the poll window. A camera that has produced nothing at all
+        is reported as exactly the window, because that is the whole of what
+        the hub was asked about; anything longer would be invented.
+        """
+        if not self._primed:
+            return None
+        last = self.last_activity(index)
+        if last is None:
+            return LOOKBACK_SECONDS
+        return max(0, int(dt_util.utcnow().timestamp()) - last)
+
+    def silent_cameras(self, threshold: int) -> list[str]:
+        """The names of every camera quiet for longer than `threshold`."""
+        quiet = []
+        for index, camera in enumerate(self.cameras):
+            seconds = self.silent_seconds(index)
+            if seconds is not None and seconds >= threshold:
+                quiet.append(camera.get("alias") or f"Camera {index}")
+        return quiet
+
     async def _async_update_data(self) -> dict:
         """Poll, and back off while the hub is not answering."""
         try:
