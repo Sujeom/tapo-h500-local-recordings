@@ -28,7 +28,7 @@ from .const import (
     DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
     LOOKBACK_SECONDS, POLL_BACKOFF_MAX, PROWL_WINDOW, SIGNAL_NEW_CLIP,
-    STATUS_MAX_AGE, STORAGE_SAMPLES,
+    STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
 )
 from .media import (
     async_download_clip, async_prune, async_verify, existing_clip,
@@ -520,6 +520,27 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         if last is None:
             return LOOKBACK_SECONDS
         return max(0, int(dt_util.utcnow().timestamp()) - last)
+
+    def tampered(self, within: int) -> list[tuple[str, int]]:
+        """Every report of a camera being interfered with, newest first.
+
+        The binary sensor for code 19 holds for thirty seconds and then clears,
+        which is right for a history graph and wrong for this: somebody lifting
+        a camera off its mount is a fact the owner needs whenever they next
+        open Home Assistant, not only if they happened to be looking.
+        """
+        since = int(dt_util.utcnow().timestamp()) - within
+        found: list[tuple[str, int]] = []
+        for index, camera in enumerate(self.cameras):
+            for clip in self.clips_for(index):
+                moment = start_of(clip)
+                if moment is None or moment < since:
+                    continue
+                if has_detection(clip, TAMPER_CODES):
+                    found.append(
+                        (camera.get("alias") or f"Camera {index}", moment))
+        found.sort(key=lambda item: item[1], reverse=True)
+        return found
 
     def silent_cameras(self, threshold: int) -> list[str]:
         """The names of every camera quiet for longer than `threshold`."""

@@ -111,6 +111,9 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   one picture.
 - **Watchdogs:** a camera that has recorded nothing for a day, and a forecast
   of when the hub will start overwriting.
+- **Somebody at the camera:** the hub's tamper alarm raises a repair notice
+  naming the camera and the time, instead of a sensor that clears after 30
+  seconds and is only ever seen by someone who happened to be looking.
 - **Backups:** `tapo_h500.backup_names` hands back the face names and camera
   layout — the only things here a hub cannot reproduce.
 - **Download what matters:** pick which detections are worth the disk instead

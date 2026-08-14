@@ -344,6 +344,10 @@
     "clashing_camera_names": {
       "title": "Two cameras share a name",
       "description": "More than one paired camera is called {cameras}, so their downloads are filed in the same folder.\n\nRecordings are stored under a slug of the camera's own name, which is what makes \"already downloaded\" a check of the files on disk rather than a separate index that could disagree with them. Two cameras sharing a name means one camera's recording answers that question for the other, and clips from both appear under whichever card you open.\n\nRename one of them in the Tapo app. Anything already downloaded stays where it is; new recordings go to the new folder."
+    },
+    "camera_tampered": {
+      "title": "A camera reported being interfered with",
+      "description": "{camera} reported tampering at {when} ({count} report(s) in the last day).\n\nThis is the hub's own alarm for a camera being handled — knocked, covered, or lifted off its mount. It was confirmed on real hardware by taking a camera off its bracket, so it means what it says, but a knock or a strong gust can raise it too.\n\nWorth checking rather than dismissing: everything else this integration reports happened outside the house, and this one is about the camera itself. If it is real, the recordings you will want are the ones after it — check that the camera is still pointing where it should and that its recent clips are on the hub.\n\nIt clears on its own once the report ages out of the last 24 hours."
     }
   }
 }

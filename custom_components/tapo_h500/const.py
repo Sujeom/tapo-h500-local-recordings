@@ -78,6 +78,20 @@ DEFAULT_KEEP_PERSON = 0
 # press that carried it; see DETECTION_NAMES.
 PERSON_CODES: set[int] = {6}
 
+# Code 19, and the one detection that must not be allowed to scroll past.
+#
+# Confirmed on real hardware: the front camera was lifted off its mount at
+# 11:16:16 on 2026-08-13 and logged alarm_type 19. Everything else here is
+# something that happened outside the house; this is somebody interfering with
+# the camera itself, and if it is real then the recordings after it are the
+# ones that will be missing.
+#
+# It already has a binary sensor, which holds for thirty seconds and then
+# clears -- correct for a graph and useless for a fact somebody needs to see
+# whenever they next open Home Assistant. Hence a repair issue as well: it
+# stays until the detection ages out of the poll window.
+TAMPER_CODES: set[int] = {19}
+
 # The daily digest is OFF unless asked for. A summary nobody requested is the
 # kind of notification people mute the whole integration over.
 CONF_DIGEST_TIME = "digest_time"

@@ -645,6 +645,26 @@ that already happens. That means:
 
 `percent_per_hour` and `samples` attributes say which of those applies.
 
+### A camera being handled
+
+Detection code 19 is the hub's own tamper alarm, confirmed by lifting the front
+camera off its bracket at 11:16:16 on 2026-08-13. It is the one detection here
+that is not about something outside the house — it is about the camera itself,
+and if it is real then the recordings after it are the ones that will be
+missing.
+
+`binary_sensor.<camera>_theft` reports it for 30 seconds, which is right for a
+history graph and useless for a fact somebody needs whenever they next open
+Home Assistant. So it also raises a **repair issue** naming the camera, the
+local time, and how many reports there have been in the last day — once is a
+knock, repeatedly is not. Nothing can dismiss it; it clears when the report
+ages out of the 24-hour window.
+
+Matched against the full `events_1` mask rather than `alarm_type`. `alarm_type`
+reports only the most significant code, and 20 outranks 19 — so a camera lifted
+off its mount while somebody the hub recognised stood there would otherwise
+report as a face and nothing else.
+
 ### A camera that has gone quiet
 
 `binary_sensor.<camera>_silent` is on when a camera has recorded nothing for

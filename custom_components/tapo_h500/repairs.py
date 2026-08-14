@@ -7,6 +7,10 @@ nothing while every entity keeps showing its last known value, a camera that
 has gone quiet looks exactly like a quiet camera, and two cameras sharing a
 name file their downloads over each other.
 
+Camera tampering is the exception to that pattern and the reason it is here
+anyway: it is reported, loudly, for thirty seconds, and then the sensor clears
+and nobody who was not looking ever knows.
+
 Deliberately not raised: a single failed poll, which is normal on a busy
 network and recovers by itself, and low free space in gigabytes, which means
 nothing without knowing the disk size.
@@ -32,6 +36,7 @@ UNREACHABLE_ISSUE = "hub_unreachable"
 UNNAMED_FACE_ISSUE = "unnamed_face"
 SILENT_CAMERA_ISSUE = "camera_silent"
 CLASHING_NAMES_ISSUE = "clashing_camera_names"
+TAMPER_ISSUE = "camera_tampered"
 
 
 def _issue_id(entry_id: str, kind: str) -> str:
@@ -44,11 +49,54 @@ def async_check(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     Each check clears its own issue when the condition has gone. One that
     never clears is worse than one that never appears.
     """
+    # Six checks. This docstring has twice said "both of these" while listing
+    # more than two, so the count is deliberately not restated below.
     _storage(hass, entry_id, coordinator)
     _reachable(hass, entry_id, coordinator)
     _unnamed_faces(hass, entry_id, coordinator)
     _silent_cameras(hass, entry_id, coordinator)
     _clashing_names(hass, entry_id, coordinator)
+    _tampered(hass, entry_id, coordinator)
+
+
+def _tampered(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+    """Say when a camera reported being interfered with.
+
+    The one detection that must not be allowed to scroll past. Everything else
+    here happened outside the house; this is somebody handling the camera
+    itself, and if it is real then the recordings after it are the ones that
+    will be missing.
+
+    Its binary sensor holds for thirty seconds and clears -- right for a
+    history graph, useless for a fact somebody needs to see whenever they next
+    open Home Assistant. This stays until the detection ages out of the poll
+    window, which is a day.
+
+    An absolute time, deliberately, where diagnostics deliberately has none:
+    this is for the owner and "someone touched your camera at some point" is
+    not a usable thing to be told.
+    """
+    from homeassistant.util import dt as dt_util
+
+    issue_id = _issue_id(entry_id, TAMPER_ISSUE)
+    events = coordinator.tampered(LOOKBACK_SECONDS)
+    if not events:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    camera, moment = events[0]
+    when = dt_util.as_local(dt_util.utc_from_timestamp(moment))
+    ir.async_create_issue(
+        hass, DOMAIN, issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key=TAMPER_ISSUE,
+        translation_placeholders={
+            "camera": camera,
+            "when": when.strftime("%H:%M on %d %b"),
+            # How many times, because once is a knock and repeatedly is not.
+            "count": str(len(events)),
+        },
+    )
 
 
 def _storage(hass: HomeAssistant, entry_id: str, coordinator) -> None:
