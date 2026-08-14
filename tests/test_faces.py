@@ -258,9 +258,15 @@ class NamingDoesNotReload(unittest.TestCase):
         self.assertIn("async_dispatcher_connect(", body)
         self.assertIn("SIGNAL_FACES_CHANGED", body)
 
-    def test_a_face_is_not_added_twice(self):
+    def test_a_person_is_not_added_twice(self):
+        """Guarded on the whole group of ids rather than on one id.
+
+        A second cluster the hub invented for somebody already named joins
+        them; keying on the id alone would add a second entity with the same
+        name, which is the duplication the merging exists to remove.
+        """
         body = SENSOR.split("def _sync_faces", 1)[1].split("_sync_faces()", 1)[0]
-        self.assertIn("if face_id not in added", body)
+        self.assertIn("added.intersection(ids)", body)
 
     def test_renaming_takes_effect_without_a_reload(self):
         """A name captured at construction would show the old one until
@@ -283,11 +289,12 @@ class Service(unittest.TestCase):
         """So a card shows names without being configured with them."""
         self.assertIn('"face_names": coordinator.face_names', INIT)
 
-    def test_a_sensor_exists_per_named_face(self):
+    def test_a_sensor_exists_per_named_person(self):
         # The name is no longer passed in: it is read live off the coordinator
-        # so a rename does not need a reload.
+        # so a rename does not need a reload. Grouped by name rather than by
+        # face id, because the hub clusters one person more than once.
         self.assertIn("H500FaceSensor(coordinator, entry, face_id)", SENSOR)
-        self.assertIn("sorted(coordinator.face_names)", SENSOR)
+        self.assertIn("coordinator.named_people.values()", SENSOR)
 
 
 if __name__ == "__main__":

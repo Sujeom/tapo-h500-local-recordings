@@ -203,19 +203,31 @@ async def async_setup_entry(
     entities.append(H500StorageForecast(coordinator, entry))
     async_add_entities(entities)
 
-    # One per named face, added as names appear rather than on a reload.
+    # One per named PERSON, added as names appear rather than on a reload.
     # Naming used to reload the whole entry, which cost a hub login and broke
     # whatever was mid-request; now the entry is left alone and this listens
     # for the change instead.
+    #
+    # Per person rather than per face id: the hub clusters the same person more
+    # than once, so naming both clusters "Alice" used to produce two sensors
+    # called Alice. The entity is keyed on the lowest id in the group, which
+    # for anyone the hub only clustered once is the id it has always been --
+    # so nothing already in the registry is orphaned.
     added: set[str] = set()
 
     @callback
     def _sync_faces() -> None:
-        new_ids = [face_id for face_id in sorted(coordinator.face_names)
-                   if face_id not in added]
+        new_ids = []
+        for ids in coordinator.named_people.values():
+            # Any id of this group already having an entity means the person
+            # does. A second cluster gaining the same name joins them rather
+            # than adding a duplicate.
+            if added.intersection(ids):
+                continue
+            added.update(ids)
+            new_ids.append(ids[0])
         if not new_ids:
             return
-        added.update(new_ids)
         # Two per person: when they were last seen, and where. The pair is
         # what makes following someone between cameras readable at a glance --
         # the hub gives one id per person across the whole house, so "where"
@@ -444,7 +456,8 @@ class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
 
     @property
     def _face(self) -> dict:
-        return self.coordinator.faces_seen().get(self.face_id) or {}
+        # The whole person, merged across every cluster the hub gave them.
+        return self.coordinator.person_for(self.face_id)
 
     @property
     def native_value(self):
@@ -456,6 +469,10 @@ class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
         face = self._face
         return {
             "face_id": self.face_id,
+            # Every cluster that is this person. Matching on one id alone
+            # misses half their sightings, which is exactly the bug this
+            # merging exists to fix.
+            "face_ids": face.get("ids") or [self.face_id],
             # Within the poll window only, which is what every other count in
             # this integration means; a lifetime total would need a database.
             "sightings": face.get("sightings", 0),
@@ -498,7 +515,8 @@ class H500FaceLocationSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
 
     @property
     def _face(self) -> dict:
-        return self.coordinator.faces_seen().get(self.face_id) or {}
+        # The whole person, merged across every cluster the hub gave them.
+        return self.coordinator.person_for(self.face_id)
 
     @property
     def native_value(self):
@@ -513,6 +531,7 @@ class H500FaceLocationSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
         trail = face.get("trail") or []
         return {
             "face_id": self.face_id,
+            "face_ids": face.get("ids") or [self.face_id],
             "cameras": face.get("cameras", []),
             "sightings": face.get("sightings", 0),
             # "approaching", "leaving", or absent when it is not known --

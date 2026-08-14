@@ -206,8 +206,93 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             face["prowling"] = prowling(face["trail"], PROWL_WINDOW)
         return faces
 
+    @property
+    def named_people(self) -> dict[str, list[str]]:
+        """Every name that has been given, and the face ids sharing it.
+
+        Built from the stored names alone rather than from what has been seen,
+        so somebody who was away all day still has their entities.
+        """
+        groups: dict[str, list[str]] = {}
+        for face_id, name in self.face_names.items():
+            groups.setdefault(name, []).append(face_id)
+        return {name: sorted(ids) for name, ids in sorted(groups.items())}
+
+    def people(self, clips: dict[int, list[dict]] | None = None) -> dict[str, dict]:
+        """Named faces merged into one record per person, keyed by name.
+
+        The hub clusters faces, and it clusters the same person more than once
+        -- different light, a hat, a different angle -- handing out a separate
+        id for each. Naming both is the only way to say they are one person,
+        and until now nothing downstream believed it: two sensors called
+        "Alice", two arrival events, a trail split in half so the direction she
+        was walking could not be worked out from either half.
+
+        Everything is recomputed from the merged trail rather than picked from
+        one of the parts. That is the whole point -- gate on one id and door on
+        the other is a direction only once they are the same person.
+        """
+        merged: dict[str, dict] = {}
+        groups = self.named_people
+        for face_id, face in self.faces_seen(clips=clips).items():
+            name = face.get("name")
+            if not name:
+                continue
+            person = merged.setdefault(name, {
+                "name": name, "ids": [], "sightings": 0, "first_seen": None,
+                "last_seen": None, "camera_index": None, "face_id": None,
+                "cameras": set(), "trail": [],
+            })
+            # Every cluster carrying this name, not only the ones seen in the
+            # window. An automation matching on the ids it was handed has to
+            # match this person tomorrow too, when a different cluster of
+            # theirs is the one the hub recognises.
+            person["ids"] = groups.get(name) or [face_id]
+            person["sightings"] += face.get("sightings", 0)
+            first, last = face.get("first_seen"), face.get("last_seen")
+            if first is not None and (person["first_seen"] is None
+                                      or first < person["first_seen"]):
+                person["first_seen"] = first
+            if last is not None and (person["last_seen"] is None
+                                     or last > person["last_seen"]):
+                person["last_seen"] = last
+                person["camera_index"] = face.get("camera_index")
+                # Which cluster saw them last, so a caller can still find that
+                # sighting's own photograph.
+                person["face_id"] = face_id
+            person["cameras"].update(face.get("cameras") or [])
+            person["trail"].extend(face.get("trail") or [])
+        for person in merged.values():
+            # The entity that represents this person is keyed on the lowest id,
+            # so a person the hub only ever clustered once keeps exactly the
+            # unique id they already had.
+            person["id"] = person["ids"][0]
+            person["cameras"] = sorted(person["cameras"])
+            person["trail"] = sorted(
+                person["trail"], key=lambda hop: hop["at"],
+                reverse=True)[:FACE_TRAIL_MAX]
+            person["last_camera"] = (person["trail"][0]["camera"]
+                                     if person["trail"] else None)
+            person["direction"] = direction(
+                person["trail"], self.camera_ranks, DIRECTION_WINDOW)
+            person["prowling"] = prowling(person["trail"], PROWL_WINDOW)
+        return merged
+
+    def person_for(self, face_id: str) -> dict:
+        """The merged person an id belongs to, or the bare face if unnamed."""
+        key = str(face_id)
+        name = self.face_names.get(key)
+        if name:
+            return self.people().get(name) or {}
+        return self.faces_seen().get(key) or {}
+
     def _note_arrivals(self, clips: dict[int, list[dict]]) -> None:
-        """Fire once per named person per local day, on their first sighting.
+        """Fire once per named PERSON per local day, on their first sighting.
+
+        Per person, not per face id. The hub clusters the same person more than
+        once, and keying this on the cluster announced Alice twice on any
+        morning both of hers happened to fire -- which reads as her arriving,
+        leaving and arriving again.
 
         The detection event fires every time anyone crosses a camera. That is
         correct for a doorbell and useless for a household: someone who works
@@ -227,28 +312,33 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         if self._arrival_day != today:
             self._arrival_day = today
             self._arrived = set()
-        names = self.face_names
-        for face_id, face in self.faces_seen(clips=clips).items():
-            # Unnamed ids are strangers, and a stranger appearing is what the
-            # detection event already reports. Announcing "Face 481036337152
-            # has arrived" would be worse than saying nothing.
-            if face_id not in names or face_id in self._arrived:
+        # people() holds only faces that have been named, which is the filter
+        # this used to apply by hand: an unnamed id is a stranger, and a
+        # stranger appearing is what the detection event already reports.
+        # "Face 481036337152 has arrived" would be worse than saying nothing.
+        for name, person in self.people(clips=clips).items():
+            if name in self._arrived:
                 continue
-            last = face.get("last_seen")
+            last = person.get("last_seen")
             if last is None or local_date(last) != today:
                 continue
-            self._arrived.add(face_id)
+            self._arrived.add(name)
             if not self._primed:
                 continue
             self.hass.bus.async_fire(EVENT_ARRIVAL, {
                 "entry_id": self.entry.entry_id,
-                "face_id": face_id,
-                "name": names[face_id],
-                "camera": face.get("last_camera"),
+                # The cluster that actually saw them, so a caller can still
+                # find that sighting's photograph...
+                "face_id": person.get("face_id"),
+                # ...and every cluster that is this person, because matching
+                # on one id would miss half their sightings.
+                "face_ids": person.get("ids") or [],
+                "name": name,
+                "camera": person.get("last_camera"),
                 "at": last,
                 # Where they were heading, when the cameras have been given an
                 # order. Absent otherwise rather than guessed.
-                "direction": face.get("direction"),
+                "direction": person.get("direction"),
             })
 
     def _visit_payload(self, index: int, clips: list[dict],

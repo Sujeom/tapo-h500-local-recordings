@@ -122,17 +122,21 @@ async def async_setup_entry(
     ]
     async_add_entities(entities)
 
-    # One per named face, added as names appear rather than on a reload, the
-    # same way the face sensors are.
+    # One per named person, added as names appear rather than on a reload, the
+    # same way the face sensors are -- and keyed the same way, on the lowest id
+    # of the group, so two clusters of one person are one entity.
     added: set[str] = set()
 
     @callback
     def _sync_faces() -> None:
-        fresh = [face_id for face_id in sorted(coordinator.face_names)
-                 if face_id not in added]
+        fresh = []
+        for ids in coordinator.named_people.values():
+            if added.intersection(ids):
+                continue
+            added.update(ids)
+            fresh.append(ids[0])
         if not fresh:
             return
-        added.update(fresh)
         async_add_entities(
             H500FaceSeenRecently(coordinator, entry, face_id)
             for face_id in fresh)
@@ -429,8 +433,20 @@ class H500Prowling(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
         self._attr_device_info = hub_device(coordinator, entry)
 
     def _circling(self) -> list[dict]:
-        return [face for face in self.coordinator.faces_seen().values()
-                if face.get("prowling")]
+        """Named people merged, plus every face that has no name.
+
+        Merging matters most here. Somebody the hub clustered twice walks
+        front, side, front and each cluster holds half the trail, so neither
+        half contains the return that is the entire signal -- a circuit split
+        in two is two journeys.
+
+        Unnamed faces cannot be merged, and are the more interesting case
+        anyway, so they come through as themselves.
+        """
+        merged = list(self.coordinator.people().values())
+        merged += [face for face in self.coordinator.faces_seen().values()
+                   if not face.get("name")]
+        return [face for face in merged if face.get("prowling")]
 
     @property
     def is_on(self) -> bool:
@@ -479,8 +495,8 @@ class H500FaceSeenRecently(CoordinatorEntity[H500Coordinator], BinarySensorEntit
     @property
     def is_on(self) -> bool:
         from homeassistant.util import dt as dt_util
-        face = self.coordinator.faces_seen().get(self.face_id) or {}
-        last = face.get("last_seen")
+        # Merged across every cluster: seen on either is seen.
+        last = self.coordinator.person_for(self.face_id).get("last_seen")
         if last is None:
             return False
         now = int(dt_util.utcnow().timestamp())

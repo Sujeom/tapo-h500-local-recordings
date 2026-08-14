@@ -69,6 +69,10 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   cameras reads as *approaching* or *leaving* — warning before the doorbell.
 - **Prompts:** a face the hub keeps seeing but you have not named turns up as a
   repair notice, so regulars get named instead of staying numbers.
+- **One person, one entity:** the hub clusters the same face more than once.
+  Give both clusters the same name and they merge — one sensor, one arrival,
+  and a joined-up trail, which is the only way a direction can be worked out
+  when the gate and the door were recognised as different people.
 - **Ask it:** "who was at the door?" and "what happened today?" work in Assist.
 - **Summaries:** call `tapo_h500.daily_summary` from an automation for a digest
   — a service, not a schedule, so nothing arrives unless you ask for it.

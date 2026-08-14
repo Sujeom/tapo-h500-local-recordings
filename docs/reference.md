@@ -469,6 +469,20 @@ Naming someone creates two sensors on the hub device: `sensor.<name>` holding
 when they were last seen, and `sensor.<name>_last_seen_at` holding which camera
 saw them.
 
+**Give the same name to more than one id and they become one person.** The hub
+clusters the same face more than once — different light, a hat, a different
+angle — and there is no way to tell it they are the same. Naming both is that
+way. From then on they share one pair of sensors, one `binary_sensor` and one
+arrival event, their sighting counts add up, and their trails are joined before
+the direction and prowling checks run. That last part is the point: gate on one
+cluster and door on the other is a direction only once they are the same
+person, because one hop is never a direction.
+
+The entity keeps the lowest of the shared ids, so anyone the hub only ever
+clustered once is untouched. `face_ids` on each sensor lists every id in the
+group; `face_id` stays the one that saw them last, which is the one whose
+photograph exists.
+
 The second is what follows a person around the house. Face ids are hub-wide
 rather than per camera — measured on this hardware, two of six ids appeared on
 both doorbells — so the same number really does follow one person from door to
