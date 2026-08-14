@@ -9,7 +9,9 @@ from __future__ import annotations
 import re
 import time
 
-from .const import SIREN_VOLUME_MAX, SIREN_VOLUME_MIN
+from .const import (
+    EMPTIED_PERCENT, MIN_TREND_SECONDS, SIREN_VOLUME_MAX, SIREN_VOLUME_MIN,
+)
 
 # One round trip covers all of these. Each was confirmed to return data on an
 # H500 running firmware 1.3.20; the other 55 getters pytapo knows about do not.
@@ -227,3 +229,71 @@ def hub_readings(status: dict, now: float | None = None) -> dict:
         "custom_sounds": len(used_audio_slots(status)),
         "custom_sound_names": used_audio_slots(status),
     }
+
+
+def fill_rate(samples: list[tuple[int, float]]) -> float | None:
+    """Percent of the hub's disk filled per hour, by least squares.
+
+    `samples` is (unix seconds, percent used), oldest first.
+
+    None until there is enough to say anything. The hub rounds the figure to a
+    tenth of a percent, so on a 512 GB card one step is half a gigabyte: two
+    readings a minute apart measure that rounding, not a trend. A least-squares
+    fit over the whole run rather than first-versus-last, because the rounding
+    makes the endpoints the two least reliable points to build a line from.
+    """
+    if not samples:
+        return None
+    # One guard, deliberately. Earlier versions also checked for fewer than
+    # two samples and for a zero spread in the timestamps, and neither could
+    # ever fire: samples are appended in time order, so an hour of span means
+    # at least two distinct instants, which means a non-zero spread. Removing
+    # either changed no behaviour, so no test could tell a broken one from a
+    # working one. The span is the only condition, and it lives here.
+    if samples[-1][0] - samples[0][0] < MIN_TREND_SECONDS:
+        return None
+    count = len(samples)
+    mean_at = sum(at for at, _ in samples) / count
+    mean_used = sum(used for _, used in samples) / count
+    spread = sum((at - mean_at) ** 2 for at, _ in samples)
+    slope = sum((at - mean_at) * (used - mean_used)
+                for at, used in samples) / spread
+    return slope * 3600
+
+
+def hours_until_full(samples: list[tuple[int, float]],
+                     used: float | None) -> float | None:
+    """How long until the hub starts overwriting, at the current rate.
+
+    "Full" is not a failure here -- loop recording does not stop at 100%, it
+    silently discards the oldest footage -- so this is the deadline for
+    downloading anything worth keeping.
+
+    None whenever the answer is not known: too little history, or a disk that
+    is not filling. A hub whose oldest footage is already being overwritten
+    sits at a steady figure forever, and reporting "full in 4000 days" from
+    the noise in that would be worse than saying nothing.
+    """
+    rate = fill_rate(samples)
+    if rate is None or rate <= 0 or used is None:
+        return None
+    # No separate case for an already-full disk: the figure is computed as
+    # (total - free) / total, so it cannot exceed 100, and at exactly 100 this
+    # is already zero.
+    return (100 - used) / rate
+
+
+def trend_samples(previous: list[tuple[int, float]], at: int,
+                  used: float | None, cap: int) -> list[tuple[int, float]]:
+    """Add one reading to the history, dropping it when the disk was emptied.
+
+    A format, a swapped card or a hub that starts overwriting all show up the
+    same way: the figure falls. Keeping the readings from before that point
+    would fit a line across the drop and forecast from a slope that never
+    happened, so the history starts again.
+    """
+    if used is None:
+        return previous
+    if previous and used < previous[-1][1] - EMPTIED_PERCENT:
+        return [(at, used)]
+    return (previous + [(at, used)])[-cap:]

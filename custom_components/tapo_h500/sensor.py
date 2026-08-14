@@ -188,6 +188,7 @@ async def async_setup_entry(
         for index, camera in enumerate(coordinator.cameras)
         for description in CAMERA_SENSORS
     ]
+    entities.append(H500StorageForecast(coordinator, entry))
     async_add_entities(entities)
 
     # One per named face, added as names appear rather than on a reload.
@@ -255,6 +256,52 @@ def hub_device(coordinator: H500Coordinator, entry: ConfigEntry):
         model="H500",
         configuration_url=f"https://{entry.data.get('host')}",
     )
+
+
+class H500StorageForecast(CoordinatorEntity[H500Coordinator], SensorEntity):
+    """Days until the hub starts overwriting its oldest recordings.
+
+    Not a failure when it arrives -- loop recording does not stop at full, it
+    silently discards the oldest footage -- which is exactly why the warning
+    has to come early enough to download anything worth keeping.
+
+    Its own class rather than another entry in HUB_SENSORS because those are
+    computed from one status response and this needs the run of them the
+    coordinator has been collecting.
+
+    Unavailable, rather than a large number, whenever the answer is not known:
+    for the first hour after a restart there is not enough history, and a hub
+    already overwriting sits at a steady figure forever, where a line fitted
+    to the rounding noise would say something like "full in 4000 days".
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "storage_full_in"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _attr_suggested_display_precision = 1
+    _attr_icon = "mdi:harddisk"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_storage_full_in"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    @property
+    def native_value(self):
+        return self.coordinator.days_until_full()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        from .status import fill_rate
+        rate = fill_rate(self.coordinator.storage_trend)
+        return {
+            # Why the forecast says what it says, and why it sometimes says
+            # nothing: a reading of "measuring" here is the difference between
+            # "not filling" and "not enough history yet".
+            "percent_per_hour": None if rate is None else round(rate, 4),
+            "samples": len(self.coordinator.storage_trend),
+        }
 
 
 class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):

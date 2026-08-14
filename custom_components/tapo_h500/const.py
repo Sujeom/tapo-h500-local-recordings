@@ -273,6 +273,28 @@ LOITER_SECONDS = 180
 CONF_SILENT_HOURS = "silent_hours"
 DEFAULT_SILENT_HOURS = 24
 
+# Forecasting when the hub starts overwriting.
+#
+# There is no history to read: the hub reports how full it is now and nothing
+# about how full it was, and this integration keeps no database. So the trend
+# is sampled while Home Assistant runs, from the status refresh that already
+# happens once a minute, and the forecast is unavailable until enough of it
+# has accumulated -- an hour, because the figure is rounded to a tenth of a
+# percent and two readings a minute apart measure that rounding.
+#
+# Held in memory only, and deliberately so. Writing a sample a minute to disk
+# to survive a restart is a lot of machinery for a number that becomes useful
+# again an hour after startup.
+#
+# 1440 samples is a day at one a minute, which is as much as the forecast can
+# usefully weigh: beyond that the rate that mattered is last week's.
+MIN_TREND_SECONDS = 3600
+STORAGE_SAMPLES = 1440
+# A fall bigger than this means the disk was emptied -- formatted, swapped, or
+# loop recording finally catching up -- not that it drained. Fitting a line
+# across that drop forecasts from a slope that never happened.
+EMPTIED_PERCENT = 1.0
+
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
 SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
 

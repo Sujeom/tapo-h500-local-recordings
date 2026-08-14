@@ -476,6 +476,27 @@ Outside the poll window there is no value at all, rather than a stale one. Unnam
 still counted and still appear on the cards — naming decides who is worth an
 entity, not who gets tracked.
 
+### Storage forecast
+
+`sensor.<hub>_storage_full_in` is how many days until the hub starts
+overwriting, at the rate it has been filling. Full is not a failure — loop
+recording silently discards the oldest footage rather than stopping — so this
+is the deadline for downloading anything worth keeping.
+
+The hub reports how full it is and nothing about how full it was, so the rate
+is sampled while Home Assistant runs, once a minute from the status refresh
+that already happens. That means:
+
+- **Unavailable for the first hour** after a restart. The figure is rounded to
+  a tenth of a percent, so a shorter run measures the rounding.
+- **Unavailable when the disk is not filling** — a hub already overwriting sits
+  at a steady figure forever, and a line fitted to that noise would say
+  something like "full in 4000 days".
+- The history restarts if the figure drops, which is what a format, a swapped
+  card or loop recording catching up all look like.
+
+`percent_per_hour` and `samples` attributes say which of those applies.
+
 ### A camera that has gone quiet
 
 `binary_sensor.<camera>_silent` is on when a camera has recorded nothing for

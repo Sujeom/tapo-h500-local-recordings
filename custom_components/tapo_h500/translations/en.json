@@ -147,6 +147,9 @@
       },
       "hub_health": {
         "name": "Health"
+      },
+      "storage_full_in": {
+        "name": "Storage full in"
       }
     },
     "binary_sensor": {

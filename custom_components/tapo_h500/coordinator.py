@@ -22,11 +22,12 @@ from .const import (
     CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS,
     CONF_CAMERA_ORDER, DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     LOOKBACK_SECONDS, POLL_BACKOFF_MAX, SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
+    STORAGE_SAMPLES,
 )
 from .media import (
     async_download_clip, async_prune, async_verify, existing_clip,
 )
-from .status import hub_readings
+from .status import hub_readings, hours_until_full, trend_samples
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +69,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Who has already been seen today, and which day that refers to.
         self._arrived: set[str] = set()
         self._arrival_day: str | None = None
+        # How full the disk has been, so a rate can be fitted to it. Memory
+        # only: the hub reports how full it is now and nothing about before.
+        self.storage_trend: list[tuple[int, float]] = []
         self._base_interval = interval_or_default(entry)
         # Turn "refresh this every N seconds" into a poll count once, here, so
         # a longer interval configured in options does not silently turn into
@@ -226,6 +230,12 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         moments = [moment for moment in moments if moment is not None]
         return max(moments) if moments else None
 
+    def days_until_full(self) -> float | None:
+        """When the hub starts overwriting, at the rate seen so far."""
+        hours = hours_until_full(
+            self.storage_trend, self.readings.get("storage_used_percent"))
+        return None if hours is None else round(hours / 24, 2)
+
     def silent_seconds(self, index: int) -> int | None:
         """How long this camera has produced nothing, as far as can be told.
 
@@ -322,6 +332,13 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             try:
                 self.readings = hub_readings(
                     await self.hass.async_add_executor_job(self.client.hub_status))
+                # One sample per status refresh, which is once a minute. The
+                # forecast has nothing else to work from -- the hub reports
+                # how full it is and never how full it was.
+                self.storage_trend = trend_samples(
+                    self.storage_trend, now,
+                    self.readings.get("storage_used_percent"),
+                    STORAGE_SAMPLES)
             except Exception as err:
                 # Status is a bonus; never fail the whole poll over it.
                 _LOGGER.debug("Hub status unavailable: %s", err)
