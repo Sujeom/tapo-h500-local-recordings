@@ -304,6 +304,12 @@ class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
             # this integration means; a lifetime total would need a database.
             "sightings": face.get("sightings", 0),
             "cameras": face.get("cameras", []),
+            # The oldest sighting still in the window, which on an ordinary
+            # day is when they first appeared. It is what separates "they got
+            # home" from the eleventh time they crossed the front camera.
+            "first_seen": (
+                dt_util.utc_from_timestamp(face["first_seen"]).isoformat()
+                if face.get("first_seen") else None),
         }
 
 

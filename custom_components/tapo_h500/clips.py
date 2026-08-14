@@ -344,9 +344,23 @@ def busiest_hour(clips: list[dict]) -> int | None:
     return hours.index(peak) if peak else None
 
 
-def _local_hour(moment: int) -> int:
+def _local(moment: int):
     from homeassistant.util import dt as dt_util
-    return dt_util.as_local(dt_util.utc_from_timestamp(moment)).hour
+    return dt_util.as_local(dt_util.utc_from_timestamp(moment))
+
+
+def _local_hour(moment: int) -> int:
+    return _local(moment).hour
+
+
+def local_date(moment: int) -> str:
+    """Which local calendar day a moment falls on, as YYYY-MM-DD.
+
+    Local rather than UTC because "today" is a human word. Someone arriving
+    home at 00:30 has arrived on the new day, and in any timezone west of
+    Greenwich a UTC day boundary would put that back on the previous one.
+    """
+    return _local(moment).date().isoformat()
 
 
 def unique_faces(clips: list[dict]) -> int:

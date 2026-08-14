@@ -16,7 +16,7 @@ from collections.abc import Callable
 
 from homeassistant.core import Event, HomeAssistant, callback
 
-from .const import DETECTION_NAMES, DOMAIN, RING_ALARM_TYPES
+from .const import DETECTION_NAMES, DOMAIN, EVENT_ARRIVAL, RING_ALARM_TYPES
 
 
 def _phrase(detection_types: list[int]) -> str:
@@ -50,4 +50,16 @@ def async_describe_events(
             "message": _phrase(list(data.get("detection_types") or [])),
         }
 
+    @callback
+    def describe_arrival(event: Event) -> dict:
+        data = event.data or {}
+        where = data.get("camera")
+        who = data.get("name") or "Someone"
+        return {
+            "name": who,
+            "message": f"arrived, first seen at {where}" if where
+            else "arrived",
+        }
+
     async_describe_event(DOMAIN, f"{DOMAIN}_event", describe)
+    async_describe_event(DOMAIN, EVENT_ARRIVAL, describe_arrival)

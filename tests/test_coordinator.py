@@ -6,6 +6,7 @@ being protected here is latency: hub status used to be fetched before the
 detection lookups, which put a round trip in front of every notification.
 """
 import asyncio
+import datetime
 import importlib
 import re
 import sys
@@ -24,6 +25,10 @@ class _StubCoordinatorBase:
         self.hass = hass
         self.config_entry = config_entry
         self.update_interval = update_interval
+        # The real one sets this before the first refresh, and code that reads
+        # it defensively must be exercised against None rather than a missing
+        # attribute -- those fail differently.
+        self.data = None
 
     # DataUpdateCoordinator[dict[...]] is subscripted at class definition.
     def __class_getitem__(cls, item):
@@ -77,6 +82,18 @@ def _install_stubs():
         def timestamp():
             return 1_786_600_000
     dt.utcnow = lambda: _Now()
+    # Real datetimes, so anything deriving a local calendar day or hour from a
+    # timestamp is exercised rather than stubbed into always agreeing.
+    dt.utc_from_timestamp = lambda ts: datetime.datetime.fromtimestamp(
+        ts, datetime.timezone.utc)
+    # Deliberately NOT the machine's own zone, and deliberately not UTC.
+    #
+    # On a UTC build server "local" and UTC agree, so code that computes a
+    # calendar day or an hour in UTC by mistake passes every test. A fixed
+    # -07:00 keeps that honest and has no daylight saving to make the result
+    # depend on the date being tested.
+    dt.LOCAL = datetime.timezone(datetime.timedelta(hours=-7))
+    dt.as_local = lambda value: value.astimezone(dt.LOCAL)
     util.dt = dt
     sys.modules.update({
         "homeassistant.helpers": helpers,
@@ -106,7 +123,20 @@ coordinator_mod = importlib.import_module("tapo_h500.coordinator")
 const = importlib.import_module("tapo_h500.const")
 
 
+class _Bus:
+    """Records what was fired, which is how the arrival tests observe it."""
+
+    def __init__(self):
+        self.fired = []
+
+    def async_fire(self, event_type, data=None):
+        self.fired.append((event_type, data or {}))
+
+
 class _Hass:
+    def __init__(self):
+        self.bus = _Bus()
+
     async def async_add_executor_job(self, fn, *args):
         return fn(*args)
 
@@ -114,8 +144,8 @@ class _Hass:
 class _Entry:
     entry_id = "test"
 
-    def __init__(self, interval):
-        self.options = {"poll_interval": interval}
+    def __init__(self, interval, **options):
+        self.options = {"poll_interval": interval, **options}
 
 
 class _Client:

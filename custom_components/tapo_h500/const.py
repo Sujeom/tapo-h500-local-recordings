@@ -240,6 +240,18 @@ UNUSUAL_FLOOR = 4
 SIGNAL_NEW_CLIP = f"{DOMAIN}_new_clip"
 SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
 
+# Fired the first time a known person is seen on a given local day.
+#
+# The ordinary event fires on every detection, which is right for a doorbell
+# and wrong for a person: someone who works from home crosses the front camera
+# a dozen times a day and only one of those is "they got home". Nothing else
+# here can tell the two apart, and they deserve different notifications --
+# the twelfth is noise, the first is news.
+#
+# Only for faces that have been named. An unnamed id arriving is a stranger
+# appearing, which is what the detection event already says.
+EVENT_ARRIVAL = f"{DOMAIN}_arrival"
+
 # How many recent sightings to keep on a face's trail.
 #
 # Following one person between cameras is real rather than inferred: measured

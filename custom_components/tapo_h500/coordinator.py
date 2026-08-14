@@ -13,14 +13,14 @@ from homeassistant.util import dt as dt_util
 
 from .clips import (
     attach_detections, detection_types, direction, end_of, event_type,
-    face_ids, start_of,
+    face_ids, local_date, start_of,
 )
 from .const import (
     AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
     CONF_KEEP_DOWNLOADS, CONF_POLL_INTERVAL, DEFAULT_AUTO_DOWNLOAD,
     DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     CAMERAS_MAX_AGE, CONF_FACE_NAMES, CONF_KEEP_RINGS, DEFAULT_KEEP_RINGS,
-    CONF_CAMERA_ORDER, DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_RING,
+    CONF_CAMERA_ORDER, DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     LOOKBACK_SECONDS, POLL_BACKOFF_MAX, SIGNAL_NEW_CLIP, STATUS_MAX_AGE,
 )
 from .media import (
@@ -65,6 +65,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._primed = False
         self._polls = 0
         self._failures = 0
+        # Who has already been seen today, and which day that refers to.
+        self._arrived: set[str] = set()
+        self._arrival_day: str | None = None
         self._base_interval = interval_or_default(entry)
         # Turn "refresh this every N seconds" into a poll count once, here, so
         # a longer interval configured in options does not silently turn into
@@ -104,24 +107,40 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 continue
         return ranks
 
-    def faces_seen(self, index: int | None = None) -> dict[str, dict]:
+    def faces_seen(self, index: int | None = None,
+                   clips: dict[int, list[dict]] | None = None) -> dict[str, dict]:
         """Every face in the current window, newest sighting first.
 
         Mirrors the cards' own grouping so a sensor and a card never disagree
         about how many times someone has been seen.
+
+        `clips` overrides what the last completed poll stored, which matters
+        exactly once: the arrival check runs inside the poll that fetched the
+        recordings, before the coordinator has published them. Reading the
+        published copy there would work off the previous poll's data, and on
+        the second poll after a restart that turns everyone seen earlier
+        today into a fresh arrival.
         """
         indexes = range(len(self.cameras)) if index is None else [index]
+        source = clips if clips is not None else (self.data or {}).get("clips", {})
         faces: dict[str, dict] = {}
         for position in indexes:
-            for clip in self.clips_for(position):
+            for clip in source.get(position, []):
                 for face_id in face_ids(clip):
                     key = str(face_id)
                     seen = faces.setdefault(
                         key, {"id": key, "sightings": 0, "last_seen": None,
+                              "first_seen": None,
                               "camera_index": None, "cameras": set(),
                               "trail": []})
                     seen["sightings"] += 1
                     moment = start_of(clip)
+                    # The oldest sighting still inside the poll window. Not a
+                    # lifetime first: the window is a day, and anything older
+                    # than that the hub no longer returns.
+                    if moment is not None and (seen["first_seen"] is None
+                                               or moment < seen["first_seen"]):
+                        seen["first_seen"] = moment
                     if moment is not None and (seen["last_seen"] is None
                                                or moment > seen["last_seen"]):
                         seen["last_seen"] = moment
@@ -153,6 +172,51 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             face["direction"] = direction(
                 face["trail"], self.camera_ranks, DIRECTION_WINDOW)
         return faces
+
+    def _note_arrivals(self, clips: dict[int, list[dict]]) -> None:
+        """Fire once per named person per local day, on their first sighting.
+
+        The detection event fires every time anyone crosses a camera. That is
+        correct for a doorbell and useless for a household: someone who works
+        from home trips the front camera a dozen times a day, and only the
+        first of those is worth being told about. This is the only place that
+        distinction exists.
+
+        The set is rebuilt when the local day rolls over rather than at a
+        fixed hour, so it follows whatever "today" means here.
+
+        Silent on the first poll. The window holds a day of recordings, so a
+        restart at teatime would otherwise announce everyone who came home
+        that morning as if they had just walked in.
+        """
+        now = int(dt_util.utcnow().timestamp())
+        today = local_date(now)
+        if self._arrival_day != today:
+            self._arrival_day = today
+            self._arrived = set()
+        names = self.face_names
+        for face_id, face in self.faces_seen(clips=clips).items():
+            # Unnamed ids are strangers, and a stranger appearing is what the
+            # detection event already reports. Announcing "Face 481036337152
+            # has arrived" would be worse than saying nothing.
+            if face_id not in names or face_id in self._arrived:
+                continue
+            last = face.get("last_seen")
+            if last is None or local_date(last) != today:
+                continue
+            self._arrived.add(face_id)
+            if not self._primed:
+                continue
+            self.hass.bus.async_fire(EVENT_ARRIVAL, {
+                "entry_id": self.entry.entry_id,
+                "face_id": face_id,
+                "name": names[face_id],
+                "camera": face.get("last_camera"),
+                "at": last,
+                # Where they were heading, when the cameras have been given an
+                # order. Absent otherwise rather than guessed.
+                "direction": face.get("direction"),
+            })
 
     def clips_for(self, index: int) -> list[dict]:
         return (self.data or {}).get("clips", {}).get(index, [])
@@ -233,6 +297,12 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             except Exception as err:
                 # Status is a bonus; never fail the whole poll over it.
                 _LOGGER.debug("Hub status unavailable: %s", err)
+        # Before _primed is set, so a restart mid-afternoon records everyone
+        # already seen today without announcing them again.
+        try:
+            self._note_arrivals(clips_by_camera)
+        except Exception as err:  # noqa: BLE001 - never fail a poll over this
+            _LOGGER.debug("Could not check arrivals: %s", err)
         self._polls += 1
         self._primed = True
         # Raise or clear the repair issues. Called every poll rather than only

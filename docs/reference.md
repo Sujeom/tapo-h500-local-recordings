@@ -476,6 +476,34 @@ Outside the poll window there is no value at all, rather than a stale one. Unnam
 still counted and still appear on the cards — naming decides who is worth an
 entity, not who gets tracked.
 
+### Arriving home, once
+
+The detection event fires every time anyone crosses a camera. For a household
+that is the wrong grain — someone working from home trips the front camera a
+dozen times a day, and only the first is news.
+
+`tapo_h500_arrival` fires once per **named** person per local day, on their
+first sighting:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: tapo_h500_arrival
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      message: "{{ trigger.event.data.name }} is home ({{ trigger.event.data.camera }})"
+```
+
+`name`, `face_id`, `camera`, `at`, and `direction` where the cameras have been
+ranked. Unnamed ids never fire it — a stranger appearing is what the ordinary
+detection event already reports, and "Face 481036337152 has arrived" helps
+nobody.
+
+Silent on the first check after a restart. The window holds a day of
+recordings, so otherwise restarting at teatime would announce everyone who came
+home at breakfast.
+
 ## Options
 
 
