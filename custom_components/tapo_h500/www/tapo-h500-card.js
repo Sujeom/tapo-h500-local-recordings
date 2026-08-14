@@ -948,7 +948,6 @@ class TapoH500FacesCard extends H500Base {
       font-size: 0.95rem; color: var(--primary-text-color); }
     .face .seen { display: block; padding: 0 8px 8px; line-height: 1.3; }
     .unnamed { font-family: monospace; font-size: 0.8rem; }
-    .hint { margin-top: 10px; }
   `;
 
   getCardSize() {
@@ -982,18 +981,13 @@ class TapoH500FacesCard extends H500Base {
         </div>`;
     }).join("");
     const playing = this._recordings.find((item) => this._isPlaying(item));
-    // Without the map every tile reads as a number, so say where names come
-    // from rather than leaving it a mystery.
-    const unnamed = this._faces.filter((face) => face.name === undefined);
-    const hint = unnamed.length
-      ? `<div class="muted hint">Name ${unnamed.length === 1 ? "it" : "them"}
-         by adding <code>names:</code> to this card:
-         <code>${esc(unnamed[0].id)}: Alice</code></div>`
-      : "";
+    // No "add names: to this card" hint. It described the only way naming
+    // used to work, and every tile now carries its own "Name this face"
+    // button that writes to the shared map -- so the hint pointed at the
+    // worse of two routes, on a card where the better one is already there.
     return `
       <div class="faces scroll"${this._maxHeight()}>${tiles}</div>
-      ${playing ? this._player(playing) : ""}
-      ${hint}`;
+      ${playing ? this._player(playing) : ""}`;
   }
 }
 
@@ -1018,7 +1012,6 @@ class TapoH500FaceSummaryCard extends H500Base {
              border-bottom: 1px solid var(--divider-color); }
     td.n { text-align: right; font-variant-numeric: tabular-nums; }
     .total { margin-bottom: 6px; }
-    .hint { margin-top: 10px; }
   `;
 
   getCardSize() {
@@ -1089,18 +1082,13 @@ class TapoH500FaceSummaryCard extends H500Base {
         only reports one when its own face detection fires.</div>`;
     }
     const total = this._faces.reduce((sum, face) => sum + face.sightings, 0);
-    const unnamed = this._faces.filter((face) => this._label(face).named === false);
-    const hint = unnamed.length
-      ? `<div class="muted hint">Name a face by adding <code>names:</code> to
-         this card: <code>${esc(unnamed[0].id)}: Alice</code></div>`
-      : "";
     // The chart has a table twin, so no value is available only on hover.
     //
-    // Chart, table and hint stacked together are taller than the card is
-    // sized for as soon as there are a few faces, and the same unbounded
-    // stack is what pushed the summary card over its neighbours. The scroll
-    // wrapper is the flex child that gives way, so the overflow stays inside
-    // this card however many faces the hub has seen.
+    // Chart and table stacked together are taller than the card is sized for
+    // as soon as there are a few faces, and the same unbounded stack is what
+    // pushed the summary card over its neighbours. The scroll wrapper is the
+    // flex child that gives way, so the overflow stays inside this card
+    // however many faces the hub has seen.
     return `
       <div class="total muted">${this._faces.length} face${
         this._faces.length === 1 ? "" : "s"}, ${total} sighting${
@@ -1108,7 +1096,6 @@ class TapoH500FaceSummaryCard extends H500Base {
       <div class="scroll">
         ${this._chart(this._faces)}
         ${this._table(this._faces)}
-        ${hint}
       </div>`;
   }
 }
