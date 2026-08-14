@@ -30,6 +30,7 @@ package = types.ModuleType("tapo_h500")
 package.__path__ = [str(COMPONENT)]
 sys.modules.setdefault("tapo_h500", package)
 logbook = importlib.import_module("tapo_h500.logbook")
+status = importlib.import_module("tapo_h500.status")
 
 
 class Diagnostics(unittest.TestCase):
@@ -45,6 +46,22 @@ class Diagnostics(unittest.TestCase):
         self.assertIn("SAFE_READINGS", DIAG)
         self.assertIn("SAFE_CAMERA", DIAG)
         self.assertIn("for key in SAFE_READINGS", DIAG)
+
+    def test_every_allow_listed_reading_actually_exists(self):
+        """An allow-list of names nothing produces is a file full of nulls.
+
+        Six of the sixteen were wrong -- `storage_total` for
+        `storage_total_gb`, `led_enabled` for `led_on`, and so on -- so all
+        three storage figures, the LED state, face detection and the audio
+        slots came out null in every diagnostics download ever taken. Nothing
+        failed; the file simply said nothing, which is the failure mode an
+        allow-list is most prone to.
+        """
+        produced = set(status.hub_readings({}))
+        listed = set(re.findall(
+            r'"([a-z0-9_]+)"',
+            DIAG.split("SAFE_READINGS = (", 1)[1].split(")", 1)[0]))
+        self.assertEqual(listed - produced, set())
 
     def test_camera_aliases_are_not_included(self):
         """An alias is the owner's own words and can name a room or a person."""

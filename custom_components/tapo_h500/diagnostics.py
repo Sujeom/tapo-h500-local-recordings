@@ -25,11 +25,20 @@ from .const import (
 # Hub readings safe to include. Storage figures and firmware state are what
 # most reports need; the cloud username, public key and any device identifier
 # are deliberately absent and are not obtainable from this file.
+#
+# These are the keys `hub_readings` actually produces, and a test asserts that
+# rather than trusting it. Six of them were near misses -- `storage_total` for
+# `storage_total_gb`, `led_enabled` for `led_on`, `used_audio_slots` for
+# `custom_sounds` -- so all three storage figures, the LED, face detection and
+# the audio slots came out null in every diagnostics download ever taken.
+# Nothing failed and nothing warned; the file simply said nothing, which is the
+# way an allow-list fails.
 SAFE_READINGS = (
-    "storage_total", "storage_free", "storage_used", "storage_healthy",
-    "storage_status", "media_encrypted", "firmware_state", "auto_upgrade",
-    "loop_recording", "led_enabled", "siren_volume", "siren_duration",
-    "clock_offset", "timezone", "face_detection_enabled", "used_audio_slots",
+    "storage_total_gb", "storage_free_gb", "storage_used_percent",
+    "storage_healthy", "storage_status", "media_encrypted", "firmware_state",
+    "auto_upgrade", "loop_recording", "led_on", "siren_volume",
+    "siren_duration", "clock_offset", "timezone", "face_detection",
+    "custom_sounds",
 )
 
 # Per-camera fields safe to include. Aliases are the owner's own words and can
