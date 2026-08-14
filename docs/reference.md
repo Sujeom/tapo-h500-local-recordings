@@ -664,6 +664,10 @@ home at breakfast.
 <media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.jpg
 ```
 
+Under **Media → Tapo H500** each camera and each date shows the newest frame
+beneath it as its cover, rather than a blank tile, so a month of days is
+something to look through. Clips show their own frame.
+
 Names come from the clip's start time in Home Assistant's local timezone, so
 "is this already downloaded" is a path check rather than a stored index.
 
