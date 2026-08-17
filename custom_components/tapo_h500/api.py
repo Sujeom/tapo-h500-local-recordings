@@ -192,6 +192,24 @@ class H500Client:
             reply = self._hub.isUpdateAvailable()
         return firmware_upgrade(unpack_multiple(reply))
 
+    def rotate_player_id(self) -> str:
+        """A fresh identity for the next media session: the case-D experiment.
+
+        The recurring wedge might be stale hub state keyed to the reused
+        player_id. That cannot be tested on demand -- it needs a wedged hub
+        -- so the coordinator calls this once when the sentinel sees the
+        wedge, and the per-session log already records how the next session
+        went: success without a reboot confirms case D from the field, the
+        same pre-auth failure rules it out. The ids themselves stay out of
+        the log.
+        """
+        self.player_id = str(uuid.uuid4())
+        _LOGGER.debug(
+            "Media port wedged; the next session will use a fresh player_id "
+            "-- if it succeeds without a hub reboot, stale state was keyed "
+            "to the old id (case D)")
+        return self.player_id
+
     def check_media(self) -> str:
         """check_media_port against this hub. Blocking; run in an executor."""
         return check_media_port(self.host)

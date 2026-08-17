@@ -111,6 +111,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # is the hub's known failure mode and this is how it is noticed
         # before anyone misses a photograph; repairs.py reads it.
         self.media_status: str | None = None
+        # Whether this wedge episode has already had its one player_id
+        # rotation; see the case-D note where it happens.
+        self._wedge_rotated = False
         # Consecutive automatic-download failures per camera index, reset by
         # any success. Three in a row is a pattern -- ffmpeg missing, disk
         # full, media service refusing -- and repairs.py turns it into a
@@ -745,6 +748,17 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                     check)
             except Exception as err:  # noqa: BLE001 - a health check must not hurt
                 _LOGGER.debug("Media port check failed: %s", err)
+            # The case-D experiment: one fresh player_id per wedge episode,
+            # so the next session's log line answers whether stale hub state
+            # is keyed to the reused id. Once, not per poll -- repeating it
+            # would erase the evidence of whether one rotation was enough.
+            rotate = getattr(self.client, "rotate_player_id", None)
+            if self.media_status == "wedged" and not self._wedge_rotated:
+                if rotate is not None:
+                    rotate()
+                self._wedge_rotated = True
+            elif self.media_status == "healthy":
+                self._wedge_rotated = False
 
         # The cloud firmware check, a few times a day. The hub phones
         # TP-Link for this one, so the cadence is hours.

@@ -324,3 +324,62 @@ class FirmwareCadence(unittest.TestCase):
         client.firmware_update = boom
         asyncio.run(coord._async_update_data())
         self.assertEqual(coord.firmware_info, {})
+
+
+class CaseDExperiment(unittest.TestCase):
+    """When the wedge appears, try a fresh player_id -- once -- and log it.
+
+    The wedge plan's Case D: stale hub state keyed to the reused player_id.
+    Untestable on demand because it needs a wedged hub, so the integration
+    runs the experiment itself at the only moment it can: sentinel says
+    wedged -> the next media session uses a fresh id -> the session log
+    already records how it went. If that session succeeds with no reboot,
+    Case D is confirmed from the field; if it fails the same way, ruled out.
+    One rotation per wedge episode -- rotating per poll would erase the
+    evidence of whether ONE rotation was enough.
+    """
+
+    def _build(self, statuses):
+        coord, client = harness._build(450)
+        client.rotations = 0
+        feed = list(statuses)
+        client.check_media = lambda: feed.pop(0) if feed else "healthy"
+
+        def rotate():
+            client.rotations += 1
+
+        client.rotate_player_id = rotate
+        return coord, client
+
+    def _poll(self, coord, times=1):
+        import asyncio
+        for _ in range(times):
+            asyncio.run(coord._async_update_data())
+
+    def test_a_wedge_rotates_once_and_only_once(self):
+        coord, client = self._build(["wedged", "wedged", "wedged"])
+        self._poll(coord, 6)   # checks on polls 0, 2, 4
+        self.assertEqual(client.rotations, 1)
+
+    def test_recovery_arms_the_experiment_again(self):
+        coord, client = self._build(["wedged", "healthy", "wedged"])
+        self._poll(coord, 6)
+        self.assertEqual(client.rotations, 2)
+
+    def test_a_healthy_hub_never_rotates(self):
+        coord, client = self._build(["healthy", "healthy"])
+        self._poll(coord, 4)
+        self.assertEqual(client.rotations, 0)
+
+    def test_the_client_rotation_really_changes_the_id(self):
+        import test_api  # noqa: F401 - pytapo stubs
+        client = api.H500Client("host", "admin", "local", "cloud")
+        before = client.player_id
+        with self.assertLogs(api._LOGGER, "DEBUG") as logs:
+            after = client.rotate_player_id()
+        self.assertNotEqual(before, after)
+        self.assertEqual(client.player_id, after)
+        self.assertIn("case D", logs.output[0])
+        # The ids themselves stay out of the log.
+        self.assertNotIn(before, logs.output[0])
+        self.assertNotIn(after, logs.output[0])
