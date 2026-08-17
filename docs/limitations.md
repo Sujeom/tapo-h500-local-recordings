@@ -69,6 +69,15 @@ The same is true of the other advertised-but-unreachable components:
 `ringLog` (so events still come from polling the clip index). See
 `protocol-notes.md` for exactly what was probed.
 
+**No doorbell quick replies or chime settings.** The app's canned voice
+responses and chime controls have no reachable hub-side surface on this
+firmware: `getQuickResponseList`, `getQuickRespAudioList`,
+`getQuickResponseConfig`, `getChimeCtrlList`, `getChimeAlarmConfig`,
+`getRingStatus` and `getBellConfig` all answer `-40106` (probed 2026-08-17,
+read-only getters only). `getMsgPushConfig` is refused outright. Like the
+camera detection sensitivity, these most likely live on the camera or in the
+cloud account rather than on the hub.
+
 **Event latency.** The hub's detection log works and is what classifies each
 recording, but events still come from the indexed clip list, and a clip is only
 indexed once the hub has finished writing it — so an event trails the actual

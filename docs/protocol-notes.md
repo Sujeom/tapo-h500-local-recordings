@@ -263,6 +263,22 @@ without 17, so adding it would claim more than was observed.
 The earlier `alarm_type` 17 on the side doorbell at 21:16 on 2026-08-12, the
 one with a 30-second clip, was therefore also a press.
 
+### Quick replies and chime settings are not on the hub
+
+Probed 2026-08-17 with read-only getters in one session:
+`getQuickResponseList`, `getQuickRespAudioList`, `getQuickResponseConfig`
+(all with a `quick_response` block), `getChimeCtrlList`, `getChimeAlarmConfig`,
+`getRingStatus` and `getBellConfig` -- every one `-40106`, with none of the
+"exists, wrong params" replies. `getMsgPushConfig` came back as an outright
+refusal rather than `-40106`, which reads as a method that exists and is not
+for this session's credentials. No setter was attempted; there is nothing to
+set against.
+
+Also verified the same day, and now load-bearing: `searchVideoWithUTC` and
+`searchDetectionList` ride a single `multipleRequest` with `error_code 0`
+each and results byte-identical to the individual calls (18 ms for the
+pair). The poll batches them per camera on the strength of it.
+
 ### There is no face library
 
 Detections of `alarm_type` 20 carry `event_info` with a `face_id` and a
