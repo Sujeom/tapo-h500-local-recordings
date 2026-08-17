@@ -107,6 +107,8 @@ def _install_stubs():
     # path is not what these tests exercise.
     media = types.ModuleType("tapo_h500.media")
     media.async_download_clip = None
+    media.async_latest_image = None
+    media.async_preview_clip = None
     media.async_prune = None
     media.async_verify = None
     media.async_export = None

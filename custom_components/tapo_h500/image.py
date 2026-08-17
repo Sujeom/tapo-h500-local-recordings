@@ -29,7 +29,6 @@ from homeassistant.util import dt as dt_util
 from .const import DATA_HUBS, DOMAIN
 from .entity import H500Entity
 from .contact_sheet import async_contact_sheet
-from .media import async_latest_image
 
 
 async def async_setup_entry(
@@ -73,7 +72,10 @@ class H500EventImage(H500Entity, ImageEntity):
         self.async_write_ha_state()
 
     async def async_image(self) -> bytes | None:
-        return await async_latest_image(self.hass, self.camera)
+        # Through the coordinator, so a clip that will never be downloaded --
+        # rings-only mode, a download-type filter -- still gets its frame
+        # fetched rather than this picture freezing on the last downloaded one.
+        return await self.coordinator.async_latest_frame(self.index, self.camera)
 
     @property
     def image_last_updated(self) -> datetime | None:

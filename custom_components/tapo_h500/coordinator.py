@@ -32,7 +32,8 @@ from .const import (
     STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
 )
 from .media import (
-    async_download_clip, async_prune, async_verify, existing_clip,
+    async_download_clip, async_latest_image, async_preview_clip, async_prune,
+    async_verify, existing_clip,
 )
 from .status import hub_readings, hours_until_full, trend_samples
 
@@ -70,6 +71,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self.readings: dict = {}
         self._seen_events: dict[int, set[int]] = {}
         self._seen_clips: dict[int, set[int]] = {}
+        # Newest clip start each camera has had a frame fetched for; see
+        # async_latest_frame.
+        self._frame_attempts: dict[int, int] = {}
         self._primed = False
         self._polls = 0
         self._failures = 0
@@ -496,6 +500,37 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
 
     def clips_for(self, index: int) -> list[dict]:
         return (self.data or {}).get("clips", {}).get(index, [])
+
+    async def async_latest_frame(self, index: int, camera: dict) -> bytes | None:
+        """The newest indexed clip's frame, fetched from the hub if need be.
+
+        The camera and latest-event entities promise the newest clip's frame,
+        but a thumbnail is written by a download. So whenever the newest clip
+        is not downloaded yet -- still in flight, filtered out by mode or
+        download type, or failed -- the newest frame on disk is the previous
+        event, which is exactly what the notification's Camera button used to
+        show: an old photo, at the moment somebody pressed it to see this one.
+
+        The preview machinery makes exactly the missing file and caches it at
+        the path the download would use, so one fetch per clip closes the gap.
+        One, marked before it starts: this runs on every frontend look at the
+        picture, and a hub that would not serve the frame the first time must
+        not be asked once per poll -- each ask is a whole media session
+        against a device that is easy to overload. The next clip gets its own
+        attempt, so a refusal does not stick.
+
+        While the hub is still recording there is no indexed clip and no
+        frame of it exists anywhere, so nothing is asked for and the previous
+        event is served -- that part is physics.
+        """
+        starts = [start for clip in self.clips_for(index)
+                  if (start := start_of(clip)) is not None
+                  and (end_of(clip) or 0) > start]
+        newest = max(starts, default=None)
+        if newest is not None and self._frame_attempts.get(index) != newest:
+            self._frame_attempts[index] = newest
+            await async_preview_clip(self.hass, self.client, camera, newest)
+        return await async_latest_image(self.hass, camera)
 
     def last_activity(self, index: int) -> int | None:
         moments = [start_of(clip) for clip in self.clips_for(index)]

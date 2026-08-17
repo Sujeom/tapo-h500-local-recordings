@@ -13,7 +13,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DATA_HUBS, DOMAIN
 from .entity import H500Entity
-from .media import async_latest_image
 
 
 async def async_setup_entry(
@@ -47,4 +46,8 @@ class H500Camera(H500Entity, Camera):
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
-        return await async_latest_image(self.hass, self.camera)
+        # Through the coordinator, which knows what the newest indexed clip
+        # is and fetches its frame if no download has written it yet. A plain
+        # newest-on-disk scan here is how the notification's Camera button
+        # showed the previous event to everyone who pressed it.
+        return await self.coordinator.async_latest_frame(self.index, self.camera)

@@ -1,0 +1,164 @@
+"""The camera entity shows the event you were just notified about.
+
+The notification's Camera button opens `camera.<doorbell>`, which used to
+serve the newest thumbnail on disk -- and a thumbnail is written by a
+download. So for the first half-minute of every event, and forever when the
+newest clip is never downloaded (rings-only mode, a download-type filter, a
+failed download), the button showed the *previous* event. Old photo, every
+time, at exactly the moment a person presses it.
+
+The coordinator closes that gap: when the newest indexed clip's frame is not
+on disk, it is fetched from the hub once through the preview machinery, which
+caches at exactly the path the download would use. These tests pin the shape
+of that:
+
+- one attempt per clip, marked before it starts, because this is called from
+  the frontend on every look at the picture and a hub that refused once must
+  not be asked per poll -- each ask is a whole media session against a device
+  that is easy to overload;
+- a newer clip gets its own attempt, so one failure does not stick forever;
+- nothing is attempted while the hub is still recording (no indexed clip),
+  because no frame of an unindexed clip exists anywhere to fetch.
+"""
+import asyncio
+import importlib
+import sys
+import unittest
+from pathlib import Path
+
+COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
+
+sys.path.insert(0, str(Path(__file__).parent))
+import test_coordinator as harness  # noqa: E402  (installs the HA stubs)
+
+coordinator_mod = importlib.import_module("tapo_h500.coordinator")
+
+CAMERA = {"device_id": "cam0", "alias": "Front"}
+NOW = 1_786_600_000
+
+
+def clip(start, length=15):
+    return {"startTime": start, "endTime": start + length}
+
+
+class LatestFrame(unittest.TestCase):
+    def setUp(self):
+        self.coord, _ = harness._build()
+        self.clips: list[dict] = []
+        self.coord.clips_for = lambda index: list(self.clips)
+        self.fetched: list[int] = []
+        self.served = 0
+
+        async def fake_preview(hass, client, camera, start_time):
+            self.fetched.append(start_time)
+            return None
+
+        async def fake_scan(hass, camera):
+            self.served += 1
+            return b"newest-on-disk"
+
+        self._patch("async_preview_clip", fake_preview)
+        self._patch("async_latest_image", fake_scan)
+
+    def _patch(self, name, value):
+        self.addCleanup(setattr, coordinator_mod, name,
+                        getattr(coordinator_mod, name))
+        setattr(coordinator_mod, name, value)
+
+    def _frame(self):
+        return asyncio.run(self.coord.async_latest_frame(0, CAMERA))
+
+    def test_the_newest_clips_frame_is_fetched_then_served(self):
+        self.clips = [clip(NOW - 300), clip(NOW - 30)]
+        self.assertEqual(self._frame(), b"newest-on-disk")
+        self.assertEqual(self.fetched, [NOW - 30],
+                         "the newest indexed clip is the one on the "
+                         "notification, so it is the one to fetch")
+        self.assertEqual(self.served, 1)
+
+    def test_one_attempt_per_clip_even_when_it_failed(self):
+        """The fake fetch returns None -- a hub that would not serve it.
+
+        Asking again on the next look would retry per frontend poll, which is
+        a media-session storm against a hub that wedges. Stale is the correct
+        price; the next clip resets it.
+        """
+        self.clips = [clip(NOW - 30)]
+        self._frame()
+        self._frame()
+        self._frame()
+        self.assertEqual(self.fetched, [NOW - 30])
+
+    def test_a_newer_clip_gets_its_own_attempt(self):
+        self.clips = [clip(NOW - 300)]
+        self._frame()
+        self.clips = [clip(NOW - 300), clip(NOW - 30)]
+        self._frame()
+        self.assertEqual(self.fetched, [NOW - 300, NOW - 30])
+
+    def test_concurrent_looks_collapse_to_one_attempt(self):
+        """Marked before the await, so the frontend polling the picture while
+        a fetch is in flight does not open a second media session."""
+        self.clips = [clip(NOW - 30)]
+        waited = []
+
+        async def slow_preview(hass, client, camera, start_time):
+            waited.append(start_time)
+            await asyncio.sleep(0)
+            return None
+
+        self._patch("async_preview_clip", slow_preview)
+
+        async def both():
+            await asyncio.gather(
+                self.coord.async_latest_frame(0, CAMERA),
+                self.coord.async_latest_frame(0, CAMERA))
+
+        asyncio.run(both())
+        self.assertEqual(waited, [NOW - 30])
+
+    def test_still_recording_means_nothing_to_fetch(self):
+        """No indexed clip: the hub is still recording the event, and no
+        frame of it exists anywhere. Serve what there is, ask for nothing."""
+        self.clips = []
+        self.assertEqual(self._frame(), b"newest-on-disk")
+        self.assertEqual(self.fetched, [])
+
+    def test_a_malformed_clip_is_not_asked_for(self):
+        """The same guard _download applies: no usable start and end, no
+        media session."""
+        self.clips = [{"startTime": NOW}, {"endTime": NOW},
+                      {"startTime": NOW, "endTime": NOW}]
+        self._frame()
+        self.assertEqual(self.fetched, [])
+
+    def test_cameras_are_tracked_separately(self):
+        self.clips = [clip(NOW - 30)]
+        asyncio.run(self.coord.async_latest_frame(0, CAMERA))
+        asyncio.run(self.coord.async_latest_frame(1, CAMERA))
+        self.assertEqual(self.fetched, [NOW - 30, NOW - 30],
+                         "camera 1's attempt must not be blocked by camera "
+                         "0 having attempted the same start time")
+
+
+class Routing(unittest.TestCase):
+    """Both entities that promise "the newest clip's frame" go through the
+    coordinator, which is the only place that knows what the newest clip is.
+    """
+
+    CAMERA_SRC = (COMPONENT / "camera.py").read_text()
+    IMAGE_SRC = (COMPONENT / "image.py").read_text()
+
+    def test_the_camera_entity_asks_the_coordinator(self):
+        self.assertIn("async_latest_frame", self.CAMERA_SRC)
+        self.assertNotIn("async_latest_image", self.CAMERA_SRC,
+                         "a direct disk scan is the old photo bug")
+
+    def test_the_latest_event_image_asks_the_coordinator(self):
+        body = self.IMAGE_SRC.split("class H500ContactSheet", 1)[0]
+        self.assertIn("async_latest_frame", body)
+        self.assertNotIn("async_latest_image", self.IMAGE_SRC)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -176,6 +176,32 @@ class PreviewSession(unittest.TestCase):
         self.assertNotIn("unwinds the media session cleanly",
                          media.async_preview_clip.__doc__)
 
+    def test_a_generated_frame_is_what_the_camera_then_serves(self):
+        """The whole point of fetching it: the preview writes its frame at
+        exactly the path the download would use, so the newest-thumbnail scan
+        behind the camera entity picks it up and an older frame loses."""
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self._patch("media_root", lambda hass: Path(root.name))
+
+        async def fake_ffmpeg(_hass, args):
+            Path(args[-1]).write_bytes(b"fresh-frame")
+            return True
+
+        self._patch("_run_ffmpeg", fake_ffmpeg)
+        hass = _Hass()
+        # An older event's frame, already downloaded, on an earlier day.
+        stale = media.clip_path(hass, CAMERA, START - 86400, ".jpg")
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_bytes(b"stale-frame")
+
+        made = asyncio.run(media.async_preview_clip(
+            hass, _Client(2), CAMERA, START))
+        self.assertEqual(made, media.clip_path(hass, CAMERA, START, ".jpg"))
+        self.assertEqual(
+            asyncio.run(media.async_latest_image(hass, CAMERA)),
+            b"fresh-frame")
+
 
 if __name__ == "__main__":
     unittest.main()

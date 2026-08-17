@@ -58,7 +58,7 @@ timezone (changing it would shift every clip timestamp).
 
 | Entity | Use |
 | --- | --- |
-| `camera.<name>` | The frame from that camera's newest downloaded clip. |
+| `camera.<name>` | The frame from that camera's newest clip. Fetched from the hub if no download has written it yet — so the notification's Camera button shows the event it announced, not the previous one. While the hub is still recording, the previous event is all that exists anywhere. |
 | `event.<name>_activity` | Fires `ring` or `motion`, with `start_time`, `end_time`, `duration` and the hub's raw `hub_type` label as attributes. |
 | `sensor.<name>_last_activity` | Timestamp of the newest recording. Drives "nothing seen since" automations. |
 | `sensor.<name>_recordings_24h` | How many clips the hub holds for this camera. |
