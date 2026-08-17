@@ -213,3 +213,22 @@ class Issue(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StandaloneTool(unittest.TestCase):
+    """tools/check-media.py sends the same conversation the tested
+    classifier does, so its verdicts mean the same thing."""
+
+    TOOL = (Path(__file__).parents[1] / "tools" / "check-media.py").read_text()
+
+    def test_it_speaks_the_verified_framing(self):
+        self.assertIn("POST /stream HTTP/1.1", self.TOOL)
+        self.assertIn("Content-Length: 0", self.TOOL)
+
+    def test_it_never_logs_in(self):
+        for forbidden in ("password", "TAPO_", "pytapo", "Digest response"):
+            self.assertNotIn(forbidden, self.TOOL)
+
+    def test_it_names_all_four_verdicts(self):
+        for verdict in ("healthy", "wedged", "unreachable", "silent"):
+            self.assertIn(f'"{verdict}"', self.TOOL)
