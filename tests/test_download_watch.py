@@ -196,3 +196,70 @@ class SaveFromTheService(unittest.TestCase):
         body = INIT.split("async def download_recording", 1)[1].split(
             "\n    async def ", 1)[0]
         self.assertIn("ServiceValidationError", body)
+
+
+CONFIG_FLOW = (COMPONENT / "config_flow.py").read_text()
+CARD_JS = (COMPONENT / "www" / "tapo-h500-card.js").read_text()
+
+
+class DefaultWindow(unittest.TestCase):
+    """The server-side twin of the card's windowDates.
+
+    A local day is not a UTC day: west of UTC, today starts on yesterday's
+    UTC date, so a default of "today, UTC" silently hides every evening. The
+    harness pins local time to -07:00 exactly so this class of bug fails.
+    """
+
+    NOW = 1_786_600_000  # 2026-08-13 05:46 UTC = 2026-08-12 22:46 local
+
+    def test_one_local_day_spans_two_utc_dates_in_the_evening(self):
+        start, end = clips_mod.window_dates(1, self.NOW)
+        self.assertEqual((start, end), ("20260812", "20260813"))
+
+    def test_more_days_widen_backwards_never_forwards(self):
+        one = clips_mod.window_dates(1, self.NOW)
+        three = clips_mod.window_dates(3, self.NOW)
+        self.assertEqual(one[1], three[1])
+        self.assertLess(three[0], one[0])
+        self.assertEqual(clips_mod.window_dates(3, self.NOW)[0], "20260810")
+
+    def test_zero_and_negative_mean_one(self):
+        self.assertEqual(clips_mod.window_dates(0, self.NOW),
+                         clips_mod.window_dates(1, self.NOW))
+        self.assertEqual(clips_mod.window_dates(-5, self.NOW),
+                         clips_mod.window_dates(1, self.NOW))
+
+
+class GlobalDays(unittest.TestCase):
+    """One setting instead of eight card editors.
+
+    A card whose owner never set days: sends no dates, and the service fills
+    the window from the Configure option. A card with its own days -- set by
+    the owner, or a summary-family card whose class default is a week --
+    keeps sending exact dates and is untouched.
+    """
+
+    def test_the_service_fills_missing_dates_from_the_option(self):
+        body = INIT.split("async def list_recordings", 1)[1].split(
+            "\n    async def ", 1)[0]
+        self.assertIn("CONF_CARD_DAYS", body)
+        self.assertIn("window_dates", body)
+
+    def test_the_option_is_on_the_settings_form(self):
+        settings = CONFIG_FLOW.split("async_step_settings", 1)[1]
+        self.assertIn("CONF_CARD_DAYS", settings)
+
+    def test_the_option_is_not_a_reload(self):
+        """Read at call time; a reload would buy a login for a number."""
+        import importlib as _importlib
+        const_mod = _importlib.import_module("tapo_h500.const")
+        self.assertNotIn(const_mod.CONF_CARD_DAYS, const_mod.RELOAD_ON_CHANGE)
+
+    def test_the_card_only_sends_dates_it_was_given(self):
+        self.assertIn("windowFor(", CARD_JS)
+        self.assertIn("this._explicitDays", CARD_JS)
+
+    def test_the_label_says_what_was_actually_shown(self):
+        """A card following the global option must not caption itself with
+        its own default."""
+        self.assertIn("response.days", CARD_JS)

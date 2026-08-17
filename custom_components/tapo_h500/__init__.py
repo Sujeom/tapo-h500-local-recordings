@@ -22,11 +22,11 @@ from homeassistant.util import dt as dt_util
 
 from .clips import (
     describe_detection, detection_types, distinct, end_for_start, end_of,
-    event_type, face_ids, highlights, start_of, summarise,
+    event_type, face_ids, highlights, start_of, summarise, window_dates,
 )
 from .const import (
-    CARD_URL, CONF_CLOUD_PASSWORD, CONF_CONVERT_MP4, CONF_NIGHT_END,
-    CONF_NIGHT_START, DATA_CARD, DATA_HUBS,
+    CARD_URL, CONF_CARD_DAYS, CONF_CLOUD_PASSWORD, CONF_CONVERT_MP4,
+    CONF_NIGHT_END, DEFAULT_CARD_DAYS, CONF_NIGHT_START, DATA_CARD, DATA_HUBS,
     DATA_PREVIEW, DEFAULT_CONVERT_MP4, DEFAULT_NIGHT_END, DEFAULT_NIGHT_START,
     DOMAIN, SERVICE_DELETE_RECORDING,
     SERVICE_DOWNLOAD_RECORDING, SERVICE_FORMAT_HUB_STORAGE,
@@ -338,10 +338,21 @@ async def _resolve(hass, call: ServiceCall):
 def _register_services(hass: HomeAssistant) -> None:
     async def list_recordings(call: ServiceCall):
         coordinator = _coordinator(hass, call.data["config_entry_id"])
+        start_date = call.data.get("start_date")
+        end_date = call.data.get("end_date")
+        days = None
+        if start_date is None and end_date is None:
+            # No window asked for: the Configure page's "days to show"
+            # decides, so eight card editors defer to one setting. Read at
+            # call time -- a reload would buy a login for a number.
+            days = max(1, min(30, int(coordinator.entry.options.get(
+                CONF_CARD_DAYS, DEFAULT_CARD_DAYS))))
+            start_date, end_date = window_dates(
+                days, int(dt_util.utcnow().timestamp()))
         try:
             camera, recordings = await hass.async_add_executor_job(
                 coordinator.client.recordings, call.data["camera_index"],
-                call.data.get("start_date"), call.data.get("end_date"))
+                start_date, end_date)
         except ValueError as err:
             raise ServiceValidationError(str(err)) from err
         except Exception as err:
@@ -355,6 +366,10 @@ def _register_services(hass: HomeAssistant) -> None:
             scan_downloaded, hass, camera, [start for start, _, _ in clips])
         return {
             "camera": _public_camera(camera),
+            # How many days this listing covers, when the option decided. A
+            # card that sent no window captions itself with this instead of
+            # its own default.
+            "days": days,
             # The shared name map, so a card shows names without being told
             # them. A card may still override it locally.
             "face_names": coordinator.face_names,

@@ -727,6 +727,17 @@ test("every card type is registered exactly once", () => {
   assert.equal(globalThis.window.customCards.length, types.length);
 });
 
+test("a card without its own days asks for none, and one with them asks exactly", () => {
+  const now = new Date("2026-08-13T05:46:40Z");
+  // Explicitly configured: exact dates, whatever the class default.
+  assert.deepEqual(mod.windowFor(true, 3, undefined, now),
+                   mod.windowDates(3, now));
+  // A class that carries its own default (the summary family) always sends.
+  assert.deepEqual(mod.windowFor(false, 7, 7, now), mod.windowDates(7, now));
+  // Nothing configured, no class default: the server decides.
+  assert.deepEqual(mod.windowFor(false, 1, undefined, now), {});
+});
+
 await Promise.all(pending);
 console.log(failures ? `\n${failures} failure(s)` : "\nall card tests passed");
 process.exit(failures ? 1 : 0);

@@ -370,6 +370,11 @@ DELIVERY_HOLD = 300
 # camera in hours instead of a day.
 SILENT_EXPECTED = 3.0
 
+# How many days the cards list when a card has not chosen for itself. One
+# place instead of eight card editors; a card with its own `days:` still wins.
+CONF_CARD_DAYS = "card_days"
+DEFAULT_CARD_DAYS = 1
+
 CONF_SILENT_HOURS = "silent_hours"
 DEFAULT_SILENT_HOURS = 24
 

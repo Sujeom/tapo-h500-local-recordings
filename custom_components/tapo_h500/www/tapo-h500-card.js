@@ -50,6 +50,17 @@ export const windowDates = (days, now = new Date()) => {
   return { start_date: utcDay(first), end_date: utcDay(now) };
 };
 
+/** The window to request, or nothing at all.
+ *
+ * A card whose owner set `days:` asks for exactly that. A card whose CLASS
+ * carries a default (the summary family's week) always asks, so its shape
+ * never depends on a hub-side setting. A card with neither sends no window,
+ * and the integration fills it from the Configure page's "days to show" --
+ * one setting instead of eight card editors.
+ */
+export const windowFor = (explicit, days, classDefault, now = new Date()) =>
+  explicit || classDefault !== undefined ? windowDates(days, now) : {};
+
 /** "2 minutes ago". Floors rather than rounds, so it never reads ahead of itself. */
 export const ago = (startSeconds, now = Date.now()) => {
   const delta = Math.floor((now - startSeconds * 1000) / 1000);
@@ -329,6 +340,9 @@ class H500Base extends HTMLElement {
   }
 
   setConfig(config) {
+    // Whether the OWNER chose a day count, before defaults blur it: the
+    // difference between "show 3 days" and "show whatever Configure says".
+    this._explicitDays = "days" in config;
     this._config = { days: 1, max_height: 400, ...this.constructor.defaults,
                      ...config };
     if (!this.shadowRoot) {
@@ -397,8 +411,11 @@ class H500Base extends HTMLElement {
       const response = await this._call("list_recordings", {
         config_entry_id: await this._entryId(),
         camera_index: this._index,
-        ...windowDates(this._config.days),
+        ...windowFor(this._explicitDays, this._config.days,
+                     this.constructor.defaults.days),
       });
+      // What the listing actually covers, when the integration decided.
+      this._days = response.days ?? this._config.days;
       this._camera = response.camera;
       this._cameras = response.cameras || null;
       // The hub's shared name map, set once via the name_face service. A
@@ -601,7 +618,7 @@ class TapoH500Card extends H500Base {
 
   _row(item) {
     const when = new Date(item.start_time * 1000);
-    const label = this._config.days > 1
+    const label = (this._days ?? this._config.days) > 1
       ? when.toLocaleString() : when.toLocaleTimeString();
     return `
       <div class="row">

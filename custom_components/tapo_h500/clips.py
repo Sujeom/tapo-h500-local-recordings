@@ -813,6 +813,31 @@ def _local(moment: int):
     return dt_util.as_local(dt_util.utc_from_timestamp(moment))
 
 
+def window_dates(days: int, now: int) -> tuple[str, str]:
+    """The UTC dates that cover the last N *local* days, as YYYYMMDD.
+
+    The server-side twin of the card's windowDates, and for the same reason:
+    a local day is not a UTC day. West of UTC, today starts on yesterday's
+    UTC date, so "today, UTC" silently hides every evening. Over-fetching a
+    few hours at the far end is harmless; under-fetching loses events
+    silently.
+    """
+    import datetime
+    days = max(1, int(days))
+    local_now = _local(now)
+    first_day = local_now.date() - datetime.timedelta(days=days - 1)
+    # The UTC day OF the first local midnight, not the local date itself:
+    # east of UTC the two differ, and using the local date would drop that
+    # first day's early hours. Identical to the card's own arithmetic.
+    first_midnight = datetime.datetime.combine(
+        first_day, datetime.time(), tzinfo=local_now.tzinfo)
+    utc_day = "%Y%m%d"
+    return (first_midnight.astimezone(datetime.timezone.utc)
+            .strftime(utc_day),
+            datetime.datetime.fromtimestamp(
+                now, datetime.timezone.utc).strftime(utc_day))
+
+
 def end_for_start(clips: list[dict], start: int) -> int | None:
     """The indexed end of the clip whose start matches, within one second.
 
