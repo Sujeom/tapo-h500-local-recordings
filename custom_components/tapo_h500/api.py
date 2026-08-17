@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator
@@ -16,6 +18,8 @@ from pytapo.media_stream.session import HttpMediaSession
 
 from .clips import attach_detections, flatten_clips, start_of
 from .status import HUB_STATUS_REQUESTS, basic_info, unpack_multiple
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class _EmptyNonce(bytes):
@@ -93,6 +97,11 @@ class H500Client:
         self._super_secret_key = ""
         self._encryption_method = None
         self._lock = asyncio.Lock()
+        # How many media sessions this process has opened. The hub serves them
+        # for hours after a reboot and then starts closing port 8800 before
+        # sending a byte, which is before authentication and so identifies
+        # nothing; a running count is what makes "it wedges after N" visible.
+        self._sessions = 0
         # Hub control calls run in executor threads from both the coordinator
         # and service handlers; pytapo's session is not thread safe.
         self._hub_lock = threading.RLock()
@@ -334,55 +343,91 @@ class H500Client:
             return self._hub.executeFunction(
                 "formatSdCard", {"harddisk_manage": {"format_hd": "1"}})
 
-    async def iter_recording(self, camera, start_time, end_time) -> AsyncIterator[bytes]:
+    async def iter_recording(self, camera, start_time, end_time,
+                             kind: str = "download") -> AsyncIterator[bytes]:
+        """Stream one recording off the hub's media port.
+
+        Every call is a whole session of its own: TCP connect, digest
+        challenge, AES key exchange. One at a time, and each one ends with a
+        debug record of how it went -- see `_sessions`. `kind` only labels
+        that record, so previews and downloads can be told apart in a log.
+        """
+        queued = time.monotonic()
         async with self._lock:
-            payload = build_download_payload(
-                camera, start_time, end_time, self.player_id, self._client_id)
-            session = H500MediaSession(
-                ip=self.host, cloud_password=self.cloud_password,
-                super_secret_key=self._super_secret_key,
-                encryptionMethod=self._encryption_method, port=8800,
-                # Stock pytapo acknowledges every window. A 25-packet window
-                # reproduces the acknowledgement cadence verified on H500.
-                username=self.username, window_size=25,
-                query_params={
-                    "deviceId": camera["device_id"], "type": "download",
-                    "playerId": self.player_id, "media_type": 0,
-                },
-            )
-            async with session:
-                stream = session.transceive(
-                    json.dumps(payload, separators=(",", ":")),
-                    no_data_timeout=30,
+            self._sessions += 1
+            sequence, opened = self._sessions, time.monotonic()
+            received, finished, ended = 0, False, "closed"
+            try:
+                payload = build_download_payload(
+                    camera, start_time, end_time,
+                    self.player_id, self._client_id)
+                session = H500MediaSession(
+                    ip=self.host, cloud_password=self.cloud_password,
+                    super_secret_key=self._super_secret_key,
+                    encryptionMethod=self._encryption_method, port=8800,
+                    # Stock pytapo acknowledges every window. A 25-packet
+                    # window reproduces the acknowledgement cadence verified
+                    # on H500.
+                    username=self.username, window_size=25,
+                    query_params={
+                        "deviceId": camera["device_id"], "type": "download",
+                        "playerId": self.player_id, "media_type": 0,
+                    },
                 )
-                finished = False
-                while True:
-                    try:
-                        response = await asyncio.wait_for(stream.__anext__(), 35)
-                    except StopAsyncIteration:
-                        break
-                    except asyncio.TimeoutError as err:
-                        raise IncompleteRecordingError(
-                            "H500 recording stream stalled") from err
-                    base_type = response.mimetype.split(";", 1)[0].strip()
-                    if base_type == "application/json":
+                async with session:
+                    stream = session.transceive(
+                        json.dumps(payload, separators=(",", ":")),
+                        no_data_timeout=30,
+                    )
+                    while True:
                         try:
-                            message = json.loads(response.plaintext.decode())
-                        except (UnicodeDecodeError, json.JSONDecodeError):
-                            continue
-                        params = message.get("params", {})
-                        if message.get("type") == "response" and params.get("error_code", 0):
-                            raise IncompleteRecordingError(
-                                f"H500 rejected recording request ({params['error_code']})")
-                        if (
-                            message.get("type") == "notification"
-                            and params.get("event_type") == "stream_status"
-                            and params.get("status") == "finished"
-                        ):
-                            finished = True
+                            response = await asyncio.wait_for(
+                                stream.__anext__(), 35)
+                        except StopAsyncIteration:
                             break
-                    elif base_type == "video/mp2t":
-                        yield response.plaintext
-                if not finished:
-                    raise IncompleteRecordingError(
-                        "H500 closed the stream without a finished notification")
+                        except asyncio.TimeoutError as err:
+                            raise IncompleteRecordingError(
+                                "H500 recording stream stalled") from err
+                        base_type = response.mimetype.split(";", 1)[0].strip()
+                        if base_type == "application/json":
+                            try:
+                                message = json.loads(
+                                    response.plaintext.decode())
+                            except (UnicodeDecodeError, json.JSONDecodeError):
+                                continue
+                            params = message.get("params", {})
+                            if message.get("type") == "response" \
+                                    and params.get("error_code", 0):
+                                raise IncompleteRecordingError(
+                                    "H500 rejected recording request "
+                                    f"({params['error_code']})")
+                            if (
+                                message.get("type") == "notification"
+                                and params.get("event_type") == "stream_status"
+                                and params.get("status") == "finished"
+                            ):
+                                finished = True
+                                break
+                        elif base_type == "video/mp2t":
+                            received += len(response.plaintext)
+                            yield response.plaintext
+                    if not finished:
+                        raise IncompleteRecordingError(
+                            "H500 closed the stream without a finished "
+                            "notification")
+            except BaseException as err:
+                # BaseException, not Exception: a consumer that stops reading
+                # abandons this generator and the event loop finalises it
+                # later with GeneratorExit, or CancelledError if it is tearing
+                # down by then. Those are the cases worth seeing, and they are
+                # exactly the ones an `except Exception` lets past unnamed.
+                ended = type(err).__name__
+                raise
+            finally:
+                # No host, camera, player id or clip time: this runs on every
+                # preview, unattended, at whatever level the user has on.
+                _LOGGER.debug(
+                    "H500 media session %s (%s): %.2fs waiting, %s bytes, "
+                    "finished=%s, %s after %.2fs",
+                    sequence, kind, opened - queued, received, finished,
+                    ended, time.monotonic() - opened)

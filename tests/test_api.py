@@ -968,6 +968,131 @@ class LiveAttemptTest(unittest.TestCase):
         self.assertEqual({a[1] for a in self.probe.ATTEMPTS}, {"video"})
 
 
+class MediaSessionLogTest(unittest.TestCase):
+    """One debug line per media session, enough to tell the failures apart.
+
+    The hub serves downloads for hours after a reboot and then starts closing
+    port 8800 before sending a single HTTP byte, which is before digest
+    authentication and so tells you nothing about which session did it. What
+    distinguishes the candidates -- an accumulating session count, sessions
+    that never reached the hub's "finished" notification, one operation type
+    rather than another -- is only visible if each session says so as it ends.
+
+    Debug level and no identifiers: this runs unattended on every preview.
+    """
+
+    SECRETS = ("host", "admin", "local", "cloud", "player", "child", "AABB")
+
+    def _client(self):
+        client = H500Client("host", "admin", "local", "cloud")
+        client.player_id = "player"
+        client._super_secret_key = ""
+        client._encryption_method = object()
+        return client
+
+    def _run(self, responses, kind=None, stop_after=None):
+        """Consume one session and return (records, chunks)."""
+        client = self._client()
+
+        def build(**_):
+            return _StubMediaSession(responses)
+
+        async def consume():
+            chunks = []
+            extra = {} if kind is None else {"kind": kind}
+            with patch.object(api, "H500MediaSession", build):
+                stream = client.iter_recording(CAMERA, 10, 20, **extra)
+                async for chunk in stream:
+                    chunks.append(chunk)
+                    if stop_after is not None and len(chunks) >= stop_after:
+                        break
+            return chunks
+
+        with self.assertLogs(api._LOGGER, "DEBUG") as logs:
+            try:
+                chunks = asyncio.run(consume())
+            except IncompleteRecordingError:
+                chunks = None
+        return logs.output, chunks
+
+    VIDEO = ("video/mp2t", b"\x47" * 188)
+    FINISHED = ("application/json",
+                b'{"type":"notification","params":'
+                b'{"event_type":"stream_status","status":"finished"}}')
+
+    def test_a_completed_session_records_that_the_hub_finished_it(self):
+        records, _ = self._run([self.VIDEO, self.FINISHED])
+        self.assertEqual(len(records), 1, records)
+        self.assertIn("finished=True", records[0])
+
+    def test_a_session_the_hub_never_finished_says_so(self):
+        records, _ = self._run([self.VIDEO])
+        self.assertIn("finished=False", records[0])
+
+    def test_an_abandoned_session_is_not_recorded_as_a_clean_one(self):
+        """The failure mode a preview used to produce every time.
+
+        Which exception arrives is asyncio's business -- GeneratorExit if the
+        generator is closed, CancelledError if the loop is tearing down the
+        aclose task -- so the assertion is that one of them is named, not
+        which. What must never happen is a session ending silently.
+        """
+        records, chunks = self._run([self.VIDEO] * 5, stop_after=1)
+        self.assertEqual(len(chunks), 1)
+        self.assertIn("finished=False", records[0])
+        self.assertNotIn("closed", records[0])
+        self.assertTrue(
+            any(name in records[0]
+                for name in ("GeneratorExit", "CancelledError")), records[0])
+
+    def test_sessions_are_counted_so_a_threshold_is_visible(self):
+        client = self._client()
+
+        def build(**_):
+            return _StubMediaSession([self.VIDEO, self.FINISHED])
+
+        async def consume():
+            with patch.object(api, "H500MediaSession", build):
+                for _ in range(3):
+                    async for _chunk in client.iter_recording(CAMERA, 10, 20):
+                        pass
+
+        with self.assertLogs(api._LOGGER, "DEBUG") as logs:
+            asyncio.run(consume())
+        numbers = [int(line.split("session ")[1].split()[0])
+                   for line in logs.output]
+        self.assertEqual(numbers, [1, 2, 3])
+
+    def test_the_operation_type_is_recorded(self):
+        """Previews and downloads are the A/B; the log has to separate them."""
+        preview, _ = self._run([self.VIDEO, self.FINISHED], kind="preview")
+        download, _ = self._run([self.VIDEO, self.FINISHED])
+        self.assertIn("preview", preview[0])
+        self.assertIn("download", download[0])
+        self.assertNotIn("preview", download[0])
+
+    def test_the_byte_count_is_recorded(self):
+        records, _ = self._run([self.VIDEO, self.VIDEO, self.FINISHED])
+        self.assertIn(f"{2 * 188} bytes", records[0])
+
+    def test_nothing_identifying_reaches_the_log(self):
+        """It runs on every preview, unattended, at whatever level is on."""
+        for responses in ([self.VIDEO, self.FINISHED], [self.VIDEO], []):
+            records, _ = self._run(responses)
+            for line in records:
+                for secret in self.SECRETS:
+                    self.assertNotIn(secret, line, line)
+                # Clip start and end times would map a household's day.
+                self.assertNotIn("10", line.split("bytes")[0])
+
+    def test_previews_say_so(self):
+        """media.py has to pass it; a default would silently mislabel them."""
+        source = (COMPONENT / "media.py").read_text()
+        body = source.split("async def async_preview_clip", 1)[1]
+        body = body.split("\nasync def ", 1)[0]
+        self.assertIn('kind="preview"', body)
+
+
 class _StubLiveClient:
     player_id = "player"
     _client_id = 1
