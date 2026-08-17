@@ -66,6 +66,26 @@ download_recording:
       selector:
         boolean:
 
+classify_downloads:
+  name: Classify downloaded recordings
+  description: Write the missing "what is in it" sidecars for clips downloaded before they existed, from the hub's own detection log, so the media browser's type folders cover the whole archive. Safe to re-run; already-classified days cost the hub nothing.
+  fields:
+    config_entry_id:
+      name: Config entry ID
+      required: true
+      selector:
+        config_entry:
+          integration: tapo_h500
+    days:
+      name: Days back
+      description: How far back to classify. The detection log was verified a month deep.
+      default: 31
+      selector:
+        number:
+          min: 1
+          max: 31
+          mode: box
+
 delete_recording:
   name: Delete downloaded recording
   description: Remove the downloaded copy and its thumbnail. The hub keeps its own copy.

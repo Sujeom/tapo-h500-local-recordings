@@ -268,3 +268,137 @@ class DetectionSidecar(unittest.TestCase):
             path.name for path in
             media.camera_dir(hass, CAMERA).glob("*/*.json"))
         self.assertEqual(len(remaining), 1)
+
+
+class Backfill(unittest.TestCase):
+    """Sidecars for the archive that predates them.
+
+    Clips downloaded before sidecars existed appear in no type folder. The
+    hub's own detection log answers for old windows -- the calendar already
+    queries a month back -- so one service walks the disk, asks the hub what
+    triggered each unclassified day, and writes the missing files. One
+    detection query per camera-day that actually needs one; a day already
+    fully classified costs the hub nothing.
+    """
+
+    def _hass(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.addCleanup(setattr, media, "media_root", media.media_root)
+        media.media_root = lambda hass: Path(root.name)
+        return _Hass()
+
+    class _LogClient:
+        def __init__(self, log):
+            self.log = log            # start -> detection record
+            self.windows = []
+
+        def detections(self, camera, start, end):
+            self.windows.append((start, end))
+            return [record for moment, record in self.log.items()
+                    if start <= moment <= end]
+
+    def _clip(self, hass, start, sidecar=None):
+        video = media.clip_path(hass, CAMERA, start, ".mp4")
+        video.parent.mkdir(parents=True, exist_ok=True)
+        video.write_bytes(b"v")
+        if sidecar is not None:
+            video.with_suffix(".json").write_text(
+                __import__("json").dumps({"detection_types": sidecar}))
+
+    def test_missing_sidecars_are_written_from_the_log(self):
+        import json
+        hass = self._hass()
+        self._clip(hass, START)
+        client = self._LogClient(
+            {START: {"start_time": START, "events_1": (1 << 5) | (1 << 16),
+                     "alarm_type": 17}})
+        result = asyncio.run(media.async_classify_downloads(
+            hass, client, CAMERA, days=31))
+        self.assertEqual(result["written"], 1)
+        sidecar = media.clip_path(hass, CAMERA, START, ".json")
+        self.assertEqual(json.loads(sidecar.read_text()),
+                         {"detection_types": [6, 17]})
+
+    def test_one_second_of_index_tolerance(self):
+        hass = self._hass()
+        self._clip(hass, START)
+        client = self._LogClient(
+            {START + 1: {"start_time": START + 1, "events_1": 1 << 5}})
+        result = asyncio.run(media.async_classify_downloads(
+            hass, client, CAMERA, days=31))
+        self.assertEqual(result["written"], 1)
+
+    def test_a_day_already_classified_costs_the_hub_nothing(self):
+        hass = self._hass()
+        self._clip(hass, START, sidecar=[6])
+        client = self._LogClient({})
+        result = asyncio.run(media.async_classify_downloads(
+            hass, client, CAMERA, days=31))
+        self.assertEqual(client.windows, [])
+        self.assertEqual(result["written"], 0)
+
+    def test_a_clip_the_log_does_not_know_stays_unclassified(self):
+        """No sidecar rather than a guessed one: absent means absent."""
+        hass = self._hass()
+        self._clip(hass, START)
+        client = self._LogClient({})
+        result = asyncio.run(media.async_classify_downloads(
+            hass, client, CAMERA, days=31))
+        self.assertEqual(result["written"], 0)
+        self.assertFalse(
+            media.clip_path(hass, CAMERA, START, ".json").exists())
+
+    def test_an_unsupported_detection_log_is_a_clean_zero(self):
+        hass = self._hass()
+        self._clip(hass, START)
+
+        class _NoLog:
+            def detections(self, camera, start, end):
+                return None
+
+        result = asyncio.run(media.async_classify_downloads(
+            hass, _NoLog(), CAMERA, days=31))
+        self.assertEqual(result["written"], 0)
+
+    def test_the_query_window_covers_the_clips_local_day(self):
+        """Day folders are LOCAL dates (the harness pins -07:00), so the
+        epoch window asked of the hub must cover that local day -- a UTC-day
+        window silently misses every evening clip."""
+        hass = self._hass()
+        self._clip(hass, START)  # 22:46 local on 2026-08-12
+        client = self._LogClient({START: {"start_time": START,
+                                          "events_1": 1 << 5}})
+        asyncio.run(media.async_classify_downloads(
+            hass, client, CAMERA, days=31))
+        (low, high), = client.windows
+        self.assertLessEqual(low, START)
+        self.assertGreaterEqual(high, START)
+
+    def test_days_bound_the_walk(self):
+        hass = self._hass()
+        self._clip(hass, START - 40 * 86400)
+        client = self._LogClient({})
+        result = asyncio.run(media.async_classify_downloads(
+            hass, client, CAMERA, days=7))
+        self.assertEqual(client.windows, [])
+        self.assertEqual(result["written"], 0)
+
+
+class BackfillService(unittest.TestCase):
+    INIT = (COMPONENT / "__init__.py").read_text()
+    SERVICES_YAML = (COMPONENT / "services.yaml").read_text()
+
+    def test_the_service_walks_every_camera(self):
+        body = self.INIT.split("async def classify_downloads", 1)[1].split(
+            "\n    async def ", 1)[0]
+        self.assertIn("for camera in coordinator.cameras", body)
+        self.assertIn("async_classify_downloads", body)
+
+    def test_it_is_registered_and_documented(self):
+        self.assertIn("SERVICE_CLASSIFY_DOWNLOADS", self.INIT)
+        self.assertIn("classify_downloads:", self.SERVICES_YAML)
+
+    def test_days_are_bounded_to_what_was_verified(self):
+        self.assertIn("vol.Range(min=1, max=31)", self.INIT.split(
+            "CLASSIFY_SCHEMA", 1)[1][:400])

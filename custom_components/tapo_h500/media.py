@@ -369,6 +369,93 @@ async def async_prune(hass: HomeAssistant, camera, keep: int,
     return [relative(hass, path) for path in removed]
 
 
+async def async_classify_downloads(hass: HomeAssistant, client, camera,
+                                   days: int) -> dict:
+    """Write missing sidecars for on-disk clips, from the hub's detection log.
+
+    Clips downloaded before sidecars existed appear in no type folder. The
+    hub's log still remembers what triggered them -- it answers for month-old
+    windows -- so this walks the archive, asks once per camera-day that has
+    an unclassified clip, and writes the files the download would have. A
+    day already covered costs the hub nothing, so re-running is cheap.
+
+    A clip the log does not know stays unclassified: absent means absent,
+    never guessed. Matching allows the same one second of index drift the
+    detection-to-clip attachment does.
+    """
+    from datetime import datetime, time, timedelta
+
+    from .clips import detection_types
+
+    def _scan() -> dict:
+        directory = camera_dir(hass, camera)
+        if not directory.is_dir():
+            return {"scanned": 0, "written": 0, "days_queried": 0}
+        # Via the timestamp, which is the one thing every dt provider --
+        # including the test harness's frozen clock -- can produce.
+        now_local = dt_util.as_local(dt_util.utc_from_timestamp(
+            int(dt_util.utcnow().timestamp())))
+        cutoff = now_local.date() - timedelta(days=max(1, days))
+        scanned = written = queried = 0
+        for day_dir in sorted(item for item in directory.iterdir()
+                              if item.is_dir()):
+            try:
+                day = datetime.strptime(day_dir.name, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if day < cutoff:
+                continue
+            def local_start(video: Path) -> int | None:
+                # Through dt_util's zone, not the process's: _start_from_path
+                # leans on HA setting TZ, and this must agree with clip_path
+                # even where nothing has.
+                try:
+                    naive = datetime.strptime(
+                        f"{video.parent.name} {video.stem}",
+                        "%Y-%m-%d %H%M%S")
+                except (ValueError, TypeError):
+                    return None
+                return int(naive.replace(
+                    tzinfo=now_local.tzinfo).timestamp())
+
+            videos = [item for item in day_dir.iterdir()
+                      if item.suffix in (".mp4", ".ts")]
+            scanned += len(videos)
+            missing = [video for video in videos
+                       if not video.with_suffix(".json").exists()
+                       and local_start(video) is not None]
+            if not missing:
+                continue
+            # The folder name is a LOCAL date, so the window asked of the
+            # hub is that local day's epochs -- a UTC-day window would
+            # silently miss every evening clip.
+            low = int(datetime.combine(
+                day, time(), tzinfo=now_local.tzinfo).timestamp())
+            detections = client.detections(camera, low, low + 86400 - 1)
+            queried += 1
+            if detections is None:
+                continue
+            by_start = {record.get("start_time"): record
+                        for record in detections
+                        if record.get("start_time") is not None}
+            for video in missing:
+                start = local_start(video)
+                record = (by_start.get(start) or by_start.get(start + 1)
+                          or by_start.get(start - 1))
+                if record is None:
+                    continue
+                codes = detection_types(record)
+                if not codes:
+                    continue
+                video.with_suffix(".json").write_text(
+                    json.dumps({"detection_types": codes}))
+                written += 1
+        return {"scanned": scanned, "written": written,
+                "days_queried": queried}
+
+    return await hass.async_add_executor_job(_scan)
+
+
 def _start_from_path(path: Path) -> int | None:
     """The clip start time a download's own filename encodes.
 

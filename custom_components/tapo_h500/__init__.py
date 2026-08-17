@@ -38,6 +38,7 @@ from .const import (
     SERVICE_EXPORT_RECORDING,
     SERVICE_SNOOZE,
     SERVICE_BACKUP_NAMES,
+    SERVICE_CLASSIFY_DOWNLOADS,
     SERVICE_RESTORE_NAMES,
     SIGNAL_FACES_CHANGED,
     RELOAD_ON_CHANGE,
@@ -50,7 +51,8 @@ from .backup import (
 )
 from .coordinator import H500Coordinator
 from .media import (
-    async_delete_clip, async_download_clip, async_export, clip_path,
+    async_classify_downloads, async_delete_clip, async_download_clip,
+    async_export, clip_path,
     describe, existing_clip, media_content_id, media_root, scan_downloaded,
 )
 from .preview import H500PreviewView, preview_url
@@ -145,6 +147,12 @@ SNOOZE_SCHEMA = vol.Schema({
     # what the switch does when flipped by hand.
     vol.Optional("minutes"): vol.All(vol.Coerce(int), vol.Range(min=0, max=1440)),
 })
+CLASSIFY_SCHEMA = vol.Schema({
+    vol.Required("config_entry_id"): cv.string,
+    # 31 is as far as the recording-window search was ever verified.
+    vol.Optional("days", default=31): vol.All(vol.Coerce(int),
+                                              vol.Range(min=1, max=31)),
+})
 FORMAT_SCHEMA = vol.Schema({
     vol.Required("config_entry_id"): cv.string,
     vol.Required("confirm"): vol.All(cv.boolean, vol.Equal(True)),
@@ -168,6 +176,7 @@ SERVICES = (
     SERVICE_SNOOZE,
     SERVICE_BACKUP_NAMES,
     SERVICE_RESTORE_NAMES,
+    SERVICE_CLASSIFY_DOWNLOADS,
 )
 
 
@@ -628,6 +637,25 @@ def _register_services(hass: HomeAssistant) -> None:
         return snapshot(coordinator.face_names, coordinator.camera_ranks,
                         dict(coordinator.entry.options))
 
+    async def classify_downloads(call: ServiceCall):
+        """Write missing sidecars for the archive that predates them.
+
+        One detection-log query per camera-day that has an unclassified
+        clip, sequential, against a hub that must not be flooded -- and a
+        day already covered costs it nothing, so re-running is cheap. A
+        clip the log no longer remembers stays unclassified rather than
+        guessed.
+        """
+        coordinator = _coordinator(hass, call.data["config_entry_id"])
+        days = call.data["days"]
+        totals = {"scanned": 0, "written": 0, "days_queried": 0}
+        for camera in coordinator.cameras:
+            result = await async_classify_downloads(
+                hass, coordinator.client, camera, days)
+            for key in totals:
+                totals[key] += result[key]
+        return totals
+
     async def restore_names(call: ServiceCall):
         """Put a backup back, merging by default.
 
@@ -678,6 +706,7 @@ def _register_services(hass: HomeAssistant) -> None:
     for service, handler, schema in (
         (SERVICE_LIST_RECORDINGS, list_recordings, LIST_SCHEMA),
         (SERVICE_DOWNLOAD_RECORDING, download_recording, DOWNLOAD_SCHEMA),
+        (SERVICE_CLASSIFY_DOWNLOADS, classify_downloads, CLASSIFY_SCHEMA),
         (SERVICE_DELETE_RECORDING, delete_recording, DELETE_SCHEMA),
         (SERVICE_FORMAT_HUB_STORAGE, format_hub_storage, FORMAT_SCHEMA),
         (SERVICE_NAME_FACE, name_face, NAME_FACE_SCHEMA),

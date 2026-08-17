@@ -428,6 +428,19 @@ detection log never carries an end. With both times given, copy them exactly
 from `list_recordings`. `convert_to_mp4` optionally overrides the
 integration option for a single download.
 
+### `tapo_h500.classify_downloads`
+
+```yaml
+config_entry_id: YOUR_CONFIG_ENTRY_ID
+days: 31
+```
+
+One-shot backfill for the media browser's type folders: clips downloaded
+before sidecars existed get theirs written from the hub's own detection log,
+which answers a month back. Returns `scanned`, `written` and `days_queried`.
+Safe to re-run — already-classified days cost the hub nothing — and a clip
+the log no longer remembers stays unclassified rather than guessed.
+
 ### `tapo_h500.delete_recording`
 
 ```yaml

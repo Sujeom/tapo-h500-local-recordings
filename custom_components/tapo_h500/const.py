@@ -17,6 +17,7 @@ SERVICE_FIND_FACE = "find_face"
 SERVICE_EXPORT_RECORDING = "export_recording"
 SERVICE_SNOOZE = "snooze"
 SERVICE_BACKUP_NAMES = "backup_names"
+SERVICE_CLASSIFY_DOWNLOADS = "classify_downloads"
 SERVICE_RESTORE_NAMES = "restore_names"
 
 # Stamped into a backup so a future format change can be told from this one.
