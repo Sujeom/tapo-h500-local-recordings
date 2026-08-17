@@ -186,7 +186,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}") from err
 
     coordinator = H500Coordinator(hass, entry, client)
-    await coordinator.async_config_entry_first_refresh()
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception:
+        # The connect() above is a login. A failed first refresh raises
+        # ConfigEntryNotReady and Home Assistant retries the whole of setup on
+        # a backoff, so without this each retry adds another login that is
+        # never closed -- to a hub that wedges under repeated ones and
+        # recovers only on a timeout. The exception still leaves, because it
+        # is what schedules the retry.
+        await hass.async_add_executor_job(client.close)
+        raise
+
     hass.data.setdefault(DOMAIN, {}).setdefault(DATA_HUBS, {})[
         entry.entry_id] = coordinator
 
