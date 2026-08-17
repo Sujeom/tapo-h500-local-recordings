@@ -62,8 +62,13 @@ class TheModelGuard(unittest.TestCase):
         self.assertIn('self.info.get("device_model")', body)
 
     def test_it_still_refuses_another_model(self):
+        """By prefix, not equality: "H500(EU)" is an H500 in regional
+        packaging and must install; a C200 is another device and must not.
+        The behavioural cases live in test_api.ModelGuardTest; this pins the
+        shape so an equality check cannot quietly return."""
         body = API.split("def connect", 1)[1].split("\n    def ", 1)[0]
-        self.assertIn('if model and model != "H500":', body)
+        self.assertIn('if model and not model.startswith("H500"):', body)
+        self.assertNotIn('model != "H500"', body)
 
     def test_a_hub_that_does_not_say_is_allowed_through(self):
         """An empty model means the hub did not answer that field, not that it
