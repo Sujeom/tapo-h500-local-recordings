@@ -231,6 +231,12 @@ class NamingDoesNotReload(unittest.TestCase):
         self.assertIn("CONF_POLL_INTERVAL", block)
         # Face names must NOT be in it, or naming reloads again.
         self.assertNotIn("CONF_FACE_NAMES", block)
+        # Nothing else belongs: every other option is read live at use time,
+        # so reloading for one is a fresh login bought for nothing -- and
+        # repeated logins are the one thing that wedges this hub.
+        names = [name for name in block.replace(",", " ").split()
+                 if name.startswith("CONF_")]
+        self.assertEqual(names, ["CONF_POLL_INTERVAL"], block)
 
     def test_a_name_only_change_skips_the_reload(self):
         body = INIT.split("async def _async_options_changed", 1)[1][:1400]

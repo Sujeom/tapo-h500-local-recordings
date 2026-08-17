@@ -180,10 +180,16 @@ class Wiring(unittest.TestCase):
         settings = CONFIG_FLOW.split("async_step_settings", 1)[1]
         self.assertIn("CONF_KEEP_PERSON", settings)
 
-    def test_a_change_to_it_reloads_the_entry(self):
-        """It changes how the download path behaves, so the coordinator has
-        to be rebuilt rather than left holding the old figure."""
-        self.assertIn(const.CONF_KEEP_PERSON, const.RELOAD_ON_CHANGE)
+    def test_a_change_to_it_does_not_reload_the_entry(self):
+        """The keep counts are read from entry.options at use time -- 
+        _protected() and the prune both ask live -- so a reload would rebuild
+        the coordinator for a figure it never caches. A reload costs a fresh
+        login, and repeated logins are the one thing that wedges an H500."""
+        self.assertNotIn(const.CONF_KEEP_PERSON, const.RELOAD_ON_CHANGE)
+        self.assertNotIn(const.CONF_KEEP_RINGS, const.RELOAD_ON_CHANGE)
+        protected = COORDINATOR.split("def _protected", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("options.get(CONF_KEEP_PERSON", protected,
+                      "no longer read live; a reload would be needed again")
 
 
 if __name__ == "__main__":

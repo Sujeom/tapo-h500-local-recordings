@@ -511,9 +511,14 @@ DEFAULT_NIGHT_END = 6
 # then failed with "cannot get data from the hub" -- and, worse, opened a
 # fresh login. Repeated logins are the one thing that wedges an H500, so
 # recording a name must not cost one.
+# Only the poll interval: it is captured when the coordinator is built, so a
+# change genuinely needs a rebuild. Every other option -- the download mode,
+# MP4 conversion, all three keep counts, the download types -- is read from
+# entry.options at the moment it is used, so reloading for one of those bought
+# a fresh login (the one thing that wedges this hub) for a value the running
+# coordinator would have picked up anyway.
 RELOAD_ON_CHANGE = (
-    CONF_POLL_INTERVAL, CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4,
-    CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS, CONF_KEEP_PERSON,
+    CONF_POLL_INTERVAL,
 )
 
 # Video is remuxed, not re-encoded. Audio is re-encoded because the hub's TS
