@@ -159,6 +159,16 @@ class Routing(unittest.TestCase):
         self.assertIn("async_latest_frame", body)
         self.assertNotIn("async_latest_image", self.IMAGE_SRC)
 
+    def test_the_latest_event_image_restamps_when_the_frame_lands(self):
+        """It stamps on the detection, several seconds before any frame of
+        that event exists -- so a dashboard fetched once, got the previous
+        frame, and was never told again when the real one arrived. The
+        download signal is fired exactly when the file is written, so it
+        stamps a second time."""
+        body = self.IMAGE_SRC.split("class H500ContactSheet", 1)[0]
+        self.assertIn('signal("event"', body)
+        self.assertIn('signal("image"', body)
+
 
 if __name__ == "__main__":
     unittest.main()

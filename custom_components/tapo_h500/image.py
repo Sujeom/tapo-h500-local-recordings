@@ -58,16 +58,26 @@ class H500EventImage(H500Entity, ImageEntity):
         self.async_on_remove(async_dispatcher_connect(
             self.hass, self.coordinator.signal("event", self.index),
             self._handle))
+        # And again when the download actually writes the file. The event
+        # stamp alone made the frontend fetch several seconds before any
+        # frame of that event existed -- it got the previous one and was
+        # never told to look again.
+        self.async_on_remove(async_dispatcher_connect(
+            self.hass, self.coordinator.signal("image", self.index),
+            self._stamp))
 
     @callback
     def _handle(self, kind: str, entry: dict) -> None:
         """Stamp the picture as changed when an event lands.
 
-        Not when the file appears -- there is no watcher on the media
-        directory -- but when the hub reports the event that will produce it.
-        The download follows within a few seconds, and a stamp that is a
-        little early makes the frontend re-fetch, which is the desired effect.
+        Early on purpose: the coordinator fetches the frame on demand now, so
+        a fetch triggered by this stamp usually finds it. The second stamp in
+        _stamp covers the fetch that raced the download and lost.
         """
+        self._stamp()
+
+    @callback
+    def _stamp(self) -> None:
         self._attr_image_last_updated = dt_util.utcnow()
         self.async_write_ha_state()
 
