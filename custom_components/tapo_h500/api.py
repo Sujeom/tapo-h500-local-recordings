@@ -147,6 +147,9 @@ class H500Client:
         # and service handlers; pytapo's session is not thread safe.
         self._hub_lock = threading.RLock()
         self._detection_supported = True
+        # Whether the hub accepts both per-camera searches in one envelope.
+        # Proven on 1.3.20; a refusal downgrades to single calls for good.
+        self._batch_supported = True
 
     def connect(self):
         self._hub = Tapo(
@@ -297,6 +300,69 @@ class H500Client:
         # A quiet window is {} rather than an empty list. That is an answer,
         # not a refusal, so it must not disable the call.
         return detections if isinstance(detections, list) else []
+
+    def activity(self, camera, start_time, end_time):
+        """Both per-camera searches -- clips and detections -- in one round
+        trip.
+
+        Proven on firmware 1.3.20: a multipleRequest carrying both answers
+        with results identical to the individual calls. Half the requests
+        per poll, against a hub that is easy to overload. If the envelope is
+        ever refused, this falls back to the two single calls and remembers.
+
+        Returns (clips, detections) with exactly the semantics of recent()
+        and detections(): a failed clip search raises, an unsupported
+        detection search returns None and disables itself, a quiet window is
+        empty answers.
+        """
+        if not self._batch_supported:
+            return (self._search_videos(camera, start_time, end_time),
+                    self.detections(camera, start_time, end_time))
+        window = {
+            "channel": 0, "child_device_id": camera["device_id"],
+            "child_device_mac": camera["mac"],
+            "start_time": int(start_time), "end_time": int(end_time),
+            "start_index": 0, "end_index": 999,
+        }
+        requests = [
+            {"method": "searchVideoWithUTC",
+             "params": {"playback": {"search_video_with_utc": {
+                 **window, "player_id": self.player_id}}}},
+        ]
+        if self._detection_supported:
+            requests.append(
+                {"method": "searchDetectionList",
+                 "params": {"playback": {"search_detection_list": window}}})
+        try:
+            with self._hub_lock:
+                reply = self._hub.performRequest({
+                    "method": "multipleRequest",
+                    "params": {"requests": requests},
+                })
+        except Exception:
+            # The envelope itself was refused; degrade to the proven single
+            # calls, this time and every later time.
+            self._batch_supported = False
+            return (self._search_videos(camera, start_time, end_time),
+                    self.detections(camera, start_time, end_time))
+        responses = (reply.get("result") or {}).get("responses") or []
+        by_method = {item.get("method"): item for item in responses}
+        videos = by_method.get("searchVideoWithUTC") or {}
+        if videos.get("error_code", 0):
+            raise RuntimeError(
+                f"searchVideoWithUTC failed ({videos.get('error_code')})")
+        clips = flatten_clips(videos.get("result") or {})
+        if not self._detection_supported:
+            return clips, None
+        detection_reply = by_method.get("searchDetectionList") or {}
+        if detection_reply.get("error_code", 0):
+            self._detection_supported = False
+            return clips, None
+        detections = ((detection_reply.get("result") or {})
+                      .get("playback", {}).get("search_detection_list"))
+        # A quiet window is {} rather than an empty list: an answer, not a
+        # refusal, exactly as in detections().
+        return clips, detections if isinstance(detections, list) else []
 
     def hub_status(self):
         """Every hub-level reading in a single round trip.

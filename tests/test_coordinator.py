@@ -400,3 +400,26 @@ class PollInterval(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BatchedActivity(unittest.TestCase):
+    """A client offering activity() is asked once, not twice.
+
+    The harness client deliberately has no activity(), so every other test
+    exercises the unbatched fallback -- which is also exactly the pre-batch
+    behaviour. This one proves the batch is preferred when it exists.
+    """
+
+    def test_the_batched_call_replaces_both_singles(self):
+        coord, client = _build()
+        client.batched = []
+
+        def activity(camera, start, end):
+            client.batched.append((start, end))
+            return [], []
+
+        client.activity = activity
+        asyncio.run(coord._async_update_data())
+        self.assertEqual(len(client.batched), 1)
+        self.assertNotIn("recent", client.calls)
+        self.assertNotIn("detections", client.calls)

@@ -682,10 +682,20 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         clips_by_camera: dict[int, list[dict]] = {}
         for index, camera in enumerate(cameras):
             try:
-                clips = await self.hass.async_add_executor_job(
-                    self.client.recent, camera, window, now + 60)
-                detections = await self.hass.async_add_executor_job(
-                    self.client.detections, camera, window, now + 60)
+                fetch = getattr(self.client, "activity", None)
+                if fetch is not None:
+                    # One round trip for both searches -- proven on hardware,
+                    # and half the per-poll load on a hub that is easy to
+                    # overload.
+                    clips, detections = await self.hass.async_add_executor_job(
+                        fetch, camera, window, now + 60)
+                else:
+                    # Clients without the batched call: the test doubles, and
+                    # the exact behaviour this had before batching existed.
+                    clips = await self.hass.async_add_executor_job(
+                        self.client.recent, camera, window, now + 60)
+                    detections = await self.hass.async_add_executor_job(
+                        self.client.detections, camera, window, now + 60)
             except Exception as err:
                 raise UpdateFailed(f"Could not poll H500 activity: {err}") from err
             # One record per clip carrying both what was recorded and what

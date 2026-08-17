@@ -968,6 +968,107 @@ class LiveAttemptTest(unittest.TestCase):
         self.assertEqual({a[1] for a in self.probe.ATTEMPTS}, {"video"})
 
 
+class ActivityBatchTest(unittest.TestCase):
+    """Both per-camera searches in one round trip.
+
+    Proven on the hub on 2026-08-17: a multipleRequest carrying
+    searchVideoWithUTC and searchDetectionList answered both with
+    error_code 0 and results byte-identical to the individual calls, in
+    18ms. Every poll used to spend two round trips per camera on this;
+    against a hub that is easy to overload, half the requests is the
+    point.
+    """
+
+    def _client(self, responses=None, boom=None):
+        client = H500Client("host", "admin", "local", "cloud")
+
+        class Hub:
+            requests = []
+
+            def performRequest(self, payload):
+                Hub.requests.append(payload)
+                if boom is not None:
+                    raise boom
+                return {"result": {"responses": responses}}
+
+            def executeFunction(self, method, params):
+                Hub.requests.append((method, params))
+                return {"playback": {"search_video_results": [],
+                                     "search_detection_list": []}}
+
+        Hub.requests = []
+        client._hub = Hub()
+        return client, Hub
+
+    CLIP = {"0": {"startTime": 10, "endTime": 25}, "count": 1}
+    DETECTION = {"alarm_type": 2, "events_1": 2, "start_time": 10}
+
+    def _ok(self):
+        return [
+            {"method": "searchVideoWithUTC", "error_code": 0,
+             "result": {"playback": {"search_video_results": [self.CLIP]}}},
+            {"method": "searchDetectionList", "error_code": 0,
+             "result": {"playback": {
+                 "search_detection_list": [self.DETECTION]}}},
+        ]
+
+    def test_one_request_carries_both_searches(self):
+        client, hub = self._client(self._ok())
+        clips, detections = client.activity(CAMERA, 10, 20)
+        self.assertEqual(len(hub.requests), 1)
+        methods = [request["method"]
+                   for request in hub.requests[0]["params"]["requests"]]
+        self.assertEqual(methods,
+                         ["searchVideoWithUTC", "searchDetectionList"])
+        self.assertEqual(clips, [{"startTime": 10, "endTime": 25}])
+        self.assertEqual(detections, [self.DETECTION])
+
+    def test_a_quiet_window_is_empty_answers_not_refusals(self):
+        responses = [
+            {"method": "searchVideoWithUTC", "error_code": 0,
+             "result": {"playback": {"search_video_results": []}}},
+            {"method": "searchDetectionList", "error_code": 0,
+             "result": {}},
+        ]
+        client, _ = self._client(responses)
+        clips, detections = client.activity(CAMERA, 10, 20)
+        self.assertEqual((clips, detections), ([], []))
+        self.assertTrue(client._detection_supported)
+
+    def test_an_unsupported_detection_search_disables_itself(self):
+        responses = self._ok()
+        responses[1] = {"method": "searchDetectionList",
+                        "error_code": -40106}
+        client, _ = self._client(responses)
+        _, detections = client.activity(CAMERA, 10, 20)
+        self.assertIsNone(detections)
+        self.assertFalse(client._detection_supported)
+        # ...and once disabled it is not asked for again.
+        client.activity(CAMERA, 10, 20)
+
+    def test_a_failed_video_search_fails_the_poll(self):
+        """Silence here would read as a quiet camera, which is the lie the
+        whole watchdog machinery exists to avoid."""
+        responses = self._ok()
+        responses[0] = {"method": "searchVideoWithUTC", "error_code": -71103}
+        client, _ = self._client(responses)
+        with self.assertRaises(RuntimeError):
+            client.activity(CAMERA, 10, 20)
+
+    def test_an_envelope_the_hub_refuses_falls_back_to_singles(self):
+        """A future firmware rejecting the batch must degrade to exactly the
+        old behaviour, once, and remember."""
+        client, hub = self._client(boom=RuntimeError("err_code 40210"))
+        clips, detections = client.activity(CAMERA, 10, 20)
+        self.assertEqual((clips, detections), ([], []))
+        self.assertFalse(client._batch_supported)
+        # The failed envelope, then the two individual calls.
+        self.assertEqual(len(hub.requests), 3)
+        client.activity(CAMERA, 10, 20)
+        # No further envelope attempts: two more singles only.
+        self.assertEqual(len(hub.requests), 5)
+
+
 class ModelGuardTest(unittest.TestCase):
     """connect() refuses the wrong device without refusing the right one.
 
