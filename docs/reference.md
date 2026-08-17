@@ -155,7 +155,10 @@ the doorbell, and says which happened at which camera --
 Most events carry several codes at once, so the headline picks one by priority
 -- doorbell, then person, then animal -- and the body lists everything else the
 hub saw. The camera's own frame is attached, tapping the notification opens
-that camera's dialog, and a Recordings button opens the media browser. Plain motion never notifies on its own but is still described when it
+that camera's dialog, and a Recordings button opens the media browser. Once
+the photograph arrives, a **Save clip** button appears beside them: one press
+downloads that exact recording, and a manual download is never pruned — "keep
+that one forever" from the lock screen. Plain motion never notifies on its own but is still described when it
 arrives alongside something that does. Change `notify.mobile_app_phone` to your
 own notify service; nothing else needs editing for a two-camera hub.
 
@@ -416,8 +419,12 @@ start_time: 1786553183
 end_time: 1786553198
 ```
 
-Always copy the exact time boundaries from `list_recordings`. `convert_to_mp4`
-optionally overrides the integration option for a single download.
+`end_time` may be left out: the integration asks the hub which indexed
+recording starts at `start_time` (one second of tolerance) and uses its real
+end — which is how the notification's **Save clip** button works, since the
+detection log never carries an end. With both times given, copy them exactly
+from `list_recordings`. `convert_to_mp4` optionally overrides the
+integration option for a single download.
 
 ### `tapo_h500.delete_recording`
 
@@ -724,9 +731,13 @@ report as a face and nothing else.
 
 ### A camera that has gone quiet
 
-`binary_sensor.<camera>_silent` is on when a camera has recorded nothing for
-longer than the configured threshold (default 24 hours). It also raises a
-repair issue.
+`binary_sensor.<camera>_silent` is on when the camera's own hourly history
+says about three events should have happened during the current silence, or
+when the silence passes the configured ceiling (default 24 hours) — whichever
+comes first. A doorbell doing 25 clips a day reads as dead within hours; the
+back gate doing 2 stays patient; a normal night accrues nothing. The
+`expected_events` attribute shows how far along that count is, and a repair
+issue is raised as well.
 
 A camera off the Wi-Fi, flat or unplugged is otherwise invisible — every entity
 keeps showing its last value, and the usual way to find out is needing the
@@ -892,19 +903,29 @@ they slug to the same directory.
 | Downloaded clips to keep per camera | `0` | `0` keeps everything. Any other number prunes the oldest automatic downloads. Manual downloads are never pruned. |
 | Doorbell presses to keep per camera | `0` | `0` treats them like everything else. Any other number keeps that many of the newest presses whatever their age. |
 | Recordings with a person to keep per camera | `0` | The same, for recordings with a person in them. Counted separately from presses. |
-| Hours of silence before a camera is flagged | `24` | Below 24, a quieter camera trips the silent sensor sooner. Cannot go higher — the hub is only asked about a day. |
+| Hours of silence before a camera is flagged | `24` | The ceiling. The silent sensor usually flags much earlier, from the camera's own history; this is the longest it can possibly take, and a camera with no history at all still trips it here. Cannot go higher — the hub is only asked about a day. |
 | Convert downloads to MP4 | On | Off keeps the hub's original MPEG-TS. |
+| Days the cards show by default | `1` | Cards whose own "Days to show" was never set follow this, so changing every dashboard from a day to a week is one field. A card with its own days keeps it. Changing it costs no hub login. |
 
 ## Media layout
 
 ```
 <media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.mp4
 <media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.jpg
+<media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.json
 ```
+
+The `.json` is a small sidecar recording what triggered the clip, written at
+download time because the hub's own index only reaches back a day. It powers
+the type folders below and is deleted whenever the clip is.
 
 Under **Media → Tapo H500** each camera and each date shows the newest frame
 beneath it as its cover, rather than a blank tile, so a month of days is
-something to look through. Clips show their own frame.
+something to look through. Clips show their own frame. Alongside the cameras
+sit **Doorbell presses**, **People**, **Vehicles** and **Pets** — the whole
+archive filtered by what is in it, newest first, spanning cameras and days.
+Clips downloaded before sidecars existed appear only under their camera and
+date.
 
 Names come from the clip's start time in Home Assistant's local timezone, so
 "is this already downloaded" is a path check rather than a stored index.

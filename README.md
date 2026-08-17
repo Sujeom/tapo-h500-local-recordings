@@ -120,8 +120,14 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   scrolling back to last Tuesday actually shows last Tuesday.
 - **The day at a glance:** `image.<camera>_today` tiles the day's frames into
   one picture.
-- **Watchdogs:** a camera that has recorded nothing for a day, and a forecast
-  of when the hub will start overwriting.
+- **Watchdogs:** a camera that has gone quiet judged against its own rhythm
+  — a busy doorbell silent for three hours is flagged in hours, not after a
+  day — plus a forecast of when the hub will start overwriting. The hub's
+  media service is health-checked every fifteen minutes with one
+  unauthenticated TCP exchange, and the known "recordings stop serving until
+  a reboot" state raises a repair notice before anyone misses a photograph;
+  three failed downloads in a row raise one too. `tools/check-media.py
+  <host>` asks the same question from a terminal.
 - **Somebody at the camera:** the hub's tamper alarm raises a repair notice
   naming the camera and the time, instead of a sensor that clears after 30
   seconds and is only ever seen by someone who happened to be looking.
@@ -145,7 +151,14 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Visitors, not clips:** `sensor.<camera>_visits_24h` counts people rather
   than recordings — one person waiting four minutes files sixteen of those —
   and carries the day's shape hour by hour as an attribute.
-- **Clips:** **Media → Tapo H500**, by camera and date.
+- **Clips:** **Media → Tapo H500**, by camera and date — and by what is in
+  them: Doorbell presses, People, Vehicles and Pets folders over the whole
+  downloaded archive.
+- **Keep that one:** the photo notification carries a **Save clip** button —
+  one press downloads that exact recording, and manual downloads are never
+  pruned.
+- **One "days to show" for every card:** set it once under **Configure**;
+  any card without its own picks it up.
 - **Settings:** the integration's **Configure** page.
 
 ## Docs
