@@ -28,7 +28,8 @@ from .const import (
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
-    LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS, POLL_BACKOFF_MAX, PROWL_WINDOW,
+    FIRMWARE_CHECK_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
+    POLL_BACKOFF_MAX, PROWL_WINDOW,
     SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
 )
@@ -101,6 +102,10 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._status_every = max(1, round(STATUS_MAX_AGE / interval))
         self._cameras_every = max(1, round(CAMERAS_MAX_AGE / interval))
         self._media_every = max(1, round(MEDIA_CHECK_SECONDS / interval))
+        self._firmware_every = max(
+            1, round(FIRMWARE_CHECK_SECONDS / interval))
+        # What the last cloud firmware check said; the update entity reads it.
+        self.firmware_info: dict = {}
         # What the last media-port handshake said: "healthy", "wedged",
         # "silent", "unreachable", or None before the first check. The wedge
         # is the hub's known failure mode and this is how it is noticed
@@ -740,6 +745,16 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                     check)
             except Exception as err:  # noqa: BLE001 - a health check must not hurt
                 _LOGGER.debug("Media port check failed: %s", err)
+
+        # The cloud firmware check, a few times a day. The hub phones
+        # TP-Link for this one, so the cadence is hours.
+        firmware = getattr(self.client, "firmware_update", None)
+        if firmware is not None and self._polls % self._firmware_every == 0:
+            try:
+                self.firmware_info = await self.hass.async_add_executor_job(
+                    firmware)
+            except Exception as err:  # noqa: BLE001 - a check must not hurt
+                _LOGGER.debug("Firmware check failed: %s", err)
 
         # Before _primed is set, so a restart mid-afternoon records everyone
         # already seen today without announcing them again.

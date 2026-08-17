@@ -323,6 +323,11 @@
       "recordings": {
         "name": "Recordings"
       }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
+      }
     }
   },
   "device_automation": {

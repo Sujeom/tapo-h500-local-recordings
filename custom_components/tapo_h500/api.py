@@ -17,7 +17,9 @@ from pytapo.media_stream.crypto import AESHelper
 from pytapo.media_stream.session import HttpMediaSession
 
 from .clips import attach_detections, flatten_clips, start_of
-from .status import HUB_STATUS_REQUESTS, basic_info, unpack_multiple
+from .status import (
+    HUB_STATUS_REQUESTS, basic_info, firmware_upgrade, unpack_multiple,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -178,6 +180,17 @@ class H500Client:
         self._super_secret_key = self._hub.superSecretKey
         self._encryption_method = self._hub.getEncryptionMethod()
         return self.info
+
+    def firmware_update(self) -> dict:
+        """Ask the hub to ask the cloud whether newer firmware exists.
+
+        pytapo's own two-request batch, verified on this hub 2026-08-17
+        (both sub-requests error_code 0). The hub does the phoning; callers
+        keep the cadence to hours, the same restraint the app shows.
+        """
+        with self._hub_lock:
+            reply = self._hub.isUpdateAvailable()
+        return firmware_upgrade(unpack_multiple(reply))
 
     def check_media(self) -> str:
         """check_media_port against this hub. Blocking; run in an executor."""

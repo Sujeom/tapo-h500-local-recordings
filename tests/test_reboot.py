@@ -118,3 +118,61 @@ class Entity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FirmwareUpgradeInfo(unittest.TestCase):
+    """What the cloud check said, read without guessing too hard.
+
+    Probed 2026-08-17: checkFirmwareVersionByCloud + getCloudConfig
+    upgrade_info both answer error_code 0, and an up-to-date hub returns an
+    EMPTY upgrade_info. The field names of a pending update are unknown
+    until one exists, so the parser tries the plausible spellings and keeps
+    the raw block for the entity to expose either way.
+    """
+
+    def test_an_empty_block_is_up_to_date(self):
+        info = status.firmware_upgrade({"getCloudConfig": {
+            "cloud_config": {"upgrade_info": {}}}})
+        self.assertIsNone(info["version"])
+        self.assertEqual(info["raw"], {})
+
+    def test_a_named_version_comes_out(self):
+        for key in ("firmware_version", "version", "fw_version"):
+            info = status.firmware_upgrade({"getCloudConfig": {
+                "cloud_config": {"upgrade_info": {key: "1.4.0"}}}})
+            self.assertEqual(info["version"], "1.4.0", key)
+
+    def test_a_shape_never_seen_keeps_the_evidence(self):
+        info = status.firmware_upgrade({"getCloudConfig": {
+            "cloud_config": {"upgrade_info": {"mystery": "x"}}}})
+        self.assertIsNone(info["version"])
+        self.assertEqual(info["raw"], {"mystery": "x"})
+
+    def test_no_answer_is_no_answer(self):
+        self.assertIsNone(status.firmware_upgrade({})["version"])
+        self.assertEqual(status.firmware_upgrade({})["raw"], {})
+
+
+class UpdateEntityWiring(unittest.TestCase):
+    UPDATE = (COMPONENT / "update.py").read_text()
+    INIT = (COMPONENT / "__init__.py").read_text()
+
+    def test_the_platform_is_registered(self):
+        self.assertIn("Platform.UPDATE", self.INIT)
+
+    def test_an_empty_cloud_answer_reads_as_up_to_date(self):
+        body = self.UPDATE.split("def latest_version", 1)[1]
+        self.assertIn("or self.installed_version", body)
+
+    def test_it_reports_and_never_installs(self):
+        """setFirmwareUpgrade is deliberately unprobed on a hub that is easy
+        to wedge; the app does the upgrading."""
+        self.assertNotIn("async_install", self.UPDATE)
+        # No hub calls at all from this entity -- it reads what the
+        # coordinator fetched, and nothing else. (Asserted on the call
+        # shapes, not on prose: a docstring may NAME the setter it refuses.)
+        self.assertNotIn("executeFunction", self.UPDATE)
+        self.assertNotIn("performRequest", self.UPDATE)
+
+    def test_the_raw_cloud_answer_is_visible(self):
+        self.assertIn('"upgrade_info"', self.UPDATE)

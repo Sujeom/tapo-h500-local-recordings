@@ -173,6 +173,10 @@ LOOKBACK_SECONDS = 86400
 # misses a photograph, at a cost of one unauthenticated TCP exchange.
 MEDIA_CHECK_SECONDS = 900
 
+# How often the hub is asked to check the cloud for newer firmware. Hours:
+# the check makes the HUB phone TP-Link, and the app shows the same restraint.
+FIRMWARE_CHECK_SECONDS = 21600
+
 # The hub rejects a siren volume of 0 or 11 with -40209, so the usable range is
 # 1-10 and Home Assistant's 0.0-1.0 level is scaled onto it.
 SIREN_VOLUME_MIN = 1

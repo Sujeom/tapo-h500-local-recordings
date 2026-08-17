@@ -351,3 +351,19 @@ def trend_samples(previous: list[tuple[int, float]], at: int,
     if previous and used < previous[-1][1] - EMPTIED_PERCENT:
         return [(at, used)]
     return (previous + [(at, used)])[-cap:]
+
+
+def firmware_upgrade(reply: dict) -> dict:
+    """What the cloud firmware check said.
+
+    Probed on 2026-08-17: an up-to-date hub answers with an EMPTY
+    upgrade_info, so empty means current. The field names of a pending
+    update are unknown until one exists; the plausible spellings are tried
+    and the raw block rides along so nothing is lost if they all miss.
+    """
+    info = ((reply.get("getCloudConfig") or {}).get("cloud_config") or {}).get(
+        "upgrade_info") or {}
+    version = next((str(info[key]) for key in
+                    ("firmware_version", "version", "fw_version")
+                    if info.get(key)), None)
+    return {"version": version, "raw": dict(info)}

@@ -279,3 +279,48 @@ class DiagnosticsCarryTheEvidence(unittest.TestCase):
         body = DIAGNOSTICS.split('"download_failures"', 1)[1][:200]
         self.assertIn("_download_failures", body)
         self.assertNotIn("alias", body)
+
+
+class FirmwareCadence(unittest.TestCase):
+    """The cloud check runs a few times a day, not per poll.
+
+    checkFirmwareVersionByCloud asks the HUB to phone TP-Link, so its
+    cadence is hours -- the same restraint the app shows -- and a client
+    without the call (the test doubles) is simply skipped.
+    """
+
+    def _build(self, interval):
+        coord, client = harness._build(interval)
+        client.firmware_checks = 0
+
+        def firmware_update():
+            client.firmware_checks += 1
+            return {"version": None, "raw": {}}
+
+        client.firmware_update = firmware_update
+        return coord, client
+
+    def test_it_runs_on_its_own_slow_cadence(self):
+        import asyncio
+        # 10800s polls against the 21600s cadence: every second poll.
+        coord, client = self._build(10800)
+        for _ in range(6):
+            asyncio.run(coord._async_update_data())
+        self.assertEqual(client.firmware_checks, 3)
+
+    def test_the_answer_lands_where_the_entity_reads(self):
+        import asyncio
+        coord, client = self._build(10800)
+        asyncio.run(coord._async_update_data())
+        self.assertEqual(coord.firmware_info, {"version": None, "raw": {}})
+
+    def test_a_failed_check_does_not_fail_the_poll(self):
+        import asyncio
+        coord, client = self._build(10800)
+
+        def boom():
+            raise OSError("cloud unreachable")
+
+        client.firmware_update = boom
+        asyncio.run(coord._async_update_data())
+        self.assertEqual(coord.firmware_info, {})
