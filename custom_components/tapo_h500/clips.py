@@ -755,14 +755,21 @@ def in_night(hour: int, start: int, end: int) -> bool:
 
 
 def notable(entry: dict, hour: int, start: int, end: int) -> bool:
-    """An unfamiliar face, at night.
+    """An unfamiliar face at night, or tampering at any hour.
 
     Deliberately narrow. Motion at night is a cat, and a recognised face at
     night is someone coming home; neither deserves a different alarm sound.
-    An unrecognised face is the one combination worth waking someone for, and
-    widening it is how a signal becomes noise and gets muted.
+    An unrecognised face is the one combination worth waking someone for,
+    and widening it is how a signal becomes noise and gets muted.
+
+    Tampering is the exception with no time window: somebody handling the
+    camera itself outranks somebody at the door, and the recordings after a
+    real tamper are the ones that will be missing.
     """
-    return 22 in detection_types(entry) and in_night(hour, start, end)
+    codes = detection_types(entry)
+    if TAMPER_CODES & set(codes):
+        return True
+    return 22 in codes and in_night(hour, start, end)
 
 
 def hourly_counts(clips: list[dict]) -> list[int]:

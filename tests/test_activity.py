@@ -125,6 +125,14 @@ class NightWindow(unittest.TestCase):
         self.assertFalse(clips.in_night(3, 0, 0))
         self.assertFalse(clips.in_night(3, 22, 22))
 
+    def test_tampering_is_notable_at_any_hour(self):
+        """Somebody handling the camera outranks somebody at the door. The
+        recordings after a real tamper are the ones that will be missing,
+        so its alert must sound different at noon as much as at night."""
+        tamper = {"events_1": 1 << 18}
+        self.assertTrue(clips.notable(tamper, 14, 22, 6))
+        self.assertTrue(clips.notable(tamper, 2, 22, 6))
+
     def test_only_an_unfamiliar_face_at_night_is_notable(self):
         unknown = {"events_1": (1 << 1) | (1 << 5) | (1 << 21)}   # 2, 6, 22
         self.assertTrue(clips.notable(unknown, 2, 22, 6))
