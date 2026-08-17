@@ -155,10 +155,12 @@ the doorbell, and says which happened at which camera --
 Most events carry several codes at once, so the headline picks one by priority
 -- doorbell, then person, then animal -- and the body lists everything else the
 hub saw. The camera's own frame is attached, tapping the notification opens
-that camera's dialog, and a Recordings button opens the media browser. Once
-the photograph arrives, a **Save clip** button appears beside them: one press
-downloads that exact recording, and a manual download is never pruned — "keep
-that one forever" from the lock screen. Plain motion never notifies on its own but is still described when it
+that camera's dialog, and a **Snooze 1h** button quiets notifications for an
+hour without disabling anything — recording never stops. Once the photograph
+arrives, **Save clip** takes the snooze button's place: one press downloads
+that exact recording, and a manual download is never pruned — "keep that one
+forever" from the lock screen. (Android shows at most three buttons, which is
+why they take turns.) Plain motion never notifies on its own but is still described when it
 arrives alongside something that does. Change `notify.mobile_app_phone` to your
 own notify service; nothing else needs editing for a two-camera hub.
 

@@ -315,3 +315,92 @@ class CameraIndexAttribute(unittest.TestCase):
         event_src = (ROOT / "custom_components" / "tapo_h500"
                      / "event.py").read_text()
         self.assertIn('"camera_index": self.index', event_src)
+
+
+class SnoozeButton(unittest.TestCase):
+    """Quiet for an hour, from the notification that interrupted you.
+
+    The moment somebody wants a snooze is the moment the phone is buzzing,
+    not later in a dashboard. Same round trip as naming and saving; calls
+    the service the snooze switch already exposes, so recording never
+    stops and the automation stays enabled.
+    """
+
+    def test_the_reply_trigger_exists(self):
+        actions = [trigger.get("event_data", {}).get("action")
+                   for trigger in DOC["triggers"]]
+        self.assertIn("TAPO_H500_SNOOZE", actions)
+
+    def test_the_reply_skips_the_detection_conditions(self):
+        first = DOC["conditions"][0]["conditions"]
+        ids = [inner.get("id") for inner in first
+               if inner.get("condition") == "trigger"]
+        self.assertIn("snoozing", ids)
+
+    def test_the_reply_snoozes_for_an_hour_and_stops(self):
+        branch = next(step for step in DOC["actions"]
+                      if "snoozing" in str(step.get("if", "")))
+        body = str(branch["then"])
+        self.assertIn("tapo_h500.snooze", body)
+        self.assertIn("'minutes': 60", body)
+        self.assertIn("stop", body)
+
+    def test_both_notifications_offer_it(self):
+        """Unlike Save clip, snoozing needs no indexed recording, so the
+        first, instant notification carries it too."""
+        buttons = str(DOC["actions"])
+        self.assertIn("TAPO_H500_SNOOZE", buttons.split("photo_buttons")[0])
+
+    def test_it_carries_the_entry_the_service_needs(self):
+        variables = str(DOC["actions"])
+        snooze = variables.split("TAPO_H500_SNOOZE", 1)[1][:300]
+        self.assertIn("entry", snooze)
+
+
+class ButtonBudget(unittest.TestCase):
+    """Android shows at most three notification actions; a fourth vanishes.
+
+    Rendered for real: the worst case is an unnamed face, where the naming
+    button joins in, and both notifications must still fit the budget.
+    """
+
+    def _buttons(self, which, unnamed):
+        import types
+        import jinja2
+        env = jinja2.Environment()  # noqa: S701 - not HTML
+        env.globals["config_entry_id"] = lambda entity: "entry1"
+        env.globals["state_attr"] = lambda entity, name: 0
+        variables = {}
+        for step in DOC["actions"]:
+            if "variables" in step:
+                variables = step["variables"]
+        base = env.from_string(variables["buttons"]).render(
+            input_offer_naming=True,
+            unnamed="12345" if unnamed else "",
+            link="/x",
+            trigger=types.SimpleNamespace(entity_id="event.front"))
+        buttons = eval(base)  # noqa: S307 - our own template's output
+        if which == "photo":
+            photo = env.from_string(variables["photo_buttons"]).render(
+                buttons=buttons, moment=1,
+                trigger=types.SimpleNamespace(entity_id="event.front"))
+            return eval(photo)  # noqa: S307
+        return buttons
+
+    def test_neither_notification_exceeds_three_actions(self):
+        for which in ("first", "photo"):
+            for unnamed in (False, True):
+                buttons = self._buttons(which, unnamed)
+                self.assertLessEqual(
+                    len(buttons), 3,
+                    f"{which} notification with unnamed={unnamed} offers "
+                    f"{[b['title'] for b in buttons]}")
+
+    def test_the_photo_notification_swaps_snooze_for_save(self):
+        titles = [button["title"] for button in self._buttons("photo", False)]
+        self.assertIn("Save clip", titles)
+        self.assertNotIn("Snooze 1h", titles)
+
+    def test_the_first_notification_offers_snooze(self):
+        titles = [button["title"] for button in self._buttons("first", False)]
+        self.assertIn("Snooze 1h", titles)

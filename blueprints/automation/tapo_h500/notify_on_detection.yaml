@@ -151,6 +151,12 @@ triggers:
     event_data:
       action: TAPO_H500_SAVE_CLIP
     id: saving
+  # The phone asking for an hour of quiet.
+  - trigger: event
+    event_type: mobile_app_notification_action
+    event_data:
+      action: TAPO_H500_SNOOZE
+    id: snoozing
 
 conditions:
   # The naming reply is handled in its own branch below and skips every
@@ -161,6 +167,8 @@ conditions:
         id: naming
       - condition: trigger
         id: saving
+      - condition: trigger
+        id: snoozing
       - condition: and
         conditions:
 
@@ -251,6 +259,20 @@ actions:
           start_time: "{{ trigger.event.data.start_time }}"
       - stop: "saved"
 
+  # The phone asking for quiet. The service the snooze switch already
+  # exposes: notifications pause for an hour, recording never stops, and
+  # this automation stays enabled -- so there is nothing to remember to
+  # turn back on.
+  - if:
+      - condition: trigger
+        id: snoozing
+    then:
+      - action: tapo_h500.snooze
+        data:
+          config_entry_id: "{{ trigger.event.data.entry }}"
+          minutes: 60
+      - stop: "snoozed"
+
   - variables:
       codes: "{{ state_attr(trigger.entity_id, 'detection_types') or [] }}"
       # event.front_doorbell_activity -> camera.front_doorbell
@@ -319,8 +341,8 @@ actions:
       buttons: >-
         {%- set base = [
               {'action': 'URI', 'title': 'Camera', 'uri': link},
-              {'action': 'URI', 'title': 'Recordings',
-               'uri': '/media-browser/local/tapo_h500'}] -%}
+              {'action': 'TAPO_H500_SNOOZE', 'title': 'Snooze 1h',
+               'entry': config_entry_id(trigger.entity_id)}] -%}
         {%- if input_offer_naming and unnamed -%}
           {#- face_id and entry travel WITH the button: the companion app
               echoes unknown keys back in the event, which is the only way the
@@ -335,17 +357,22 @@ actions:
                       'face_id': unnamed,
                       'entry': config_entry_id(trigger.entity_id)}] }}
         {%- else -%}{{ base }}{%- endif -%}
-      # The photo notification's buttons: the same set plus "Save clip". Only
-      # there -- at first-notification time the hub is usually still
-      # recording, and a button that always fails teaches people to ignore
-      # buttons. camera_index rides on the event entity for exactly this.
+      # The photo notification's buttons: Save clip takes Snooze's slot.
+      # Android shows at most three actions, so appending a fourth would
+      # silently drop one -- and by the time the photograph arrives, anyone
+      # who wanted quiet pressed Snooze on the first alert half a minute
+      # ago. Save only exists here because at first-notification time the
+      # hub is usually still recording and there is nothing indexed to
+      # save. camera_index rides on the event entity for exactly this.
       photo_buttons: >-
-        {{ buttons + [{'action': 'TAPO_H500_SAVE_CLIP',
-                       'title': 'Save clip',
-                       'entry': config_entry_id(trigger.entity_id),
-                       'camera_index': state_attr(trigger.entity_id,
-                                                  'camera_index'),
-                       'start_time': moment}] }}
+        {%- set save = [{'action': 'TAPO_H500_SAVE_CLIP',
+                         'title': 'Save clip',
+                         'entry': config_entry_id(trigger.entity_id),
+                         'camera_index': state_attr(trigger.entity_id,
+                                                    'camera_index'),
+                         'start_time': moment}] -%}
+        {{ buttons | rejectattr('action', 'eq', 'TAPO_H500_SNOOZE')
+                   | list + save }}
 
   # First: immediately, without a picture. There is not one yet.
   - action: "{{ service }}"
