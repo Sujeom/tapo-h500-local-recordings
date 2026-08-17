@@ -231,7 +231,10 @@ def _unnamed_faces(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     top = frequent[0]
     ir.async_create_issue(
         hass, DOMAIN, issue_id,
-        is_fixable=False,
+        # Fixable: the notice takes the name itself instead of pointing at
+        # the Configure page. `data` is what the flow gets handed.
+        is_fixable=True,
+        data={"entry_id": entry_id, "face_id": str(top["id"])},
         severity=ir.IssueSeverity.WARNING,
         translation_key=UNNAMED_FACE_ISSUE,
         translation_placeholders={
@@ -295,3 +298,52 @@ def _downloads_failing(hass: HomeAssistant, entry_id: str, coordinator) -> None:
             "count": str(max(failing.values())),
         },
     )
+
+
+async def async_create_fix_flow(hass: HomeAssistant, issue_id: str,
+                                data: dict | None):
+    """The form behind the one fixable issue: naming a face in place.
+
+    The base class is imported here rather than at module top on purpose:
+    repairs.py is imported by the coordinator on every poll, and
+    homeassistant.components.repairs only exists once that component is
+    loaded -- which it certainly is by the time somebody presses Fix.
+    """
+    from homeassistant.components.repairs import RepairsFlow
+
+    import voluptuous as vol
+
+    fix = data or {}
+
+    class NameFaceFlow(RepairsFlow):
+        """Ask for the name where the face is being talked about."""
+
+        async def async_step_init(self, user_input: dict | None = None):
+            if user_input is not None:
+                name = str(user_input.get("name") or "").strip()
+                coordinator = (self.hass.data.get(DOMAIN, {})
+                               .get(DATA_HUBS, {})
+                               .get(fix.get("entry_id")))
+                if coordinator is not None and name:
+                    from .const import CONF_FACE_NAMES
+                    names = dict(coordinator.entry.options.get(
+                        CONF_FACE_NAMES) or {})
+                    names[str(fix.get("face_id"))] = name
+                    # Through async_update_entry, so the existing options
+                    # listener redraws every face surface -- the exact path
+                    # the name_face service and the card already use. An
+                    # empty answer names nobody and just closes the notice;
+                    # the next check re-raises it while the face is unnamed.
+                    self.hass.config_entries.async_update_entry(
+                        coordinator.entry,
+                        options={**coordinator.entry.options,
+                                 CONF_FACE_NAMES: names})
+                return self.async_create_entry(data={})
+            return self.async_show_form(
+                step_id="init",
+                data_schema=vol.Schema({vol.Required("name"): str}),
+                description_placeholders={
+                    "face_id": str(fix.get("face_id", ""))},
+            )
+
+    return NameFaceFlow()

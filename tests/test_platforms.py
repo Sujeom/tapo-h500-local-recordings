@@ -198,3 +198,37 @@ class Image(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NamePromptFix(unittest.TestCase):
+    """The unnamed-face notice asks for the name itself.
+
+    Repairs support fix flows with a form, so the notice that says "this
+    face has been seen 12 times" can take the answer on the spot instead of
+    pointing at the Configure page. Writing through async_update_entry means
+    the existing options listener redraws every face surface -- the same
+    path the name_face service and the card use.
+    """
+
+    def test_the_issue_is_fixable_and_carries_what_the_flow_needs(self):
+        body = REPAIRS.split("def _unnamed_faces", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("is_fixable=True", body)
+        self.assertIn('"face_id"', body.split("data=", 1)[1][:200])
+
+    def test_the_flow_exists_and_writes_the_name(self):
+        self.assertIn("async def async_create_fix_flow", REPAIRS)
+        flow = REPAIRS.split("class NameFaceFlow", 1)[1]
+        self.assertIn("CONF_FACE_NAMES", flow)
+        self.assertIn("async_update_entry", flow)
+        self.assertIn(".strip()", flow)
+
+    def test_an_empty_answer_names_nobody(self):
+        flow = REPAIRS.split("class NameFaceFlow", 1)[1]
+        self.assertIn("and name:", flow)
+
+    def test_the_form_has_words_on_it(self):
+        strings = json.loads(
+            (COMPONENT / "translations" / "en.json").read_text())
+        step = strings["issues"]["unnamed_face"]["fix_flow"]["step"]["init"]
+        self.assertTrue(step["title"])
+        self.assertIn("{face_id}", step["description"])
