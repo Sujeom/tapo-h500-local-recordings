@@ -156,7 +156,9 @@ class NamePrompt(unittest.TestCase):
 
     def test_one_issue_covers_them_all(self):
         """A busy street would otherwise fill the repairs page with numbers."""
-        body = REPAIRS.split("def _unnamed_faces", 1)[1]
+        # Bounded at the next def: an end-of-file slice counted every issue
+        # any LATER function raises as if this one raised it.
+        body = REPAIRS.split("def _unnamed_faces", 1)[1].split("\ndef ", 1)[0]
         self.assertEqual(body.count("async_create_issue"), 1)
         self.assertIn('"others"', body)
 

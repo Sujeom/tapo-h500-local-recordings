@@ -37,6 +37,7 @@ UNNAMED_FACE_ISSUE = "unnamed_face"
 SILENT_CAMERA_ISSUE = "camera_silent"
 CLASHING_NAMES_ISSUE = "clashing_camera_names"
 TAMPER_ISSUE = "camera_tampered"
+MEDIA_ISSUE = "media_wedged"
 
 
 def _issue_id(entry_id: str, kind: str) -> str:
@@ -56,6 +57,7 @@ def async_check(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     _unnamed_faces(hass, entry_id, coordinator)
     _silent_cameras(hass, entry_id, coordinator)
     _clashing_names(hass, entry_id, coordinator)
+    _media(hass, entry_id, coordinator)
     _tampered(hass, entry_id, coordinator)
 
 
@@ -231,4 +233,30 @@ def _unnamed_faces(hass: HomeAssistant, entry_id: str, coordinator) -> None:
             "cameras": ", ".join(top.get("cameras") or []) or "a camera",
             "others": str(len(frequent) - 1),
         },
+    )
+
+
+def _media(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+    """Say when the hub has stopped serving recordings.
+
+    The known failure: hours after a reboot, port 8800 starts accepting a
+    connection and closing it before a single HTTP byte. Detections still
+    arrive -- the control channel is fine -- so the first sign anyone gets
+    is a notification without a photograph, and then a recording list that
+    will not play. The handshake check sees it within fifteen minutes.
+
+    Only the proven zero-byte signature alarms. "unreachable" already has
+    its own issue via the failing poll, and "silent" is one slow reply away
+    from crying wolf.
+    """
+    issue_id = _issue_id(entry_id, MEDIA_ISSUE)
+    wedged = getattr(coordinator, "media_status", None) == "wedged"
+    if not wedged:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    ir.async_create_issue(
+        hass, DOMAIN, issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key=MEDIA_ISSUE,
     )

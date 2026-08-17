@@ -28,7 +28,8 @@ from .const import (
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
-    LOOKBACK_SECONDS, POLL_BACKOFF_MAX, PROWL_WINDOW, SIGNAL_NEW_CLIP,
+    LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS, POLL_BACKOFF_MAX, PROWL_WINDOW,
+    SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
 )
 from .media import (
@@ -99,6 +100,12 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         interval = self._base_interval
         self._status_every = max(1, round(STATUS_MAX_AGE / interval))
         self._cameras_every = max(1, round(CAMERAS_MAX_AGE / interval))
+        self._media_every = max(1, round(MEDIA_CHECK_SECONDS / interval))
+        # What the last media-port handshake said: "healthy", "wedged",
+        # "silent", "unreachable", or None before the first check. The wedge
+        # is the hub's known failure mode and this is how it is noticed
+        # before anyone misses a photograph; repairs.py reads it.
+        self.media_status: str | None = None
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
@@ -706,6 +713,19 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             except Exception as err:
                 # Status is a bonus; never fail the whole poll over it.
                 _LOGGER.debug("Hub status unavailable: %s", err)
+        # The media port's handshake, on its own slow cadence. Skipped while
+        # a session is open: an extra connection against a hub mid-download
+        # is a variable the wedge investigation does not need.
+        check = getattr(self.client, "check_media", None)
+        lock = getattr(self.client, "_lock", None)
+        if (check is not None and self._polls % self._media_every == 0
+                and not (lock is not None and lock.locked())):
+            try:
+                self.media_status = await self.hass.async_add_executor_job(
+                    check)
+            except Exception as err:  # noqa: BLE001 - a health check must not hurt
+                _LOGGER.debug("Media port check failed: %s", err)
+
         # Before _primed is set, so a restart mid-afternoon records everyone
         # already seen today without announcing them again.
         try:

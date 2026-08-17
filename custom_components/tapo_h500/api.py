@@ -80,6 +80,47 @@ def build_download_payload(camera, start_time, end_time, player_id, client_id):
     }
 
 
+def check_media_port(host: str, port: int = 8800, timeout: float = 5.0) -> str:
+    """One unauthenticated exchange with the media port, classified.
+
+    The first request of every media session is unauthenticated by design --
+    the digest challenge is the REPLY to it -- so this costs one small TCP
+    round trip: no login, no session, no lockout risk. Verified against the
+    hub on 2026-08-17: healthy answers HTTP 401 with a digest challenge; the
+    known wedge accepts the connection and closes it before a single byte.
+
+    Returns "healthy" (any HTTP bytes came back), "wedged" (the zero-byte
+    close), "silent" (open but mute past the timeout), or "unreachable".
+    Blocking; callers run it in an executor.
+    """
+    import socket
+    request = (
+        "POST /stream HTTP/1.1\r\n"
+        "Content-Type: multipart/mixed;boundary=healthcheck\r\n"
+        "Connection: keep-alive\r\n"
+        "Content-Length: 0\r\n"
+        "\r\n"
+    ).encode()
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+    except OSError:
+        return "unreachable"
+    # From here the hub accepted the connection, so a failure is the wedge
+    # shape: it closes on the request instead of answering it. Depending on
+    # timing that surfaces as an empty read or as a reset mid-exchange, and
+    # both mean the same thing.
+    try:
+        with sock:
+            sock.settimeout(timeout)
+            sock.sendall(request)
+            data = sock.recv(1024)
+    except (socket.timeout, TimeoutError):
+        return "silent"
+    except ConnectionError:
+        return "wedged"
+    return "healthy" if data else "wedged"
+
+
 class H500Client:
     def __init__(self, host, username, password, cloud_password, debug=False):
         self.debug = debug
@@ -134,6 +175,10 @@ class H500Client:
         self._super_secret_key = self._hub.superSecretKey
         self._encryption_method = self._hub.getEncryptionMethod()
         return self.info
+
+    def check_media(self) -> str:
+        """check_media_port against this hub. Blocking; run in an executor."""
+        return check_media_port(self.host)
 
     def close(self):
         if self._hub:
