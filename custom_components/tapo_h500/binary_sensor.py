@@ -117,6 +117,7 @@ async def async_setup_entry(
         for index, camera in enumerate(coordinator.cameras)
     ]
     entities.append(H500Prowling(coordinator, entry))
+    entities.append(H500MediaProblem(coordinator, entry))
     entities += [
         H500DetectionFlag(coordinator, index, camera, code)
         for index, camera in enumerate(coordinator.cameras)
@@ -479,6 +480,41 @@ class H500Prowling(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
                 for face in self._circling()
             ],
         }
+
+
+class H500MediaProblem(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
+    """On when the hub has stopped serving recordings.
+
+    The sentinel's verdict as an entity, because a repair notice tells a
+    human and a binary sensor lets an automation act -- send the phone a
+    message, power-cycle the hub's smart plug. On means the known wedge
+    (port 8800 accepting and closing without a byte); off means the
+    unauthenticated handshake answered; unknown before the first check.
+    "unreachable" and "silent" stay off -- the failing poll already covers
+    the first and the second is one slow reply from crying wolf -- but the
+    raw verdict rides along as an attribute for automations that care.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "media_problem"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_media_problem"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    @property
+    def is_on(self) -> bool | None:
+        status = self.coordinator.media_status
+        if status is None:
+            return None
+        return status == "wedged"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"media_status": self.coordinator.media_status}
 
 
 class H500FaceSeenRecently(CoordinatorEntity[H500Coordinator], BinarySensorEntity):

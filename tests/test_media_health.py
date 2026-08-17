@@ -232,3 +232,50 @@ class StandaloneTool(unittest.TestCase):
     def test_it_names_all_four_verdicts(self):
         for verdict in ("healthy", "wedged", "unreachable", "silent"):
             self.assertIn(f'"{verdict}"', self.TOOL)
+
+
+BINARY_SENSOR = (COMPONENT / "binary_sensor.py").read_text()
+DIAGNOSTICS = (COMPONENT / "diagnostics.py").read_text()
+
+
+class MediaProblemSensor(unittest.TestCase):
+    """The wedge as an entity, so it can trigger an automation.
+
+    The repair notice tells a human; a binary sensor lets an automation act
+    -- notify the phone, power-cycle a smart plug. Problem class: on means
+    wedged, off means the handshake answered, unknown before the first
+    check.
+    """
+
+    BODY = BINARY_SENSOR.split("class H500MediaProblem", 1)[1].split(
+        "\nclass ", 1)[0]
+
+    def test_it_reads_the_sentinels_verdict(self):
+        self.assertIn("media_status", self.BODY)
+        self.assertIn('== "wedged"', self.BODY)
+
+    def test_unknown_before_the_first_check(self):
+        self.assertIn("return None", self.BODY)
+
+    def test_the_raw_verdict_is_an_attribute(self):
+        """"unreachable" and "silent" do not alarm, but an automation may
+        still want them."""
+        self.assertIn('"media_status"', self.BODY)
+
+    def test_it_is_registered(self):
+        self.assertIn("H500MediaProblem(coordinator, entry)", BINARY_SENSOR)
+
+
+class DiagnosticsCarryTheEvidence(unittest.TestCase):
+    """A wedge bug report needs the numbers the investigation runs on."""
+
+    def test_session_count_status_and_failures_are_included(self):
+        for key in ("media_status", "media_sessions", "download_failures"):
+            self.assertIn(f'"{key}"', DIAGNOSTICS)
+
+    def test_failures_are_keyed_by_index_not_by_name(self):
+        """Camera aliases are the owner's own words and never leave in a
+        diagnostics file."""
+        body = DIAGNOSTICS.split('"download_failures"', 1)[1][:200]
+        self.assertIn("_download_failures", body)
+        self.assertNotIn("alias", body)

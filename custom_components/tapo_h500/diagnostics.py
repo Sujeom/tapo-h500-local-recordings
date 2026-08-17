@@ -111,5 +111,14 @@ async def async_get_config_entry_diagnostics(
             "polls": getattr(coordinator, "_polls", None),
             "last_update_success": coordinator.last_update_success,
             "cameras_found": len(coordinator.cameras),
+            # The wedge investigation's numbers: what the sentinel last said,
+            # how many media sessions this process has opened, and any
+            # consecutive download failures -- keyed by camera INDEX, because
+            # aliases are the owner's own words and never leave in this file.
+            "media_status": getattr(coordinator, "media_status", None),
+            "media_sessions": getattr(
+                coordinator.client, "_sessions", None),
+            "download_failures": dict(getattr(
+                coordinator, "_download_failures", {}) or {}),
         },
     }
