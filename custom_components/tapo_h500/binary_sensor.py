@@ -16,7 +16,8 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .clips import (
-    detection_types, likely_delivery, loitering, unusually_busy,
+    detection_types, expected_since, likely_delivery, loitering,
+    unusually_busy,
 )
 from .const import (
     CONF_NIGHT_END, CONF_NIGHT_START, CONF_SILENT_HOURS, DATA_HUBS,
@@ -24,7 +25,8 @@ from .const import (
     DELIVERY_HOLD, DELIVERY_SECONDS, DETECTION_HOLD,
     DETECTION_NAMES, DOMAIN, FACE_PRESENCE_WINDOW,
     LOITER_GAP, LOITER_SECONDS,
-    LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED, UNUSUAL_FLOOR, UNUSUAL_MULTIPLIER,
+    LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED, SILENT_EXPECTED,
+    UNUSUAL_FLOOR, UNUSUAL_MULTIPLIER,
 )
 from .coordinator import H500Coordinator
 from .entity import H500Entity
@@ -359,6 +361,16 @@ class H500CameraSilent(H500Entity, BinarySensorEntity):
         super().__init__(coordinator, index, camera)
         self._attr_unique_id = f"{camera['device_id']}_silent"
 
+    def _expected(self) -> float:
+        """Events this camera's own history predicted during the silence."""
+        last = self.coordinator.last_activity(self.index)
+        if last is None:
+            return 0.0
+        from homeassistant.util import dt as dt_util
+        return expected_since(
+            self.coordinator.clips_for(self.index), last,
+            int(dt_util.utcnow().timestamp()), LOOKBACK_SECONDS)
+
     @property
     def is_on(self) -> bool | None:
         seconds = self.coordinator.silent_seconds(self.index)
@@ -366,7 +378,12 @@ class H500CameraSilent(H500Entity, BinarySensorEntity):
         # frontend, which is the truth, where False would say "fine".
         if seconds is None:
             return None
-        return seconds >= silent_threshold(self.coordinator)
+        # Two grounds: the configured ceiling, exactly as before, and the
+        # camera's own expectation -- a busy doorbell that should have
+        # produced three events by now is flagged in hours, not in a day.
+        # The adaptive half can only ever flag EARLIER than the ceiling.
+        return (seconds >= silent_threshold(self.coordinator)
+                or self._expected() >= SILENT_EXPECTED)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -374,6 +391,9 @@ class H500CameraSilent(H500Entity, BinarySensorEntity):
         return {
             "silent_seconds": seconds,
             "threshold_hours": silent_threshold(self.coordinator) // 3600,
+            # Why it is on, when it is on early -- and how close it is when
+            # it is not.
+            "expected_events": round(self._expected(), 1),
         }
 
 

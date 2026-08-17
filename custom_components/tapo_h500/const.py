@@ -357,6 +357,14 @@ DELIVERY_HOLD = 300
 # Capped at the poll window, because nothing longer is knowable: the hub is
 # asked for a day of recordings, and "nothing in three days" cannot be
 # distinguished from "nothing in one" without a database this does not have.
+# The silent watchdog flags when this many events should have happened by
+# now, on the camera's own hourly history. Three: one missing event is a
+# quiet spell, two is a slow day, three predicted and none delivered is a
+# camera that has stopped. Poisson says a rate-3 window is silent about 5%%
+# of the time, which is the false-alarm price of hearing about a dead
+# camera in hours instead of a day.
+SILENT_EXPECTED = 3.0
+
 CONF_SILENT_HOURS = "silent_hours"
 DEFAULT_SILENT_HOURS = 24
 

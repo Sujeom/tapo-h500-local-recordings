@@ -157,3 +157,113 @@ class Repair(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+clips_mod = importlib.import_module("tapo_h500.clips")
+
+
+def at_local_hour(day: int, hour: int, minute: int = 0) -> int:
+    """An epoch on local day `day` (0 = the day containing NOW) at hour:minute.
+
+    The harness pins local time to -07:00, deliberately not UTC, so a
+    function that walks hours in the wrong zone lands on the wrong rates.
+    """
+    base = NOW - (NOW % 86400)              # a UTC midnight anchor
+    # hour+7 may pass 24 and spill into the next UTC day; that is what
+    # keeps 10pm local on day N ordered before 6am local on day N+1.
+    return base + day * 86400 + (hour + 7) * 3600 + minute * 60
+
+
+class ExpectedSince(unittest.TestCase):
+    """How many events history predicted during the current silence.
+
+    A fixed 24-hour threshold called yesterday's dead cameras healthy for
+    half a day: the busy doorbell does ~25 clips a day, and 14.5 silent
+    hours on it was screaming long before any fixed number would listen. A
+    plain "typical gap" misfires the other way -- every camera is naturally
+    silent overnight. So the question is not "how long has it been quiet"
+    but "how much history says should have happened by now": silence across
+    dead hours accrues nothing, silence across busy hours accrues fast.
+    """
+
+    def _day_of_activity(self, day: int, hours=range(12, 16)):
+        return [{"startTime": at_local_hour(day, h),
+                 "endTime": at_local_hour(day, h) + 15} for h in hours]
+
+    def test_overnight_silence_predicts_nothing(self):
+        """The camera that records nothing between 10pm and 6am every day is
+        not broken at 3am."""
+        clips = self._day_of_activity(0)
+        since = at_local_hour(0, 22)
+        now = at_local_hour(1, 6)
+        self.assertLess(clips_mod.expected_since(
+            clips, since, now, 86400), 0.5)
+
+    def test_silence_across_the_busy_hours_accrues(self):
+        """Four active hours crossed at one event each: about four expected."""
+        clips = self._day_of_activity(0)
+        since = at_local_hour(0, 16)
+        now = at_local_hour(1, 16)
+        expected = clips_mod.expected_since(clips, since, now, 86400)
+        self.assertGreaterEqual(expected, 3.5)
+        self.assertLessEqual(expected, 4.5)
+
+    def test_a_partial_hour_counts_its_fraction(self):
+        clips = [{"startTime": at_local_hour(0, 12, m), "endTime": 0}
+                 for m in (5, 25, 45, 55)]  # rate 4 in the noon hour
+        since = at_local_hour(0, 12)
+        half = clips_mod.expected_since(
+            clips, since, since + 1800, 86400)
+        self.assertAlmostEqual(half, 2.0, delta=0.1)
+
+    def test_two_days_of_history_halve_the_rate(self):
+        """Counts are per-day rates, not raw totals: the same clips over a
+        two-day window predict half as much per crossed hour."""
+        clips = self._day_of_activity(0)
+        since = at_local_hour(0, 16)
+        now = at_local_hour(1, 16)
+        one_day = clips_mod.expected_since(clips, since, now, 86400)
+        two_day = clips_mod.expected_since(clips, since, now, 2 * 86400)
+        self.assertAlmostEqual(two_day, one_day / 2, delta=0.2)
+
+    def test_no_history_predicts_nothing(self):
+        self.assertEqual(clips_mod.expected_since([], NOW - 3600, NOW, 86400), 0.0)
+
+    def test_time_running_backwards_predicts_nothing(self):
+        clips = self._day_of_activity(0)
+        self.assertEqual(clips_mod.expected_since(
+            clips, NOW, NOW - 3600, 86400), 0.0)
+
+    def test_yesterdays_outage_is_caught_in_hours_not_a_day(self):
+        """The real case, in miniature: a camera doing ~25 a day across the
+        waking hours goes dark in the evening. By the next morning the
+        expected count is far past any sensible alarm line -- the fixed
+        24-hour rule was still hours from noticing."""
+        clips = [{"startTime": at_local_hour(0, h, m), "endTime": 0}
+                 for h in range(8, 21) for m in (0, 30)][:25]
+        since = at_local_hour(0, 20, 35)
+        by_morning = clips_mod.expected_since(
+            clips, since, at_local_hour(1, 11), 86400)
+        self.assertGreaterEqual(by_morning, const.SILENT_EXPECTED)
+
+
+class AdaptiveSensorWiring(unittest.TestCase):
+    """The sensor asks both questions: the ceiling and the expectation.
+
+    The configured hours stay as a hard ceiling -- a camera with no history
+    at all can never accrue an expectation, and silence past the option must
+    flag exactly as it always has. The adaptive half only ever flags EARLIER.
+    """
+
+    BODY = BINARY_SENSOR.split("class H500CameraSilent", 1)[1].split(
+        "\nclass ", 1)[0]
+
+    def test_it_flags_on_either_ground(self):
+        self.assertIn("expected_since", self.BODY)
+        self.assertIn("SILENT_EXPECTED", self.BODY)
+        self.assertIn(" or ", self.BODY.split("def is_on", 1)[1]
+                      .split("@property", 1)[0])
+
+    def test_the_expectation_is_shown_alongside_the_silence(self):
+        attrs = self.BODY.split("extra_state_attributes", 1)[1]
+        self.assertIn("expected_events", attrs)

@@ -813,6 +813,42 @@ def _local(moment: int):
     return dt_util.as_local(dt_util.utc_from_timestamp(moment))
 
 
+def expected_since(clips: list[dict], since: int, now: int,
+                   window: int) -> float:
+    """How many events history predicted between `since` and now.
+
+    The watchdog question is not "how long has this camera been quiet" -- a
+    fixed answer to that called yesterday's dead doorbell healthy for half a
+    day, because the only safe fixed number has to forgive a whole night.
+    The question is "how much does its own history say should have happened
+    by now": silence across hours that never record accrues nothing, and
+    silence across the busy afternoon accrues fast. A camera doing 25 a day
+    reads as broken within hours; the back gate doing 2 stays patient.
+
+    Hour-of-day rates from the same local-hour shape the visits sensor uses,
+    scaled to per-day by the window the clips were drawn from, then summed
+    over each local hour the silence has crossed, pro rata for partials.
+    """
+    if window <= 0:
+        return 0.0
+    counts = hourly_counts(clips)
+    if not any(counts):
+        # Not for the arithmetic -- the walk below would sum zeros -- but to
+        # bound it: a pathological `since` far in the past must not spin
+        # through half a million empty hour slices. (Backwards time needs no
+        # guard at all: the walk simply never runs.)
+        return 0.0
+    days = window / 86400
+    expected = 0.0
+    moment = since
+    while moment < now:
+        slice_end = min(now, (moment // 3600 + 1) * 3600)
+        expected += (counts[local_hour(int(moment))] / days
+                     * (slice_end - moment) / 3600)
+        moment = slice_end
+    return expected
+
+
 def local_hour(moment: int) -> int:
     return _local(moment).hour
 
