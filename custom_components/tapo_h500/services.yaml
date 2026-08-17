@@ -55,8 +55,7 @@ download_recording:
           mode: box
     end_time:
       name: End time
-      description: Exact Unix end time returned by List recordings.
-      required: true
+      description: Exact Unix end time returned by List recordings. Leave empty to look it up from the start time.
       selector:
         number:
           min: 0

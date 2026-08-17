@@ -813,6 +813,22 @@ def _local(moment: int):
     return dt_util.as_local(dt_util.utc_from_timestamp(moment))
 
 
+def end_for_start(clips: list[dict], start: int) -> int | None:
+    """The indexed end of the clip whose start matches, within one second.
+
+    The detection log carries no end time, so anything that knows an event
+    only by its start -- the notification's Save button -- needs the clip
+    index consulted for the other half. One second of tolerance, the same
+    the detection-to-clip matching uses; two seconds out is a different
+    recording, and downloading a neighbour would save the wrong moment.
+    """
+    for clip in clips:
+        moment = start_of(clip)
+        if moment is not None and abs(moment - start) <= 1:
+            return end_of(clip)
+    return None
+
+
 def expected_since(clips: list[dict], since: int, now: int,
                    window: int) -> float:
     """How many events history predicted between `since` and now.

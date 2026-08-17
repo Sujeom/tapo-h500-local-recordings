@@ -21,8 +21,8 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
 from .clips import (
-    describe_detection, detection_types, distinct, end_of, event_type,
-    face_ids, highlights, start_of, summarise,
+    describe_detection, detection_types, distinct, end_for_start, end_of,
+    event_type, face_ids, highlights, start_of, summarise,
 )
 from .const import (
     CARD_URL, CONF_CLOUD_PASSWORD, CONF_CONVERT_MP4, CONF_NIGHT_END,
@@ -73,7 +73,9 @@ LIST_SCHEMA = vol.Schema({
 DOWNLOAD_SCHEMA = vol.Schema({
     **ENTRY_SCHEMA,
     vol.Required("start_time"): NONNEGATIVE_INT,
-    vol.Required("end_time"): NONNEGATIVE_INT,
+    # Optional: the notification's Save button knows the event's start and
+    # nothing else, so a missing end is looked up in the hub's clip index.
+    vol.Optional("end_time"): NONNEGATIVE_INT,
     vol.Optional("convert_to_mp4"): cv.boolean,
 })
 DELETE_SCHEMA = vol.Schema({
@@ -391,7 +393,18 @@ def _register_services(hass: HomeAssistant) -> None:
     async def download_recording(call: ServiceCall):
         coordinator, camera = await _resolve(hass, call)
         start_time = call.data["start_time"]
-        end_time = call.data["end_time"]
+        end_time = call.data.get("end_time")
+        if end_time is None:
+            # Ask the hub which recording starts there. The window is a few
+            # seconds wide only to absorb the one-second index tolerance.
+            clips = await hass.async_add_executor_job(
+                coordinator.client.recent, camera,
+                start_time - 2, start_time + 2)
+            end_time = end_for_start(clips, start_time)
+            if end_time is None:
+                raise ServiceValidationError(
+                    "No indexed recording starts at that time -- if it just "
+                    "happened, the hub may still be recording it")
         if end_time <= start_time:
             raise ServiceValidationError("end_time must be after start_time")
         convert = call.data.get(

@@ -140,3 +140,58 @@ class Issue(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+clips_mod = importlib.import_module("tapo_h500.clips")
+INIT = (COMPONENT / "__init__.py").read_text()
+SERVICES = (COMPONENT / "services.yaml").read_text()
+
+
+class EndForStart(unittest.TestCase):
+    """The indexed end for a clip named only by its start.
+
+    The notification's Save button knows the event's start time and nothing
+    else -- the detection log carries no end -- so the service has to find
+    the end in the clip index itself. Same one-second tolerance the
+    detection-to-clip matching uses: the two indexes need not agree to the
+    second.
+    """
+
+    CLIPS = [{"startTime": 1000, "endTime": 1015},
+             {"startTime": 1200, "endTime": 1230}]
+
+    def test_the_matching_clips_end_comes_back(self):
+        self.assertEqual(clips_mod.end_for_start(self.CLIPS, 1200), 1230)
+
+    def test_one_second_out_still_matches(self):
+        self.assertEqual(clips_mod.end_for_start(self.CLIPS, 1001), 1015)
+
+    def test_no_match_is_none_not_a_neighbour(self):
+        """Two seconds out is a different recording; downloading the
+        neighbour would save the wrong moment."""
+        self.assertIsNone(clips_mod.end_for_start(self.CLIPS, 1003))
+        self.assertIsNone(clips_mod.end_for_start([], 1000))
+
+    def test_a_clip_without_an_end_cannot_answer(self):
+        self.assertIsNone(clips_mod.end_for_start(
+            [{"startTime": 1000}], 1000))
+
+
+class SaveFromTheService(unittest.TestCase):
+    def test_end_time_is_optional_now(self):
+        self.assertIn('vol.Optional("end_time")', INIT)
+        body = SERVICES.split("download_recording:", 1)[1].split(
+            "\ndelete_recording:", 1)[0]
+        end = body.split("end_time:", 1)[1].split("convert_to_mp4:", 1)[0]
+        self.assertNotIn("required: true", end)
+
+    def test_a_missing_end_is_looked_up_in_the_index(self):
+        body = INIT.split("async def download_recording", 1)[1].split(
+            "\n    async def ", 1)[0]
+        self.assertIn("end_for_start", body)
+        self.assertIn("recent", body)
+
+    def test_an_unindexed_clip_is_a_clear_refusal(self):
+        body = INIT.split("async def download_recording", 1)[1].split(
+            "\n    async def ", 1)[0]
+        self.assertIn("ServiceValidationError", body)

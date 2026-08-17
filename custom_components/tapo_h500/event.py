@@ -80,6 +80,10 @@ class H500ActivityEvent(H500Entity, EventEntity):
         start_time = start_of(entry)
         end_time = end_of(entry)
         self._trigger_event(kind, {
+            # Which paired-list position this camera is: what
+            # tapo_h500.download_recording calls camera_index, so a
+            # notification button can name the clip it is about.
+            "camera_index": self.index,
             "start_time": start_time,
             "end_time": end_time,
             "duration": (end_time - start_time)

@@ -145,6 +145,12 @@ triggers:
     event_data:
       action: TAPO_H500_NAME_FACE
     id: naming
+  # The phone answering the "Save clip" button on the photo notification.
+  - trigger: event
+    event_type: mobile_app_notification_action
+    event_data:
+      action: TAPO_H500_SAVE_CLIP
+    id: saving
 
 conditions:
   # The naming reply is handled in its own branch below and skips every
@@ -153,6 +159,8 @@ conditions:
     conditions:
       - condition: trigger
         id: naming
+      - condition: trigger
+        id: saving
       - condition: and
         conditions:
 
@@ -227,6 +235,21 @@ actions:
           # which is the same rule the card and the options screen use.
           name: "{{ trigger.event.data.reply_text | default('', true) }}"
       - stop: "named"
+
+  # The phone asking for a clip to be kept. A manual download is never
+  # pruned, so this is "keep that one forever" from the lock screen. No
+  # end_time on purpose: the detection log never had one, and the service
+  # looks it up in the hub's own clip index.
+  - if:
+      - condition: trigger
+        id: saving
+    then:
+      - action: tapo_h500.download_recording
+        data:
+          config_entry_id: "{{ trigger.event.data.entry }}"
+          camera_index: "{{ trigger.event.data.camera_index }}"
+          start_time: "{{ trigger.event.data.start_time }}"
+      - stop: "saved"
 
   - variables:
       codes: "{{ state_attr(trigger.entity_id, 'detection_types') or [] }}"
@@ -312,6 +335,17 @@ actions:
                       'face_id': unnamed,
                       'entry': config_entry_id(trigger.entity_id)}] }}
         {%- else -%}{{ base }}{%- endif -%}
+      # The photo notification's buttons: the same set plus "Save clip". Only
+      # there -- at first-notification time the hub is usually still
+      # recording, and a button that always fails teaches people to ignore
+      # buttons. camera_index rides on the event entity for exactly this.
+      photo_buttons: >-
+        {{ buttons + [{'action': 'TAPO_H500_SAVE_CLIP',
+                       'title': 'Save clip',
+                       'entry': config_entry_id(trigger.entity_id),
+                       'camera_index': state_attr(trigger.entity_id,
+                                                  'camera_index'),
+                       'start_time': moment}] }}
 
   # First: immediately, without a picture. There is not one yet.
   - action: "{{ service }}"
@@ -359,4 +393,4 @@ actions:
             importance: "{{ 'high' if notable else 'default' }}"
             clickAction: "{{ link }}"
             url: "{{ link }}"
-            actions: "{{ buttons }}"
+            actions: "{{ photo_buttons }}"

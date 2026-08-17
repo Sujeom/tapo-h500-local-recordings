@@ -249,3 +249,69 @@ class FirstEventAfterRestart(unittest.TestCase):
             text = (Path(__file__).parent / name).read_text()
             self.assertIn(" ".join(mine.split())[:80],
                           " ".join(text.split()), name)
+
+
+class SaveClipButton(unittest.TestCase):
+    """Press Save on the photo notification and the clip is kept.
+
+    Manual downloads are never pruned, so this is "keep that one forever"
+    from the phone, through the same event round trip the naming button
+    uses. Photo notification only: at first-notification time the hub is
+    usually still recording and there is nothing indexed to save.
+    """
+
+    def test_the_reply_trigger_exists(self):
+        actions = [trigger.get("event_data", {}).get("action")
+                   for trigger in DOC["triggers"]]
+        self.assertIn("TAPO_H500_SAVE_CLIP", actions)
+
+    def test_the_reply_skips_the_detection_conditions(self):
+        first = DOC["conditions"][0]["conditions"]
+        ids = [inner.get("id") for inner in first
+               if inner.get("condition") == "trigger"]
+        self.assertIn("saving", ids)
+
+    def test_the_reply_downloads_that_exact_clip(self):
+        branch = next(step for step in DOC["actions"]
+                      if "saving" in str(step.get("if", "")))
+        body = str(branch["then"])
+        self.assertIn("tapo_h500.download_recording", body)
+        self.assertIn("start_time", body)
+        self.assertIn("camera_index", body)
+        # And stops: none of the notification work below applies.
+        self.assertIn("stop", body)
+
+    def test_it_does_not_guess_an_end_time(self):
+        """The detection log has no end; the service looks it up."""
+        branch = next(step for step in DOC["actions"]
+                      if "saving" in str(step.get("if", "")))
+        self.assertNotIn("end_time", str(branch["then"]))
+
+    def test_the_photo_notification_offers_it(self):
+        photo = str(DOC["actions"][-1])
+        self.assertIn("photo_buttons", photo)
+        variables = str(DOC["actions"])
+        self.assertIn("TAPO_H500_SAVE_CLIP", variables)
+        self.assertIn("Save clip", variables)
+
+    def test_the_first_notification_does_not(self):
+        """Nothing is indexed yet; a button that always fails teaches people
+        to ignore buttons."""
+        first = next(step for step in DOC["actions"]
+                     if step.get("action") == "{{ service }}")
+        self.assertNotIn("photo_buttons", str(first))
+
+    def test_the_button_carries_what_the_service_needs(self):
+        variables = str(DOC["actions"])
+        save = variables.split("TAPO_H500_SAVE_CLIP", 2)[-1][:400]
+        for key in ("entry", "camera_index", "start_time"):
+            self.assertIn(key, save)
+
+
+class CameraIndexAttribute(unittest.TestCase):
+    def test_the_event_entity_says_which_camera_it_is(self):
+        """The Save button needs the service's camera_index, and an
+        automation cannot derive a paired-list position from an entity id."""
+        event_src = (ROOT / "custom_components" / "tapo_h500"
+                     / "event.py").read_text()
+        self.assertIn('"camera_index": self.index', event_src)
