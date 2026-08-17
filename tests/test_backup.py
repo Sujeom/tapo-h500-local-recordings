@@ -53,7 +53,8 @@ class Snapshot(unittest.TestCase):
     def test_it_holds_nothing_secret(self):
         """People paste this where they paste diagnostics."""
         self.assertEqual(set(backup.snapshot({}, {})),
-                         {"version", "face_names", "camera_order"})
+                         {"version", "face_names", "camera_order",
+                          "settings"})
 
 
 class MergeNames(unittest.TestCase):
@@ -202,3 +203,48 @@ class Registration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Settings(unittest.TestCase):
+    """Every option somebody typed rides in the backup, not just the names.
+
+    Sensitivity, the night window, download types, keep counts, silent
+    hours and the card days are all decisions a reinstall loses and a hub
+    cannot reproduce -- the same argument that put the names here. Only
+    options that exist are carried: absent stays absent, so restoring an
+    old backup does not overwrite a newer decision with a default.
+    """
+
+    def test_the_authored_options_are_listed(self):
+        for name in ("sensitivity", "night_start", "night_end",
+                     "download_types", "keep_downloads", "keep_rings",
+                     "keep_person", "silent_hours", "card_days",
+                     "auto_download", "convert_mp4"):
+            self.assertIn(name, backup.USER_OPTIONS, name)
+
+    def test_credentials_and_plumbing_never_ride_along(self):
+        for name in ("poll_interval", "face_names", "camera_order",
+                     "cloud_password", "password", "host"):
+            self.assertNotIn(name, backup.USER_OPTIONS, name)
+
+    def test_snapshot_carries_only_the_options_that_exist(self):
+        taken = backup.snapshot({}, {}, {"night_start": 23, "junk": 1})
+        self.assertEqual(taken["settings"], {"night_start": 23})
+
+    def test_an_old_backup_without_settings_restores_cleanly(self):
+        merged = backup.merge_settings({"night_start": 23}, None)
+        self.assertEqual(merged, {"night_start": 23})
+
+    def test_restored_settings_replace_only_what_they_name(self):
+        merged = backup.merge_settings(
+            {"night_start": 23, "card_days": 7},
+            {"night_start": 22, "junk": "ignored"})
+        self.assertEqual(merged, {"night_start": 22, "card_days": 7})
+
+    def test_restored_options_carry_the_settings_through(self):
+        options = backup.restored_options(
+            {"poll_interval": 2, "night_start": 23}, {}, None,
+            settings={"night_start": 22, "card_days": 7})
+        self.assertEqual(options["night_start"], 22)
+        self.assertEqual(options["card_days"], 7)
+        self.assertEqual(options["poll_interval"], 2)

@@ -45,7 +45,8 @@ from .const import (
     CONF_FACE_NAMES,
 )
 from .backup import (
-    merge_names, merge_ranks, restored_options, snapshot,
+    USER_OPTIONS, merge_names, merge_ranks, merge_settings,
+    restored_options, snapshot,
 )
 from .coordinator import H500Coordinator
 from .media import (
@@ -130,6 +131,9 @@ RESTORE_SCHEMA = vol.Schema({
     vol.Required("face_names"): vol.Schema({cv.string: cv.string}),
     vol.Optional("camera_order"): vol.Schema({
         cv.string: vol.All(vol.Coerce(int), vol.Range(min=0, max=20))}),
+    # The authored settings, filtered to the known keys again at merge time
+    # -- a restore is exactly the moment somebody pastes a hand-edited blob.
+    vol.Optional("settings"): vol.Schema({cv.string: object}),
     # Merging by default. Replacing is the destructive one, and losing a name
     # means going back through the photographs to work out who a
     # twelve-digit number was.
@@ -621,7 +625,8 @@ def _register_services(hass: HomeAssistant) -> None:
         Shaped so the answer can be pasted straight into restore_names.
         """
         coordinator = _coordinator(hass, call.data["config_entry_id"])
-        return snapshot(coordinator.face_names, coordinator.camera_ranks)
+        return snapshot(coordinator.face_names, coordinator.camera_ranks,
+                        dict(coordinator.entry.options))
 
     async def restore_names(call: ServiceCall):
         """Put a backup back, merging by default.
@@ -639,9 +644,14 @@ def _register_services(hass: HomeAssistant) -> None:
         supplied = call.data.get("camera_order")
         ranks = None if supplied is None else merge_ranks(
             coordinator.camera_ranks, supplied, replace)
+        settings = merge_settings(
+            {key: value for key, value in coordinator.entry.options.items()
+             if key in USER_OPTIONS},
+            call.data.get("settings"))
         hass.config_entries.async_update_entry(
             coordinator.entry,
-            options=restored_options(coordinator.entry.options, names, ranks))
+            options=restored_options(coordinator.entry.options, names, ranks,
+                                     settings=settings))
         return {"restored": len(names), "face_names": names,
                 "camera_order": ranks if ranks is not None
                 else coordinator.camera_ranks}
