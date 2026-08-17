@@ -738,6 +738,53 @@ test("a card without its own days asks for none, and one with them asks exactly"
   assert.deepEqual(mod.windowFor(false, 1, undefined, now), {});
 });
 
+test("byDetection keeps only the recordings carrying that code", () => {
+  const rows = [
+    { start_time: 1, detection_types: [2, 6, 17] },
+    { start_time: 2, detection_types: [2, 8] },
+    { start_time: 3 },
+  ];
+  assert.deepEqual(mod.byDetection(rows, 17).map((r) => r.start_time), [1]);
+  assert.deepEqual(mod.byDetection(rows, 8).map((r) => r.start_time), [2]);
+  assert.equal(mod.byDetection(rows, null).length, 3);
+  // A press that is also a person appears under both chips.
+  assert.deepEqual(mod.byDetection(rows, 6).map((r) => r.start_time), [1]);
+});
+
+test("the chip row offers the same four filters as the media browser", () => {
+  assert.deepEqual(mod.CHIP_FILTERS.map(([label]) => label),
+                   ["All", "Presses", "People", "Pets", "Vehicles"]);
+});
+
+test("the recordings card filters through its chips", () => {
+  const card = build(TapoH500Card);
+  card._recordings = [
+    { start_time: 1, end_time: 16, duration: 15, event_type: "ring",
+      detection_types: [6, 17], downloaded: false },
+    { start_time: 2, end_time: 17, duration: 15, event_type: "motion",
+      detection_types: [2, 8], downloaded: false },
+  ];
+  card._render();
+  assert.ok(card._card.innerHTML.includes('data-action="filter"'),
+            "the chip row is missing");
+  card._filter = 17;
+  card._render();
+  assert.equal(card._card.innerHTML.split('class="row"').length - 1, 1,
+               "the vehicle clip should be filtered out");
+  card._filter = null;
+  card._render();
+  assert.equal(card._card.innerHTML.split('class="row"').length - 1, 2);
+});
+
+test("an empty filter result explains itself instead of showing nothing", () => {
+  const card = build(TapoH500Card);
+  card._recordings = [{ start_time: 1, end_time: 16, duration: 15,
+                        event_type: "motion", detection_types: [2] }];
+  card._filter = 9;
+  card._render();
+  assert.ok(card._card.innerHTML.includes("Nothing with that in it"));
+});
+
 await Promise.all(pending);
 console.log(failures ? `\n${failures} failure(s)` : "\nall card tests passed");
 process.exit(failures ? 1 : 0);

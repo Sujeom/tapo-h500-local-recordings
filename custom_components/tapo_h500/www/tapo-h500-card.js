@@ -61,6 +61,25 @@ export const windowDates = (days, now = new Date()) => {
 export const windowFor = (explicit, days, classDefault, now = new Date()) =>
   explicit || classDefault !== undefined ? windowDates(days, now) : {};
 
+/** The four filters people actually reach for, plus everything.
+ *
+ * The same four the media browser's type folders offer, for the same
+ * reason: motion rides on everything and face codes never appear without
+ * the person code beside them, so the rest would be chips that select
+ * almost-everything or almost-nothing.
+ */
+export const CHIP_FILTERS = [
+  ["All", null], ["Presses", 17], ["People", 6], ["Pets", 9],
+  ["Vehicles", 8],
+];
+
+/** The recordings carrying one detection code; null means all of them. */
+export const byDetection = (recordings, code) =>
+  code === null || code === undefined
+    ? recordings
+    : recordings.filter((item) =>
+        (item.detection_types || []).includes(code));
+
 /** "2 minutes ago". Floors rather than rounds, so it never reads ahead of itself. */
 export const ago = (startSeconds, now = Date.now()) => {
   const delta = Math.floor((now - startSeconds * 1000) / 1000);
@@ -445,6 +464,10 @@ class H500Base extends HTMLElement {
         this._playing = null;
         this._render();
         await this._load();
+      } else if (action === "filter") {
+        const code = button.dataset.code;
+        this._filter = code === "" ? null : Number(code);
+        this._render();
       } else if (action === "view") {
         // The chart's table twin. Every value a tooltip shows is reachable
         // here too, which a tooltip alone cannot promise.
@@ -594,6 +617,16 @@ class TapoH500Card extends H500Base {
   // Rows are what a list wants; a narrow one still reads, so columns can go low.
   static grid = { rows: 6, min_rows: 2, columns: 12, min_columns: 4 };
   static style = `
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+    .chips button {
+      border-radius: 14px; padding: 3px 12px;
+      background: var(--secondary-background-color);
+      border-color: var(--divider-color);
+    }
+    .chips button[aria-pressed="true"] {
+      background: var(--primary-color); color: var(--text-primary-color);
+      border-color: var(--primary-color);
+    }
     .list { overflow-y: auto; overscroll-behavior: contain; }
     .row {
       display: flex; align-items: center; gap: 12px; padding: 8px 0;
@@ -635,9 +668,20 @@ class TapoH500Card extends H500Base {
       ${this._player(item)}`;
   }
 
+  _chips() {
+    return `<div class="chips">${CHIP_FILTERS.map(([label, code]) => `
+      <button data-action="filter" data-code="${code === null ? "" : code}"
+        aria-pressed="${(this._filter ?? null) === code}"
+        >${esc(label)}</button>`).join("")}</div>`;
+  }
+
   body() {
-    return `<div class="list"${this._maxHeight()}>${
-      this._recordings.map((item) => this._row(item)).join("")}</div>`;
+    const shown = byDetection(this._recordings, this._filter ?? null);
+    const rows = shown.length
+      ? shown.map((item) => this._row(item)).join("")
+      : `<p class="muted">Nothing with that in it for this period.</p>`;
+    return `${this._chips()}
+      <div class="list"${this._maxHeight()}>${rows}</div>`;
   }
 }
 
