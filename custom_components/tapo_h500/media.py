@@ -144,8 +144,16 @@ async def async_preview_clip(
 
     The download session takes a time window, so a preview does not need the
     whole recording — a couple of seconds is enough for one decodable frame,
-    which costs a fraction of a full clip. Abandoning the stream early is
-    deliberate: closing the generator unwinds the media session cleanly.
+    which costs a fraction of a full clip.
+
+    Those seconds are then read to the end even once there is enough for a
+    frame. Closing the socket is not the same thing as finishing a session:
+    the hub regards one as over when it has sent its own ``finished``
+    notification, and dropping out of the loop early denies it that. It also
+    leaves the client's media lock held by an abandoned generator until the
+    event loop finalises it. The window is already bounded to
+    ``PREVIEW_SECONDS``, so draining it costs a couple of seconds of video the
+    hub was sending anyway, and only the opening bytes reach the disk.
 
     Cached at exactly the path the downloaded clip's thumbnail would use, so
     downloading later finds it already there, and deleting the clip removes it.
@@ -159,11 +167,14 @@ async def async_preview_clip(
     received = 0
     try:
         async for chunk in client.iter_recording(
-                camera, start_time, start_time + PREVIEW_SECONDS):
-            received += len(chunk)
-            await hass.async_add_executor_job(stream.write, chunk)
-            if received >= PREVIEW_MAX_BYTES:
-                break
+                camera, start_time, start_time + PREVIEW_SECONDS,
+                kind="preview"):
+            # Keep reading past the cap; only stop writing. The tail is
+            # discarded rather than stored, but it is still consumed so the
+            # session reaches the hub's own end of it.
+            if received < PREVIEW_MAX_BYTES:
+                received += len(chunk)
+                await hass.async_add_executor_job(stream.write, chunk)
         await hass.async_add_executor_job(stream.close)
         stream = None
         if not received:
