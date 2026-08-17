@@ -156,10 +156,22 @@ conditions:
       - condition: and
         conditions:
 
+          # A real event, not the entity coming back to life. The entity is
+          # `unknown` after every reload and restart, so requiring a valid
+          # from_state dropped the FIRST press afterwards -- rang the bell,
+          # no notification, fine the second time. What that half of the
+          # guard was protecting against is a restored OLD event replaying
+          # on startup, and the difference is the event's own age: a real
+          # press is seconds old, a replay is hours old.
           - condition: template
             value_template: >-
-              {{ trigger.from_state.state not in ['unknown', 'unavailable']
-                 and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+              {{ trigger.to_state.state not in ['unknown', 'unavailable']
+                 and (
+                   (trigger.from_state is not none
+                    and trigger.from_state.state not in ['unknown', 'unavailable'])
+                   or now().timestamp()
+                      - (trigger.to_state.state | as_timestamp(0)) < 300
+                 ) }}
           # Only the detections chosen above. detection_types lists everything that
           # fired at once, so a person who also tripped motion still matches.
           - condition: template

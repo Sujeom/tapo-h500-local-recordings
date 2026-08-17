@@ -25,11 +25,17 @@ triggers:
       - event.side_doorbell_activity
 
 conditions:
-  # Skip the entity restoring its last event on a restart or reload.
+  # Skip the entity restoring its last event on a restart or reload -- but a
+  # FRESH event out of `unknown` is the first real press afterwards, and fires.
   - condition: template
     value_template: >-
-      {{ trigger.from_state.state not in ['unknown', 'unavailable']
-         and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+      {{ trigger.to_state.state not in ['unknown', 'unavailable']
+         and (
+           (trigger.from_state is not none
+            and trigger.from_state.state not in ['unknown', 'unavailable'])
+           or now().timestamp()
+              - (trigger.to_state.state | as_timestamp(0)) < 300
+         ) }}
   # Only person, pet or doorbell. detection_types lists everything that fired
   # at once, so a person who also triggers plain motion still matches.
   - condition: template

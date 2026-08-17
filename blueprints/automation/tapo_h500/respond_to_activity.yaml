@@ -161,10 +161,18 @@ triggers:
     entity_id: !input cameras
 
 conditions:
+  # A real event, not the entity coming back to life: a fresh timestamp out
+  # of `unknown` is the first press after a restart and must fire; a stale
+  # one is the restored previous event replaying, and must not.
   - condition: template
     value_template: >-
-      {{ trigger.from_state.state not in ['unknown', 'unavailable']
-         and trigger.to_state.state not in ['unknown', 'unavailable'] }}
+      {{ trigger.to_state.state not in ['unknown', 'unavailable']
+         and (
+           (trigger.from_state is not none
+            and trigger.from_state.state not in ['unknown', 'unavailable'])
+           or now().timestamp()
+              - (trigger.to_state.state | as_timestamp(0)) < 300
+         ) }}
   # detection_types lists everything that fired at once, so an unfamiliar face
   # that also tripped motion still matches.
   - condition: template

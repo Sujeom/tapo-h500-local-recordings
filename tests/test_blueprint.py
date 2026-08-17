@@ -168,3 +168,84 @@ class Photograph(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FirstEventAfterRestart(unittest.TestCase):
+    """The availability guard must not swallow the first real press.
+
+    An event entity sits at `unknown` after every reload and restart, so the
+    guard's old form -- from_state AND to_state both valid -- dropped the
+    first genuine event afterwards: rang the bell, no notification, works the
+    second time. What the from_state half was actually protecting against is
+    the entity's restored state replaying an OLD event on startup, and the
+    difference between those two cases is the event's own timestamp: a real
+    press is seconds old, a restore replay is hours old.
+
+    Rendered for real with HA's now()/as_timestamp stubbed, because a guard
+    that is only grepped for can be inverted without a test noticing.
+    """
+
+    NOW = 1_786_600_000.0
+
+    def _passes(self, from_state, to_state):
+        import datetime, types
+        import jinja2
+        env = jinja2.Environment()  # noqa: S701 - not HTML
+        moment = datetime.datetime.fromtimestamp(
+            self.NOW, datetime.timezone.utc)
+        env.globals["now"] = lambda: moment
+        env.filters["as_timestamp"] = lambda value, default=None: (
+            datetime.datetime.fromisoformat(value).timestamp()
+            if isinstance(value, str) and value not in
+            ("unknown", "unavailable") else default)
+        template = next(
+            inner["value_template"]
+            for outer in DOC["conditions"] for inner in
+            outer.get("conditions", [{}])[-1].get("conditions", [])
+            if "to_state" in inner.get("value_template", ""))
+        trigger = types.SimpleNamespace(
+            from_state=(None if from_state is None
+                        else types.SimpleNamespace(state=from_state)),
+            to_state=types.SimpleNamespace(state=to_state))
+        rendered = env.from_string(template).render(trigger=trigger)
+        return rendered.strip() == "True"
+
+    def _iso(self, seconds_ago):
+        import datetime
+        return datetime.datetime.fromtimestamp(
+            self.NOW - seconds_ago, datetime.timezone.utc).isoformat()
+
+    def test_the_first_press_after_a_restart_notifies(self):
+        self.assertTrue(self._passes("unknown", self._iso(3)))
+
+    def test_a_restored_old_event_stays_silent(self):
+        """The case the guard existed for, still guarded."""
+        self.assertFalse(self._passes("unknown", self._iso(7200)))
+
+    def test_a_normal_event_still_notifies(self):
+        self.assertTrue(self._passes(self._iso(600), self._iso(3)))
+
+    def test_a_revision_of_a_recent_event_still_notifies(self):
+        """Motion revised to motion+press keeps the same start time, so the
+        to_state can be a minute old on a perfectly normal transition."""
+        self.assertTrue(self._passes(self._iso(600), self._iso(90)))
+
+    def test_going_unavailable_never_notifies(self):
+        self.assertFalse(self._passes(self._iso(600), "unavailable"))
+        self.assertFalse(self._passes(self._iso(600), "unknown"))
+
+    def test_a_brand_new_entity_notifies_for_a_fresh_event(self):
+        self.assertTrue(self._passes(None, self._iso(3)))
+
+    def test_the_other_blueprint_and_the_example_carry_the_same_guard(self):
+        """One fix, three files; drift between them is how the bug returns."""
+        mine = next(
+            inner["value_template"]
+            for outer in DOC["conditions"] for inner in
+            outer.get("conditions", [{}])[-1].get("conditions", [])
+            if "to_state" in inner.get("value_template", ""))
+        for name in ("../blueprints/automation/tapo_h500/respond_to_activity.yaml",
+                     "../examples/notify-person-pet-doorbell.yaml"):
+            text = (Path(__file__).parent / name).read_text()
+            self.assertIn(" ".join(mine.split())[:80],
+                          " ".join(text.split()), name)
