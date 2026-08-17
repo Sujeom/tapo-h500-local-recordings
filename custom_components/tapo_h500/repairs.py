@@ -38,6 +38,12 @@ SILENT_CAMERA_ISSUE = "camera_silent"
 CLASHING_NAMES_ISSUE = "clashing_camera_names"
 TAMPER_ISSUE = "camera_tampered"
 MEDIA_ISSUE = "media_wedged"
+DOWNLOADS_ISSUE = "downloads_failing"
+
+# Consecutive failures on one camera before it becomes a notice. One is a
+# blip, two is a bad evening; three in a row with no success between them is
+# a pipeline that will fail the fourth time too.
+DOWNLOAD_FAIL_ALERT = 3
 
 
 def _issue_id(entry_id: str, kind: str) -> str:
@@ -58,6 +64,7 @@ def async_check(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     _silent_cameras(hass, entry_id, coordinator)
     _clashing_names(hass, entry_id, coordinator)
     _media(hass, entry_id, coordinator)
+    _downloads_failing(hass, entry_id, coordinator)
     _tampered(hass, entry_id, coordinator)
 
 
@@ -259,4 +266,32 @@ def _media(hass: HomeAssistant, entry_id: str, coordinator) -> None:
         is_fixable=False,
         severity=ir.IssueSeverity.ERROR,
         translation_key=MEDIA_ISSUE,
+    )
+
+
+def _downloads_failing(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+    """Say when automatic downloads keep failing on a camera.
+
+    Each failure is a warning in the log, and the next clip fails the same
+    way for the same reason -- ffmpeg missing, the disk full, the media
+    service refusing. The count resets on any success, so this names a
+    pipeline that is broken NOW, and clears the moment one clip lands.
+    """
+    issue_id = _issue_id(entry_id, DOWNLOADS_ISSUE)
+    failing = {name: count
+               for name, count in getattr(
+                   coordinator, "download_failures", {}).items()
+               if count >= DOWNLOAD_FAIL_ALERT}
+    if not failing:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    ir.async_create_issue(
+        hass, DOMAIN, issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key=DOWNLOADS_ISSUE,
+        translation_placeholders={
+            "cameras": ", ".join(sorted(failing)),
+            "count": str(max(failing.values())),
+        },
     )

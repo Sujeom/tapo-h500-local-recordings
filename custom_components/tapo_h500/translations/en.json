@@ -366,6 +366,10 @@
     "media_wedged": {
       "title": "The H500 has stopped serving recordings",
       "description": "The hub is still detecting events, but its media service is refusing every session, so notification photographs and recording playback and downloads will fail until it recovers. In testing only a hub reboot clears this state: Tapo app → hub → settings → reboot, or power-cycle it. Recordings already on the hub are not lost."
+    },
+    "downloads_failing": {
+      "title": "Recordings from {cameras} are not downloading",
+      "description": "{count} automatic downloads in a row have failed. The recordings still exist on the hub, but they will not appear in Home Assistant until this is fixed, and the hub will eventually overwrite them. The log (Settings → System → Logs, search “tapo_h500”) says why each one failed — a full disk and a missing ffmpeg are the usual reasons. This notice clears itself when a download succeeds."
     }
   }
 }

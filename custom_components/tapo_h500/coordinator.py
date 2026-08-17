@@ -106,6 +106,11 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # is the hub's known failure mode and this is how it is noticed
         # before anyone misses a photograph; repairs.py reads it.
         self.media_status: str | None = None
+        # Consecutive automatic-download failures per camera index, reset by
+        # any success. Three in a row is a pattern -- ffmpeg missing, disk
+        # full, media service refusing -- and repairs.py turns it into a
+        # notice instead of a warning in a log nobody reads.
+        self._download_failures: dict[int, int] = {}
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
@@ -825,6 +830,18 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 f"{DOMAIN} download {start_of(clip)}",
             )
 
+    @property
+    def download_failures(self) -> dict[str, int]:
+        """Camera name -> consecutive failed automatic downloads."""
+        found = {}
+        for index, count in self._download_failures.items():
+            if count <= 0:
+                continue
+            name = (self.cameras[index].get("alias")
+                    if index < len(self.cameras) else None)
+            found[name or f"Camera {index}"] = count
+        return found
+
     def _protected(self, index: int) -> set[int]:
         """Clip start times retention must leave alone, however old they get.
 
@@ -864,6 +881,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         except HomeAssistantError as err:
             _LOGGER.warning("Automatic download of clip %s failed: %s",
                             start_time, err)
+            self._download_failures[index] = (
+                self._download_failures.get(index, 0) + 1)
             return
         _LOGGER.debug("Downloaded %s (%s bytes)", result["path"], result["bytes"])
         # Verified now, while the hub still holds the original. A truncated
@@ -876,7 +895,11 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 "fetched again while the hub still has it", stored.name)
             await self.hass.async_add_executor_job(stored.unlink, True)
             self._seen_clips.get(index, set()).discard((start_time,))
+            # Bytes arrived and did not decode: still a pipeline failing.
+            self._download_failures[index] = (
+                self._download_failures.get(index, 0) + 1)
             return
+        self._download_failures.pop(index, None)
         # Only automatic downloads are pruned. A manual download is a
         # deliberate choice and is left alone.
         keep = self.entry.options.get(CONF_KEEP_DOWNLOADS, DEFAULT_KEEP_DOWNLOADS)
