@@ -394,6 +394,7 @@ def _register_services(hass: HomeAssistant) -> None:
         coordinator, camera = await _resolve(hass, call)
         start_time = call.data["start_time"]
         end_time = call.data.get("end_time")
+        detected: list[int] = []
         if end_time is None:
             # Ask the hub which recording starts there. The window is a few
             # seconds wide only to absorb the one-second index tolerance.
@@ -405,6 +406,11 @@ def _register_services(hass: HomeAssistant) -> None:
                 raise ServiceValidationError(
                     "No indexed recording starts at that time -- if it just "
                     "happened, the hub may still be recording it")
+            # The lookup answered with the whole clip record, so its
+            # classification rides along to the sidecar for free.
+            detected = next(
+                (detection_types(clip) for clip in clips
+                 if abs((start_of(clip) or 0) - start_time) <= 1), [])
         if end_time <= start_time:
             raise ServiceValidationError("end_time must be after start_time")
         convert = call.data.get(
@@ -412,7 +418,8 @@ def _register_services(hass: HomeAssistant) -> None:
             coordinator.entry.options.get(CONF_CONVERT_MP4, DEFAULT_CONVERT_MP4),
         )
         result = await async_download_clip(
-            hass, coordinator.client, camera, start_time, end_time, convert)
+            hass, coordinator.client, camera, start_time, end_time, convert,
+            detected=detected or None)
         coordinator.async_update_listeners()
         return result
 

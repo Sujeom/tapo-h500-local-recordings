@@ -877,6 +877,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 self.hass, self.client, camera, start_time, end_time,
                 convert=self.entry.options.get(
                     CONF_CONVERT_MP4, DEFAULT_CONVERT_MP4),
+                detected=detection_types(clip),
             )
         except HomeAssistantError as err:
             _LOGGER.warning("Automatic download of clip %s failed: %s",

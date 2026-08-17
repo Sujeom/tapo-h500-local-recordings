@@ -7,6 +7,7 @@ so "is this already downloaded?" is a path check rather than a stored index.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import tempfile
@@ -201,9 +202,16 @@ async def async_preview_clip(
 
 async def async_download_clip(
     hass: HomeAssistant, client, camera, start_time: int, end_time: int,
-    convert: bool = True,
+    convert: bool = True, detected: list[int] | None = None,
 ) -> dict:
-    """Stream one indexed clip to disk, then remux and thumbnail it."""
+    """Stream one indexed clip to disk, then remux and thumbnail it.
+
+    `detected` is what triggered the recording, when the caller knows. It is
+    written to a JSON sidecar beside the clip, because the hub's own index
+    only reaches back a day and download time is the one moment the
+    classification exists -- anything that wants "the clips with a person in
+    them" a week later reads it from there.
+    """
     target = clip_path(hass, camera, start_time, ".mp4" if convert else ".ts")
     descriptor, temporary = await hass.async_add_executor_job(
         _make_temp, target.parent, ".ts.part")
@@ -231,6 +239,10 @@ async def async_download_clip(
             remuxed = None
         else:
             await hass.async_add_executor_job(os.replace, temporary, target)
+        if detected:
+            await hass.async_add_executor_job(
+                target.with_suffix(".json").write_text,
+                json.dumps({"detection_types": list(detected)}))
     except Exception as err:
         if isinstance(err, HomeAssistantError):
             raise
@@ -265,7 +277,7 @@ async def async_delete_clip(hass: HomeAssistant, camera, start_time: int) -> lis
     """Remove the downloaded copy of a clip. The hub keeps its own."""
     candidates = [
         clip_path(hass, camera, start_time, suffix)
-        for suffix in (".mp4", ".ts", ".jpg")
+        for suffix in (".mp4", ".ts", ".jpg", ".json")
     ]
     removed = await hass.async_add_executor_job(_delete, candidates)
     return [relative(hass, path) for path in removed]
@@ -351,7 +363,8 @@ async def async_prune(hass: HomeAssistant, camera, keep: int,
     if not doomed:
         return []
     paths = [path for video in doomed
-             for path in (video, video.with_suffix(".jpg"))]
+             for path in (video, video.with_suffix(".jpg"),
+                          video.with_suffix(".json"))]
     removed = await hass.async_add_executor_job(_delete, paths)
     return [relative(hass, path) for path in removed]
 

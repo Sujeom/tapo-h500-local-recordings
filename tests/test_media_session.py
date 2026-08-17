@@ -85,8 +85,9 @@ class _Client:
     which is exactly what a consumer that abandons it never lets happen.
     """
 
-    def __init__(self, chunks: int):
+    def __init__(self, chunks: int, expect_kind: str = "preview"):
         self.chunks = chunks
+        self.expect_kind = expect_kind
         self.sessions = 0
         self.windows: list[tuple[int, int]] = []
         self.completed = 0
@@ -94,7 +95,7 @@ class _Client:
 
     async def iter_recording(self, camera, start_time, end_time,
                              kind="download"):
-        assert kind == "preview", kind
+        assert kind == self.expect_kind, kind
         self.sessions += 1
         self.windows.append((start_time, end_time))
         for _ in range(self.chunks):
@@ -205,3 +206,65 @@ class PreviewSession(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DetectionSidecar(unittest.TestCase):
+    """What a download knew about its clip survives beside it on disk.
+
+    The coordinator's index only reaches back a day, so anything that wants
+    to answer "which of these files has a person in it" a week later needs
+    the classification written down at the one moment it existed: download
+    time. One small JSON per clip, deleted whenever the clip is.
+    """
+
+    def _hass(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        for name in ("media_root",):
+            self.addCleanup(setattr, media, name, getattr(media, name))
+        media.media_root = lambda hass: Path(root.name)
+
+        async def fake_ffmpeg(_hass, args):
+            Path(args[-1]).write_bytes(b"made")
+            return True
+
+        self.addCleanup(setattr, media, "_run_ffmpeg", media._run_ffmpeg)
+        media._run_ffmpeg = fake_ffmpeg
+        return _Hass()
+
+    def _download(self, hass, detected):
+        return asyncio.run(media.async_download_clip(
+            hass, _Client(2, "download"), CAMERA, START, START + 15,
+            convert=False, detected=detected))
+
+    def test_the_types_are_written_beside_the_clip(self):
+        import json
+        hass = self._hass()
+        self._download(hass, [2, 6, 17])
+        sidecar = media.clip_path(hass, CAMERA, START, ".json")
+        self.assertEqual(json.loads(sidecar.read_text()),
+                         {"detection_types": [2, 6, 17]})
+
+    def test_an_unclassified_download_writes_nothing(self):
+        hass = self._hass()
+        self._download(hass, None)
+        self.assertFalse(media.clip_path(hass, CAMERA, START, ".json").exists())
+
+    def test_deleting_the_clip_removes_the_sidecar(self):
+        hass = self._hass()
+        self._download(hass, [6])
+        asyncio.run(media.async_delete_clip(hass, CAMERA, START))
+        self.assertFalse(media.clip_path(hass, CAMERA, START, ".json").exists())
+
+    def test_pruning_removes_the_sidecar_too(self):
+        """An orphan sidecar would classify a clip that no longer exists."""
+        hass = self._hass()
+        for offset in (0, 100, 200):
+            asyncio.run(media.async_download_clip(
+                hass, _Client(2, "download"), CAMERA, START + offset, START + offset + 15,
+                convert=False, detected=[6]))
+        asyncio.run(media.async_prune(hass, CAMERA, keep=1))
+        remaining = sorted(
+            path.name for path in
+            media.camera_dir(hass, CAMERA).glob("*/*.json"))
+        self.assertEqual(len(remaining), 1)

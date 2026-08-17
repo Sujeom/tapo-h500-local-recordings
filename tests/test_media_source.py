@@ -228,3 +228,123 @@ class Wiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+import asyncio
+import json
+import tempfile
+
+
+class ByType(unittest.TestCase):
+    """Virtual folders over the whole archive: presses, people, vehicles, pets.
+
+    The cards filter the last day; this filters the month on disk, using the
+    sidecars downloads leave behind. Identifiers stay real camera/date/file
+    paths, so playing one goes through exactly the machinery a browsed clip
+    does -- and the virtual ids never touch the filesystem resolver at all.
+    """
+
+    def setUp(self):
+        self.root = tempfile.TemporaryDirectory()
+        self.addCleanup(self.root.cleanup)
+        # media_source bound media_root into its own namespace at import,
+        # so that binding is the one to patch.
+        self._old_root = media_source.media_root
+        media_source.media_root = lambda hass: Path(self.root.name)
+        self.addCleanup(setattr, media_source, "media_root", self._old_root)
+        self.base = Path(self.root.name) / "tapo_h500"
+
+    def _clip(self, camera, date, clock, types=None):
+        day = self.base / camera / date
+        day.mkdir(parents=True, exist_ok=True)
+        (day / f"{clock}.mp4").write_bytes(b"v")
+        (day / f"{clock}.jpg").write_bytes(b"t")
+        if types is not None:
+            (day / f"{clock}.json").write_text(
+                json.dumps({"detection_types": types}))
+
+    def _hass(self):
+        class _Hass:
+            async def async_add_executor_job(self, fn, *args):
+                return fn(*args)
+        return _Hass()
+
+    def _browse(self, identifier):
+        source = media_source.H500MediaSource(self._hass())
+        item = types.SimpleNamespace(identifier=identifier)
+        return asyncio.run(source.async_browse_media(item))
+
+    def test_the_root_offers_the_type_folders(self):
+        self._clip("front", "2026-08-17", "120000", [6])
+        titles = [child.title for child in self._browse("").children]
+        for wanted in ("Doorbell presses", "People", "Vehicles", "Pets"):
+            self.assertIn(wanted, titles)
+
+    def test_a_type_folder_lists_only_its_own(self):
+        self._clip("front", "2026-08-17", "120000", [2, 6])
+        self._clip("front", "2026-08-17", "130000", [2, 8])
+        self._clip("side", "2026-08-16", "090000", [6, 17])
+        found = self._browse("by-type/people").children
+        self.assertEqual(
+            sorted(child.identifier for child in found),
+            ["front/2026-08-17/120000.mp4", "side/2026-08-16/090000.mp4"])
+
+    def test_newest_first(self):
+        self._clip("front", "2026-08-16", "090000", [6])
+        self._clip("front", "2026-08-17", "120000", [6])
+        found = self._browse("by-type/people").children
+        self.assertEqual(found[0].identifier, "front/2026-08-17/120000.mp4")
+
+    def test_an_unclassified_clip_is_not_listed(self):
+        """Downloaded before sidecars existed: absent, not miscategorised."""
+        self._clip("front", "2026-08-17", "120000")
+        self.assertEqual(self._browse("by-type/people").children, [])
+
+    def test_a_broken_sidecar_is_skipped_not_fatal(self):
+        day = self.base / "front" / "2026-08-17"
+        day.mkdir(parents=True)
+        (day / "120000.mp4").write_bytes(b"v")
+        (day / "120000.json").write_text("not json")
+        self._clip("front", "2026-08-17", "130000", [6])
+        found = self._browse("by-type/people").children
+        self.assertEqual(len(found), 1)
+
+    def test_the_names_say_camera_and_moment(self):
+        self._clip("front_door", "2026-08-17", "120515", [6])
+        child = self._browse("by-type/people").children[0]
+        self.assertIn("front door", child.title)
+        self.assertIn("12:05", child.title)
+
+    def test_the_listing_is_capped(self):
+        for minute in range(60):
+            self._clip("front", "2026-08-17", f"12{minute:02d}00", [6])
+        for minute in range(60):
+            self._clip("front", "2026-08-16", f"12{minute:02d}00", [6])
+        found = self._browse("by-type/people").children
+        self.assertEqual(len(found), media_source.TYPE_LISTING_CAP)
+        # ...and the cap drops the oldest: all sixty of the newer day
+        # survive, and the cut lands in the older day's morning.
+        identifiers = [child.identifier for child in found]
+        self.assertEqual(
+            sum("2026-08-17" in name for name in identifiers), 60)
+        self.assertIn("front/2026-08-16/125900.mp4", identifiers)
+        self.assertNotIn("front/2026-08-16/120000.mp4", identifiers)
+
+    def test_an_unknown_type_slug_is_refused(self):
+        with self.assertRaises(media_source.Unresolvable):
+            self._browse("by-type/../../etc")
+
+    def test_playing_one_uses_the_ordinary_resolver(self):
+        """The identifiers are real paths, so resolve needs no new code."""
+        self._clip("front", "2026-08-17", "120000", [6])
+        child = self._browse("by-type/people").children[0]
+        item = types.SimpleNamespace(identifier=child.identifier)
+        source = media_source.H500MediaSource(self._hass())
+        # The browser-stub PlayMedia takes no arguments; give the resolver a
+        # real-shaped one for this test.
+        self.addCleanup(setattr, media_source, "PlayMedia",
+                        media_source.PlayMedia)
+        media_source.PlayMedia = lambda url, mime: types.SimpleNamespace(
+            url=url, mime_type=mime)
+        resolved = asyncio.run(source.async_resolve_media(item))
+        self.assertEqual(resolved.mime_type, "video/mp4")

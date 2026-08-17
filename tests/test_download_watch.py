@@ -36,7 +36,8 @@ class Counting(unittest.TestCase):
         self.coord.cameras = [CAMERA, {"device_id": "cam1", "alias": "Side"}]
         self.outcomes: list = []
 
-        async def fake_download(hass, client, camera, start, end, convert):
+        async def fake_download(hass, client, camera, start, end, convert,
+                                detected=None):
             outcome = self.outcomes.pop(0)
             if isinstance(outcome, Exception):
                 raise outcome
