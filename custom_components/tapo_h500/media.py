@@ -203,6 +203,7 @@ async def async_preview_clip(
 async def async_download_clip(
     hass: HomeAssistant, client, camera, start_time: int, end_time: int,
     convert: bool = True, detected: list[int] | None = None,
+    faces: list[int] | None = None,
 ) -> dict:
     """Stream one indexed clip to disk, then remux and thumbnail it.
 
@@ -240,9 +241,13 @@ async def async_download_clip(
         else:
             await hass.async_add_executor_job(os.replace, temporary, target)
         if detected:
+            payload = {"detection_types": list(detected)}
+            if faces:
+                # The only place "when did Alice last come" can be answered
+                # from beyond the hub's one-day index.
+                payload["face_ids"] = list(faces)
             await hass.async_add_executor_job(
-                target.with_suffix(".json").write_text,
-                json.dumps({"detection_types": list(detected)}))
+                target.with_suffix(".json").write_text, json.dumps(payload))
     except Exception as err:
         if isinstance(err, HomeAssistantError):
             raise
@@ -385,7 +390,7 @@ async def async_classify_downloads(hass: HomeAssistant, client, camera,
     """
     from datetime import datetime, time, timedelta
 
-    from .clips import detection_types
+    from .clips import detection_types, face_ids
 
     def _scan() -> dict:
         directory = camera_dir(hass, camera)
@@ -405,25 +410,12 @@ async def async_classify_downloads(hass: HomeAssistant, client, camera,
                 continue
             if day < cutoff:
                 continue
-            def local_start(video: Path) -> int | None:
-                # Through dt_util's zone, not the process's: _start_from_path
-                # leans on HA setting TZ, and this must agree with clip_path
-                # even where nothing has.
-                try:
-                    naive = datetime.strptime(
-                        f"{video.parent.name} {video.stem}",
-                        "%Y-%m-%d %H%M%S")
-                except (ValueError, TypeError):
-                    return None
-                return int(naive.replace(
-                    tzinfo=now_local.tzinfo).timestamp())
-
             videos = [item for item in day_dir.iterdir()
                       if item.suffix in (".mp4", ".ts")]
             scanned += len(videos)
             missing = [video for video in videos
                        if not video.with_suffix(".json").exists()
-                       and local_start(video) is not None]
+                       and _start_from_path(video) is not None]
             if not missing:
                 continue
             # The folder name is a LOCAL date, so the window asked of the
@@ -439,7 +431,7 @@ async def async_classify_downloads(hass: HomeAssistant, client, camera,
                         for record in detections
                         if record.get("start_time") is not None}
             for video in missing:
-                start = local_start(video)
+                start = _start_from_path(video)
                 record = (by_start.get(start) or by_start.get(start + 1)
                           or by_start.get(start - 1))
                 if record is None:
@@ -447,13 +439,51 @@ async def async_classify_downloads(hass: HomeAssistant, client, camera,
                 codes = detection_types(record)
                 if not codes:
                     continue
-                video.with_suffix(".json").write_text(
-                    json.dumps({"detection_types": codes}))
+                payload = {"detection_types": codes}
+                recognised = face_ids(record)
+                if recognised:
+                    payload["face_ids"] = recognised
+                video.with_suffix(".json").write_text(json.dumps(payload))
                 written += 1
         return {"scanned": scanned, "written": written,
                 "days_queried": queried}
 
     return await hass.async_add_executor_job(_scan)
+
+
+def archive_face_search(hass: HomeAssistant, camera,
+                        wanted: set[str]) -> list[dict]:
+    """Every downloaded clip whose sidecar names one of these faces.
+
+    Newest first, whole archive: the hub's own index reaches back a day, and
+    this is the other eleven months. Blocking; callers run it in an
+    executor. Only clips whose sidecar carries face ids can match --
+    absent means absent, exactly as the type folders treat it.
+    """
+    found = []
+    directory = camera_dir(hass, camera)
+    if not directory.is_dir():
+        return found
+    for sidecar in directory.glob("*/*.json"):
+        try:
+            record = json.loads(sidecar.read_text())
+        except (OSError, ValueError):
+            continue
+        faces = {str(face) for face in record.get("face_ids") or []}
+        if not (wanted & faces):
+            continue
+        for suffix in (".mp4", ".ts"):
+            video = sidecar.with_suffix(suffix)
+            if video.exists():
+                start = _start_from_path(video)
+                found.append({
+                    "start_time": start,
+                    "path": video,
+                    "detection_types": record.get("detection_types") or [],
+                })
+                break
+    found.sort(key=lambda entry: entry["start_time"] or 0, reverse=True)
+    return found
 
 
 def _start_from_path(path: Path) -> int | None:
@@ -468,7 +498,13 @@ def _start_from_path(path: Path) -> int | None:
                                   "%Y-%m-%d %H%M%S")
     except (ValueError, TypeError):
         return None
-    return int(stamp.timestamp())
+    # Through dt_util's zone, not the process's. clip_path writes these
+    # names in Home Assistant's configured zone; reading them back through
+    # the machine zone only works because HA sets TZ to match, and a
+    # roundtrip that leans on a deployment coincidence is a roundtrip that
+    # breaks in every other harness.
+    zone = dt_util.as_local(dt_util.utc_from_timestamp(0)).tzinfo
+    return int(stamp.replace(tzinfo=zone).timestamp())
 
 
 def _newest_thumbnail(directory: Path) -> bytes | None:

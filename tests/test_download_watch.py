@@ -37,7 +37,7 @@ class Counting(unittest.TestCase):
         self.outcomes: list = []
 
         async def fake_download(hass, client, camera, start, end, convert,
-                                detected=None):
+                                detected=None, faces=None):
             outcome = self.outcomes.pop(0)
             if isinstance(outcome, Exception):
                 raise outcome

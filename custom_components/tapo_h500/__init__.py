@@ -51,8 +51,8 @@ from .backup import (
 )
 from .coordinator import H500Coordinator
 from .media import (
-    async_classify_downloads, async_delete_clip, async_download_clip,
-    async_export, clip_path,
+    archive_face_search, async_classify_downloads, async_delete_clip,
+    async_download_clip, async_export, clip_path,
     describe, existing_clip, media_content_id, media_root, scan_downloaded,
 )
 from .preview import H500PreviewView, preview_url
@@ -611,7 +611,30 @@ def _register_services(hass: HomeAssistant) -> None:
             } for index, camera, clip, start, end in matches]
 
         found = await hass.async_add_executor_job(_describe_matches)
-        found.sort(key=lambda item: item["start_time"], reverse=True)
+
+        def _archive_matches():
+            """Sidecar hits from beyond the hub's one-day index."""
+            live = {(item["camera_index"], item["start_time"])
+                    for item in found}
+            older = []
+            for index, camera in enumerate(coordinator.cameras):
+                for hit in archive_face_search(hass, camera, ids):
+                    if (index, hit["start_time"]) in live:
+                        continue
+                    older.append({
+                        "camera": camera.get("alias") or f"Camera {index}",
+                        "camera_index": index,
+                        "start_time": hit["start_time"],
+                        "end_time": None,
+                        "detection": describe_detection(
+                            {"events_1": sum(1 << (code - 1) for code in
+                                             hit["detection_types"])}),
+                        "downloaded": True,
+                    })
+            return older
+
+        found += await hass.async_add_executor_job(_archive_matches)
+        found.sort(key=lambda item: item["start_time"] or 0, reverse=True)
         return {"who": wanted, "face_ids": sorted(ids),
                 "count": len(found), "recordings": found}
 

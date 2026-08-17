@@ -245,6 +245,26 @@ class DetectionSidecar(unittest.TestCase):
         self.assertEqual(json.loads(sidecar.read_text()),
                          {"detection_types": [2, 6, 17]})
 
+    def test_faces_ride_along_when_the_clip_carried_them(self):
+        """The hub's index reaches back a day; the sidecar is the only
+        place "when did Alice last come" can be answered from next month."""
+        import json
+        hass = self._hass()
+        asyncio.run(media.async_download_clip(
+            hass, _Client(2, "download"), CAMERA, START, START + 15,
+            convert=False, detected=[6, 20], faces=[272465657857]))
+        sidecar = media.clip_path(hass, CAMERA, START, ".json")
+        self.assertEqual(json.loads(sidecar.read_text()),
+                         {"detection_types": [6, 20],
+                          "face_ids": [272465657857]})
+
+    def test_no_faces_writes_no_face_key(self):
+        import json
+        hass = self._hass()
+        self._download(hass, [2])
+        sidecar = media.clip_path(hass, CAMERA, START, ".json")
+        self.assertNotIn("face_ids", json.loads(sidecar.read_text()))
+
     def test_an_unclassified_download_writes_nothing(self):
         hass = self._hass()
         self._download(hass, None)
@@ -319,6 +339,18 @@ class Backfill(unittest.TestCase):
         sidecar = media.clip_path(hass, CAMERA, START, ".json")
         self.assertEqual(json.loads(sidecar.read_text()),
                          {"detection_types": [6, 17]})
+
+    def test_the_backfill_carries_faces_too(self):
+        import json
+        hass = self._hass()
+        self._clip(hass, START)
+        client = self._LogClient(
+            {START: {"start_time": START, "events_1": 1 << 19,
+                     "event_info": [{"face_id": 99}]}})
+        asyncio.run(media.async_classify_downloads(
+            hass, client, CAMERA, days=31))
+        sidecar = media.clip_path(hass, CAMERA, START, ".json")
+        self.assertEqual(json.loads(sidecar.read_text())["face_ids"], [99])
 
     def test_one_second_of_index_tolerance(self):
         hass = self._hass()
@@ -402,3 +434,38 @@ class BackfillService(unittest.TestCase):
     def test_days_are_bounded_to_what_was_verified(self):
         self.assertIn("vol.Range(min=1, max=31)", self.INIT.split(
             "CLASSIFY_SCHEMA", 1)[1][:400])
+
+
+class ArchiveFaceSearch(unittest.TestCase):
+    """find_face reaches the archive, not just the hub's last day."""
+
+    def _hass(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.addCleanup(setattr, media, "media_root", media.media_root)
+        media.media_root = lambda hass: Path(root.name)
+        return _Hass()
+
+    def _clip(self, hass, start, face_ids=None):
+        import json
+        video = media.clip_path(hass, CAMERA, start, ".mp4")
+        video.parent.mkdir(parents=True, exist_ok=True)
+        video.write_bytes(b"v")
+        payload = {"detection_types": [6]}
+        if face_ids is not None:
+            payload["face_ids"] = face_ids
+        video.with_suffix(".json").write_text(json.dumps(payload))
+
+    def test_it_finds_them_newest_first(self):
+        hass = self._hass()
+        self._clip(hass, START - 10 * 86400, face_ids=[99])
+        self._clip(hass, START - 3 * 86400, face_ids=[99])
+        self._clip(hass, START - 86400, face_ids=[7])
+        found = media.archive_face_search(hass, CAMERA, {"99"})
+        self.assertEqual([entry["start_time"] for entry in found],
+                         [START - 3 * 86400, START - 10 * 86400])
+
+    def test_a_clip_without_faces_never_matches(self):
+        hass = self._hass()
+        self._clip(hass, START - 86400)
+        self.assertEqual(media.archive_face_search(hass, CAMERA, {"99"}), [])
