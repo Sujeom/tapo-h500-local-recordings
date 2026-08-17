@@ -968,6 +968,56 @@ class LiveAttemptTest(unittest.TestCase):
         self.assertEqual({a[1] for a in self.probe.ATTEMPTS}, {"video"})
 
 
+class ModelGuardTest(unittest.TestCase):
+    """connect() refuses the wrong device without refusing the right one.
+
+    TP-Link ships region-suffixed model strings -- "H500(EU)", "H500(US)" --
+    and hardware revisions like "H500 V2". A guard demanding the exact string
+    "H500" would brick every one of those installs at setup, permanently,
+    with an error that reads like a wrong address. Matching on the prefix
+    keeps the guard's whole point (do not attach to a C200 and quietly
+    misbehave) without gatekeeping on packaging.
+    """
+
+    class _Hub:
+        def __init__(self, model):
+            self.basicInfo = {"device_info": {"basic_info": {
+                "device_model": model, "sw_version": "1.3.20",
+                "hw_version": "2.0"}}}
+            self.superSecretKey = ""
+
+        def getUserID(self):
+            return 1
+
+        def getEncryptionMethod(self):
+            return object()
+
+        def close(self):
+            pass
+
+    def _connect(self, model):
+        client = H500Client("host", "admin", "local", "cloud")
+        with patch.object(api, "Tapo", lambda *a, **k: self._Hub(model)):
+            return client.connect()
+
+    def test_region_suffixed_models_are_accepted(self):
+        for model in ("H500(EU)", "H500(US)", "H500 V2", "h500(eu)"):
+            self.assertEqual(self._connect(model)["device_model"], model)
+
+    def test_the_plain_model_is_accepted(self):
+        self.assertEqual(self._connect("H500")["device_model"], "H500")
+
+    def test_a_different_device_is_refused(self):
+        for model in ("C200", "H200", "KH500"):
+            with self.assertRaises(ValueError):
+                self._connect(model)
+
+    def test_a_hub_that_names_no_model_is_given_the_benefit(self):
+        """Absent evidence is not a C200; refusing would brick on a firmware
+        that stops volunteering the field."""
+        self.assertIsInstance(self._connect(""), dict)
+
+
 class MediaSessionLogTest(unittest.TestCase):
     """One debug line per media session, enough to tell the failures apart.
 

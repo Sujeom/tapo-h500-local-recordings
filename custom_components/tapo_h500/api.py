@@ -119,7 +119,11 @@ class H500Client:
         # integration would have attached happily to a C200.
         self.info = basic_info(self._hub.basicInfo)
         model = str(self.info.get("device_model") or "").upper()
-        if model and model != "H500":
+        # Prefix, not equality: TP-Link ships region and revision suffixes --
+        # "H500(EU)", "H500 V2" -- and an exact match would refuse every one
+        # of those at setup, permanently, with an error that reads like a
+        # wrong address. The guard's job is only "not some other device".
+        if model and not model.startswith("H500"):
             raise ValueError(f"Expected an H500, found {model}")
         try:
             self._client_id = self._hub.getUserID()
