@@ -192,6 +192,19 @@ class H500Client:
             reply = self._hub.isUpdateAvailable()
         return firmware_upgrade(unpack_multiple(reply))
 
+    def reboot(self):
+        """Restart the hub, immediately. Blocking; run in an executor.
+
+        pytapo's standard immediate-reboot verb, the one it uses across
+        Tapo devices -- and a different method entirely from setReboot,
+        which stays excluded because its parameters cannot be told apart
+        from editing the nightly schedule. Recordings survive a reboot;
+        the hub does one to itself every night at its scheduled time.
+        """
+        with self._hub_lock:
+            return self._hub.executeFunction(
+                "rebootDevice", {"system": {"reboot": "null"}})
+
     def rotate_player_id(self) -> str:
         """A fresh identity for the next media session: the case-D experiment.
 

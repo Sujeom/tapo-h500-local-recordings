@@ -328,6 +328,11 @@
       "firmware": {
         "name": "Firmware"
       }
+    },
+    "button": {
+      "restart": {
+        "name": "Restart"
+      }
     }
   },
   "device_automation": {

@@ -59,9 +59,10 @@ from .preview import H500PreviewView, preview_url
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.CALENDAR, Platform.CAMERA,
-             Platform.EVENT, Platform.IMAGE, Platform.NUMBER, Platform.SELECT,
-             Platform.SENSOR, Platform.SIREN, Platform.SWITCH, Platform.UPDATE]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CALENDAR,
+             Platform.CAMERA, Platform.EVENT, Platform.IMAGE, Platform.NUMBER,
+             Platform.SELECT, Platform.SENSOR, Platform.SIREN, Platform.SWITCH,
+             Platform.UPDATE]
 
 NONNEGATIVE_INT = vol.All(vol.Coerce(int), vol.Range(min=0))
 ENTRY_SCHEMA = {
