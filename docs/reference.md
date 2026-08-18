@@ -922,6 +922,7 @@ they slug to the same directory.
 | Recordings with a person to keep per camera | `0` | The same, for recordings with a person in them. Counted separately from presses. |
 | Hours of silence before a camera is flagged | `24` | The ceiling. The silent sensor usually flags much earlier, from the camera's own history; this is the longest it can possibly take, and a camera with no history at all still trips it here. Cannot go higher — the hub is only asked about a day. |
 | Convert downloads to MP4 | On | Off keeps the hub's original MPEG-TS. |
+| Restart the hub automatically when its recording service fails | Off | Both known media failures — refused sessions and sessions answered with no video — are cured by a reboot and nothing else ever found. At most one automatic restart per six hours, announced as a warning in the log and a `tapo_h500_auto_restart` event. Cameras going quiet never triggers this: a reboot gains nothing against a flat battery. |
 | Days the cards show by default | `1` | Cards whose own "Days to show" was never set follow this, so changing every dashboard from a day to a week is one field. A card with its own days keeps it. Changing it costs no hub login. |
 
 ## Media layout

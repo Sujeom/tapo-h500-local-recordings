@@ -20,6 +20,7 @@ from .const import (
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DEFAULT_AUTO_DOWNLOAD, DEFAULT_CONVERT_MP4, DEFAULT_KEEP_DOWNLOADS,
     DEFAULT_KEEP_RINGS,
+    CONF_AUTO_RESTART, DEFAULT_AUTO_RESTART,
     CONF_CARD_DAYS, DEFAULT_CARD_DAYS,
     DEFAULT_POLL_INTERVAL, DEFAULT_SILENT_HOURS, DOMAIN, LOOKBACK_SECONDS,
 )
@@ -320,6 +321,10 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             # Optional rather than Required: a Required multi-select with an
             # empty default is a form that cannot be submitted until something
             # is ticked, and "nothing" is the setting most people want.
+            vol.Required(
+                CONF_AUTO_RESTART,
+                default=options.get(CONF_AUTO_RESTART, DEFAULT_AUTO_RESTART),
+            ): bool,
             vol.Required(
                 CONF_CARD_DAYS,
                 default=options.get(CONF_CARD_DAYS, DEFAULT_CARD_DAYS),

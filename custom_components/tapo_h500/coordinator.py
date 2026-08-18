@@ -28,6 +28,8 @@ from .const import (
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
+    AUTO_RESTART_COOLDOWN, CONF_AUTO_RESTART, DEFAULT_AUTO_RESTART,
+    EVENT_AUTO_RESTART,
     FIRMWARE_CHECK_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
     POLL_BACKOFF_MAX, PROWL_WINDOW,
     SIGNAL_NEW_CLIP,
@@ -125,6 +127,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # so one counter, not per camera; the handshake sentinel cannot see
         # it, so the downloads are the evidence.
         self._empty_downloads = 0
+        # When the last automatic restart happened, if the owner opted in.
+        self._auto_restarted = 0.0
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
@@ -765,6 +769,35 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 self._wedge_rotated = True
             elif self.media_status == "healthy":
                 self._wedge_rotated = False
+
+        # Opt-in self-healing. Both media failure modes -- refused sessions
+        # and the hollow ones -- are cured by a reboot and by nothing else
+        # ever found, so with the owner's say-so the coordinator presses its
+        # own restart button: once, loudly, and never inside the cooldown,
+        # which makes a reboot loop impossible however long a failure
+        # persists. Everything else (dark cameras included) stays hands-off
+        # -- rebooting the hub at flat camera batteries gains nothing.
+        if self.entry.options.get(CONF_AUTO_RESTART, DEFAULT_AUTO_RESTART):
+            reason = ("wedged" if self.media_status == "wedged"
+                      else "empty" if self.media_serving_empty else None)
+            reboot = getattr(self.client, "reboot", None)
+            elapsed = now - self._auto_restarted
+            if (reason is not None and reboot is not None
+                    and elapsed >= AUTO_RESTART_COOLDOWN):
+                self._auto_restarted = now
+                self.note_served_download()  # start counting fresh
+                _LOGGER.warning(
+                    "Restarting the hub automatically: media service %s. "
+                    "Expect about two minutes of downtime. Turn this off "
+                    "under Configure if it was not wanted.", reason)
+                self.hass.bus.async_fire(EVENT_AUTO_RESTART, {
+                    "entry_id": self.entry.entry_id, "reason": reason})
+                try:
+                    await self.hass.async_add_executor_job(reboot)
+                except Exception as err:  # noqa: BLE001 - the drop IS the reboot
+                    _LOGGER.debug("Restart call ended with %s, which is "
+                                  "what a reboot looks like",
+                                  type(err).__name__)
 
         # What the hub already knows about newer firmware, a few times a
         # day. A local read of its cached block -- nothing commands it to

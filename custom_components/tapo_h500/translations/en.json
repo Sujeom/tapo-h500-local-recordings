@@ -35,7 +35,8 @@
           "silent_hours": "Hours of silence before a camera is flagged",
           "keep_person": "Recordings with a person to keep per camera",
           "download_types": "Only download these detections",
-          "card_days": "Days the cards show by default"
+          "card_days": "Days the cards show by default",
+          "auto_restart": "Restart the hub automatically when its recording service fails"
         },
         "data_description": {
           "convert_mp4": "MP4 plays in the browser; turn this off to keep the hub's original MPEG-TS.",
@@ -45,7 +46,8 @@
           "silent_hours": "A camera off the Wi-Fi or flat looks exactly like a quiet one: the hub reports no online flag and no battery, so silence is the only evidence there is. Lower this for a busy doorbell, raise it for a back gate that genuinely sees nobody all day. Capped at 24 because that is how far back the hub is asked.",
           "keep_person": "0 treats them like everything else. Any other number keeps that many of the newest recordings with a person in them whatever their age, so a windy afternoon of motion cannot evict the one recording of somebody at the door. Counted separately from doorbell presses; a press with a person in it is protected by both.",
           "download_types": "Leave empty to download everything, which is what happens now. Tick a few and only recordings carrying one of them are kept -- the clips people go back for are usually the ones with a person or a doorbell press in them, not the traffic.",
-          "card_days": "Cards without their own “Days to show” follow this; a card with one set keeps it."
+          "card_days": "Cards without their own “Days to show” follow this; a card with one set keeps it.",
+          "auto_restart": "Both known media failures are cured by a reboot and nothing else. At most one automatic restart every six hours, announced in the log and as a tapo_h500_auto_restart event. Cameras going quiet never triggers this — a reboot gains nothing against a flat battery."
         }
       },
       "init": {

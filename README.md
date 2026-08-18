@@ -141,6 +141,15 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   scrolling back to last Tuesday actually shows last Tuesday.
 - **The day at a glance:** `image.<camera>_today` tiles the day's frames into
   one picture.
+- **It heals itself, if you let it:** both of the hub's known recording
+  failures are cured by a reboot and nothing else, so **Configure →
+  "Restart the hub automatically when its recording service fails"** closes
+  the loop — at most once every six hours, announced in the log and as a
+  `tapo_h500_auto_restart` event. Off by default. A fourth
+  [blueprint](blueprints/automation/tapo_h500/watch_health.yaml) sends the
+  rest to your phone: a camera gone quiet against its own routine (charge
+  it — no reboot fixes a flat battery), storage about to overwrite, and
+  the auto-restart having happened.
 - **Watchdogs:** a camera that has gone quiet judged against its own rhythm
   — a busy doorbell silent for three hours is flagged in hours, not after a
   day — plus a forecast of when the hub will start overwriting. The hub's

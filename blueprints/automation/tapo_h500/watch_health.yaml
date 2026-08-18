@@ -1,0 +1,122 @@
+blueprint:
+  name: Tapo H500 health alerts
+  description: >-
+    Tell your phone when the system needs a human — a camera that has gone
+    quiet against its own routine, the hub's recording service failing, hub
+    storage about to overwrite, or an automatic hub restart having happened.
+
+    Recovery is separate on purpose: the integration's own "restart the hub
+    automatically" option (Configure → Settings) handles the one failure a
+    reboot provably cures. This blueprint is how you find out — about that,
+    and about the things no reboot can fix, like a doorbell with a flat
+    battery.
+  domain: automation
+  source_url: https://github.com/Sujeom/tapo-h500-local-recordings/blob/main/blueprints/automation/tapo_h500/watch_health.yaml
+  author: tapo-h500-local-recordings
+  homeassistant:
+    min_version: "2024.10.0"
+
+  input:
+    notify_service:
+      name: Notify service
+      description: >-
+        The full service to call, including the `notify.` prefix — for a
+        phone this is usually `notify.mobile_app_` followed by the device
+        name.
+      default: notify.persistent_notification
+      selector:
+        text:
+
+    silent_sensors:
+      name: Camera watchdogs
+      description: >-
+        The per-camera "silent" sensors. Each flags when its camera's own
+        history says events should have happened and none did — a flat
+        battery or a dropped link, hours before any fixed timer would say so.
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+              integration: tapo_h500
+          multiple: true
+
+    media_sensor:
+      name: Recording service sensor
+      description: >-
+        The hub's "recording service problem" sensor. On when the hub is
+        refusing media sessions or answering them with no video in them —
+        both cured by a hub restart.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+              integration: tapo_h500
+
+    storage_sensor:
+      name: Storage sensor
+      description: Optional. The hub's storage problem sensor.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+              integration: tapo_h500
+
+mode: parallel
+max: 10
+
+triggers:
+  - trigger: state
+    entity_id: !input silent_sensors
+    to: "on"
+    # Half an hour of grace, so a sensor flickering at its own threshold
+    # does not page anyone.
+    for: "00:30:00"
+    id: silent
+  - trigger: state
+    entity_id: !input media_sensor
+    to: "on"
+    for: "00:05:00"
+    id: media
+  - trigger: state
+    entity_id: !input storage_sensor
+    to: "on"
+    id: storage
+  - trigger: event
+    event_type: tapo_h500_auto_restart
+    id: restarted
+
+conditions: []
+
+actions:
+  - variables:
+      # One indentation level throughout, deliberately: deeper-indented lines
+      # inside a folded scalar keep their newlines, which would put ragged
+      # line breaks into the middle of a phone notification.
+      body: >-
+        {% if trigger.id == 'silent' %}
+        {{ trigger.to_state.name | replace(' Silent', '') }} has recorded
+        nothing for far longer than its own routine predicts — likely a
+        flat battery or a dropped link. A hub restart will not fix a flat
+        battery; charge or power-cycle the camera.
+        {% elif trigger.id == 'media' %}
+        The hub has stopped serving recordings — photographs and downloads
+        are failing. A hub restart cures this: press Restart on the hub's
+        device page, or turn on automatic restarts under Configure.
+        {% elif trigger.id == 'storage' %}
+        Hub storage is nearly full and will start overwriting the oldest
+        recordings. Download anything worth keeping.
+        {% else %}
+        The hub's recording service failed ({{ trigger.event.data.reason }})
+        and was restarted automatically. Expect about two minutes of
+        downtime; nothing else needs doing unless this keeps happening.
+        {% endif %}
+  - action: "{{ service }}"
+    data:
+      title: "Tapo H500 needs attention"
+      message: "{{ body | trim }}"
+
+variables:
+  service: !input notify_service

@@ -173,6 +173,15 @@ LOOKBACK_SECONDS = 86400
 # misses a photograph, at a cost of one unauthenticated TCP exchange.
 MEDIA_CHECK_SECONDS = 900
 
+# Opt-in self-healing: restart the hub when its media service is seen in
+# either failure state. Off by default -- an automatic reboot is the owner's
+# decision -- and never more often than the cooldown, which makes a reboot
+# loop impossible however long the failure persists.
+CONF_AUTO_RESTART = "auto_restart"
+DEFAULT_AUTO_RESTART = False
+AUTO_RESTART_COOLDOWN = 6 * 3600
+EVENT_AUTO_RESTART = f"{DOMAIN}_auto_restart"
+
 # How often the hub is asked to check the cloud for newer firmware. Hours:
 # the check makes the HUB phone TP-Link, and the app shows the same restraint.
 FIRMWARE_CHECK_SECONDS = 21600
