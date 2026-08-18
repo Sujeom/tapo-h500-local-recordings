@@ -39,6 +39,7 @@ CLASHING_NAMES_ISSUE = "clashing_camera_names"
 TAMPER_ISSUE = "camera_tampered"
 MEDIA_ISSUE = "media_wedged"
 DOWNLOADS_ISSUE = "downloads_failing"
+RESTART_INEFFECTIVE_ISSUE = "restart_ineffective"
 
 # Consecutive failures on one camera before it becomes a notice. One is a
 # blip, two is a bad evening; three in a row with no success between them is
@@ -65,6 +66,7 @@ def async_check(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     _clashing_names(hass, entry_id, coordinator)
     _media(hass, entry_id, coordinator)
     _downloads_failing(hass, entry_id, coordinator)
+    _restart_ineffective(hass, entry_id, coordinator)
     _tampered(hass, entry_id, coordinator)
 
 
@@ -350,3 +352,25 @@ async def async_create_fix_flow(hass: HomeAssistant, issue_id: str,
             )
 
     return NameFaceFlow()
+
+
+def _restart_ineffective(hass: HomeAssistant, entry_id: str,
+                         coordinator) -> None:
+    """Say when the automatic restart failed to cure the media failure.
+
+    A reboot has cured every media failure this hub has ever shown; one
+    that does not is a NEW failure, and quietly rebooting every six hours
+    would mask it forever. The breaker has already paused the automation --
+    this makes the pause, and the reason, visible. Clears itself the moment
+    recordings actually serve again.
+    """
+    issue_id = _issue_id(entry_id, RESTART_INEFFECTIVE_ISSUE)
+    if not getattr(coordinator, "auto_restart_broken", False):
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    ir.async_create_issue(
+        hass, DOMAIN, issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key=RESTART_INEFFECTIVE_ISSUE,
+    )

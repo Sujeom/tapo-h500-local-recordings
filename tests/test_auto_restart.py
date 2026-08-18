@@ -120,3 +120,75 @@ class AutoRestart(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CircuitBreaker(unittest.TestCase):
+    """A restart that does not cure stops being tried.
+
+    If the failure state returns within half an hour of an automatic
+    restart, rebooting is not the cure -- it is a new failure wearing a
+    familiar coat, and a reboot every six hours would mask it forever. The
+    breaker trips, a distinct repair notice says so, and full recovery
+    (real bytes served) is the only thing that re-arms automation.
+    """
+
+    def test_a_returning_failure_trips_the_breaker(self):
+        coord, client = _build()
+        client.check_media = lambda: "wedged"
+        _poll(coord)                       # restarts once
+        coord._auto_restarted = 1_786_600_000 - 600   # ten minutes ago
+        _poll(coord)                       # state still wedged
+        self.assertTrue(coord.auto_restart_broken)
+        self.assertEqual(client.reboots, 1)
+
+    def test_a_tripped_breaker_outlasts_the_cooldown(self):
+        coord, client = _build()
+        client.check_media = lambda: "wedged"
+        _poll(coord)
+        coord._auto_restarted = 1_786_600_000 - 600
+        _poll(coord)                       # trips
+        coord._auto_restarted = 1_786_600_000 - 8 * 3600   # cooldown long past
+        _poll(coord, 3)
+        self.assertEqual(client.reboots, 1,
+                         "a restart that did not cure must not be retried")
+
+    def test_real_recovery_rearms_it(self):
+        coord, client = _build()
+        client.check_media = lambda: "wedged"
+        _poll(coord)
+        coord._auto_restarted = 1_786_600_000 - 600
+        _poll(coord)                       # trips
+        client.check_media = lambda: "healthy"
+        coord.note_served_download()       # bytes actually flowed
+        self.assertFalse(coord.auto_restart_broken)
+        client.check_media = lambda: "wedged"
+        coord._auto_restarted = 1_786_600_000 - 8 * 3600
+        _poll(coord)
+        self.assertEqual(client.reboots, 2)
+
+    def test_a_slow_relapse_is_a_fresh_failure_not_a_broken_cure(self):
+        """Wedged again six hours later is the known recurrence, and the
+        known recurrence is exactly what auto-restart exists for."""
+        coord, client = _build()
+        client.check_media = lambda: "wedged"
+        _poll(coord)
+        coord.note_served_download()       # it recovered in between
+        coord._auto_restarted = 1_786_600_000 - 8 * 3600
+        _poll(coord)
+        self.assertFalse(coord.auto_restart_broken)
+        self.assertEqual(client.reboots, 2)
+
+    def test_the_repair_notice_exists(self):
+        import json
+        repairs = (COMPONENT / "repairs.py").read_text()
+        self.assertIn("_restart_ineffective(hass, entry_id, coordinator)",
+                      repairs)
+        body = repairs.split("def _restart_ineffective", 1)[1].split(
+            "\ndef ", 1)[0]
+        self.assertIn("auto_restart_broken", body)
+        self.assertIn("async_delete_issue", body)
+        strings = json.loads(
+            (COMPONENT / "translations" / "en.json").read_text())
+        issue = strings["issues"]["restart_ineffective"]
+        self.assertTrue(issue["title"])
+        self.assertIn("diagnostics", issue["description"].lower())

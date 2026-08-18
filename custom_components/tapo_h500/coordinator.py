@@ -29,7 +29,8 @@ from .const import (
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
-    AUTO_RESTART_COOLDOWN, CONF_AUTO_RESTART, DEFAULT_AUTO_RESTART,
+    AUTO_RESTART_COOLDOWN, AUTO_RESTART_CURE_WINDOW, CONF_AUTO_RESTART,
+    DEFAULT_AUTO_RESTART,
     EVENT_AUTO_RESTART,
     FIRMWARE_CHECK_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
     MEDIA_EVIDENCE_MAX_AGE,
@@ -133,8 +134,11 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # so one counter, not per camera; the handshake sentinel cannot see
         # it, so the downloads are the evidence.
         self._empty_downloads = 0
-        # When the last automatic restart happened, if the owner opted in.
+        # When the last automatic restart happened, if the owner opted in
+        # -- and whether one failed to cure, which stops further attempts
+        # until real recovery re-arms them.
         self._auto_restarted = 0.0
+        self._auto_restart_broken = False
         # When a media session last taught us anything -- bytes served or a
         # confirmed empty answer. Stale evidence plus an indexed clip is
         # what triggers the deep check.
@@ -821,7 +825,20 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                       else "empty" if self.media_serving_empty else None)
             reboot = getattr(self.client, "reboot", None)
             elapsed = now - self._auto_restarted
+            # The circuit breaker: a failure back within half an hour of a
+            # restart means restarting is not the cure -- a new failure in
+            # a familiar coat, which a reboot every six hours would mask
+            # forever. Only real recovery (bytes served) re-arms it.
+            if (reason is not None and not self._auto_restart_broken
+                    and 0 < elapsed <= AUTO_RESTART_CURE_WINDOW):
+                self._auto_restart_broken = True
+                _LOGGER.warning(
+                    "The automatic restart did not cure the media failure "
+                    "(%s is back within %.0f minutes); automatic restarts "
+                    "are paused until recordings actually serve again",
+                    reason, elapsed / 60)
             if (reason is not None and reboot is not None
+                    and not self._auto_restart_broken
                     and elapsed >= AUTO_RESTART_COOLDOWN):
                 self._auto_restarted = now
                 self.note_served_download()  # start counting fresh
@@ -955,6 +972,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
     def note_served_download(self) -> None:
         self._empty_downloads = 0
         self._media_evidence = dt_util.utcnow().timestamp()
+        # Real bytes flowed: whatever was wrong is over, so a tripped
+        # breaker re-arms and future failures may be auto-cured again.
+        self._auto_restart_broken = False
 
     async def _deep_media_check(self, camera, start: int, end: int) -> None:
         """Two bounded seconds of the newest clip, as evidence.
@@ -983,6 +1003,11 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             if self.media_serving_empty:
                 return
             await asyncio.sleep(EMPTY_CONFIRM_DELAY)
+
+    @property
+    def auto_restart_broken(self) -> bool:
+        """An automatic restart failed to cure the failure it fired for."""
+        return self._auto_restart_broken
 
     @property
     def media_serving_empty(self) -> bool:

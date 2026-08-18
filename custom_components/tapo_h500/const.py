@@ -186,6 +186,9 @@ MEDIA_EVIDENCE_MAX_AGE = 3600
 CONF_AUTO_RESTART = "auto_restart"
 DEFAULT_AUTO_RESTART = False
 AUTO_RESTART_COOLDOWN = 6 * 3600
+# A failure back within this long of an automatic restart means restarting
+# is not the cure; the breaker trips and only real recovery re-arms it.
+AUTO_RESTART_CURE_WINDOW = 1800
 EVENT_AUTO_RESTART = f"{DOMAIN}_auto_restart"
 
 # How often the hub is asked to check the cloud for newer firmware. Hours:
