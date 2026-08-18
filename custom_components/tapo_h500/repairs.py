@@ -261,7 +261,10 @@ def _media(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     """
     issue_id = _issue_id(entry_id, MEDIA_ISSUE)
     wedged = getattr(coordinator, "media_status", None) == "wedged"
-    if not wedged:
+    # The 2026-08-18 variant: sessions answer perfectly and carry nothing.
+    # The handshake cannot see it; the downloads can.
+    empty = bool(getattr(coordinator, "media_serving_empty", False))
+    if not (wedged or empty):
         ir.async_delete_issue(hass, DOMAIN, issue_id)
         return
     ir.async_create_issue(

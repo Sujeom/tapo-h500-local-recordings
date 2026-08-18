@@ -34,8 +34,8 @@ from .const import (
     STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
 )
 from .media import (
-    async_download_clip, async_latest_image, async_preview_clip, async_prune,
-    async_verify, existing_clip,
+    EmptyRecordingError, async_download_clip, async_latest_image,
+    async_preview_clip, async_prune, async_verify, existing_clip,
 )
 from .status import hub_readings, hours_until_full, trend_samples
 
@@ -119,6 +119,12 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # full, media service refusing -- and repairs.py turns it into a
         # notice instead of a warning in a log nobody reads.
         self._download_failures: dict[int, int] = {}
+        # Consecutive downloads that completed cleanly with zero video --
+        # the hub's second media failure (2026-08-18): every session works
+        # and carries nothing, for every clip, until a reboot. Hub state,
+        # so one counter, not per camera; the handshake sentinel cannot see
+        # it, so the downloads are the evidence.
+        self._empty_downloads = 0
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
@@ -870,6 +876,23 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 f"{DOMAIN} download {start_of(clip)}",
             )
 
+    def note_empty_download(self) -> None:
+        self._empty_downloads += 1
+
+    def note_served_download(self) -> None:
+        self._empty_downloads = 0
+
+    @property
+    def media_serving_empty(self) -> bool:
+        """Two clean-but-empty downloads in a row: the hub serves nothing.
+
+        One could be a freak clip; two consecutive recordings with real
+        durations answering zero bytes is the state measured on hardware,
+        where it held for every clip of every age. A single served download
+        clears it.
+        """
+        return self._empty_downloads >= 2
+
     @property
     def download_failures(self) -> dict[str, int]:
         """Camera name -> consecutive failed automatic downloads."""
@@ -919,6 +942,13 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                     CONF_CONVERT_MP4, DEFAULT_CONVERT_MP4),
                 detected=detection_types(clip), faces=face_ids(clip),
             )
+        except EmptyRecordingError as err:
+            _LOGGER.warning("Automatic download of clip %s failed: %s",
+                            start_time, err)
+            self._download_failures[index] = (
+                self._download_failures.get(index, 0) + 1)
+            self.note_empty_download()
+            return
         except HomeAssistantError as err:
             _LOGGER.warning("Automatic download of clip %s failed: %s",
                             start_time, err)
@@ -941,6 +971,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 self._download_failures.get(index, 0) + 1)
             return
         self._download_failures.pop(index, None)
+        self.note_served_download()
         # Only automatic downloads are pruned. A manual download is a
         # deliberate choice and is left alone.
         keep = self.entry.options.get(CONF_KEEP_DOWNLOADS, DEFAULT_KEEP_DOWNLOADS)

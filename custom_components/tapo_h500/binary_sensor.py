@@ -507,6 +507,10 @@ class H500MediaProblem(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
 
     @property
     def is_on(self) -> bool | None:
+        # Serving-empty is known regardless of whether a handshake has run:
+        # the downloads themselves are the evidence.
+        if getattr(self.coordinator, "media_serving_empty", False):
+            return True
         status = self.coordinator.media_status
         if status is None:
             return None
@@ -514,7 +518,9 @@ class H500MediaProblem(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {"media_status": self.coordinator.media_status}
+        return {"media_status": self.coordinator.media_status,
+                "serving_empty":
+                bool(getattr(self.coordinator, "media_serving_empty", False))}
 
 
 class H500FaceSeenRecently(CoordinatorEntity[H500Coordinator], BinarySensorEntity):

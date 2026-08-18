@@ -28,6 +28,16 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+class EmptyRecordingError(HomeAssistantError):
+    """A media session that completed cleanly and carried no video.
+
+    Seen on 2026-08-18: the hub answered every session -- handshake, auth,
+    protocol, a clean finished -- with zero bytes, for every clip of every
+    age, until a reboot. Its own error type because the coordinator counts
+    exactly this shape: it is hub state, not a bad clip.
+    """
+
 URL_LIFETIME = timedelta(hours=12)
 
 
@@ -224,7 +234,7 @@ async def async_download_clip(
             received += len(chunk)
             await hass.async_add_executor_job(stream.write, chunk)
         if received == 0:
-            raise HomeAssistantError("H500 returned no video data")
+            raise EmptyRecordingError("H500 returned no video data")
         await hass.async_add_executor_job(stream.close)
         stream = None
         if convert:

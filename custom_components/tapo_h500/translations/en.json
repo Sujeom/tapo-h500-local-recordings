@@ -391,7 +391,7 @@
     },
     "media_wedged": {
       "title": "The H500 has stopped serving recordings",
-      "description": "The hub is still detecting events, but its media service is refusing every session, so notification photographs and recording playback and downloads will fail until it recovers. In testing only a hub reboot clears this state: Tapo app → hub → settings → reboot, or power-cycle it. Recordings already on the hub are not lost."
+      "description": "The hub is still detecting events, but its media service has stopped delivering recordings — either refusing sessions outright, or answering them cleanly with no video in them. Notification photographs, previews and downloads will fail until it recovers, and in testing only a hub reboot clears either state: press the hub's Restart button on its device page, or power-cycle it. Recordings already on the hub are not lost."
     },
     "downloads_failing": {
       "title": "Recordings from {cameras} are not downloading",

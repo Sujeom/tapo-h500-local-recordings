@@ -383,3 +383,61 @@ class CaseDExperiment(unittest.TestCase):
         # The ids themselves stay out of the log.
         self.assertNotIn(before, logs.output[0])
         self.assertNotIn(after, logs.output[0])
+
+
+class ServingEmpty(unittest.TestCase):
+    """The hub's second way of breaking media, seen on 2026-08-18.
+
+    Every session works -- handshake, auth, protocol, a clean finished --
+    and carries zero bytes of video, for every clip of every age, until a
+    reboot. The handshake sentinel is structurally blind to it, so the
+    evidence is the downloads themselves: video with a nonzero duration
+    answering empty is not a quiet camera, and two in a row is the state.
+    """
+
+    def _coord(self):
+        coord, _ = harness._build()
+        coord.cameras = [{"device_id": "cam0", "alias": "Front"}]
+        return coord
+
+    def test_two_empty_downloads_mean_the_hub_serves_nothing(self):
+        coord = self._coord()
+        coord.note_empty_download()
+        self.assertFalse(coord.media_serving_empty)
+        coord.note_empty_download()
+        self.assertTrue(coord.media_serving_empty)
+
+    def test_one_good_download_clears_it(self):
+        coord = self._coord()
+        coord.note_empty_download()
+        coord.note_empty_download()
+        coord.note_served_download()
+        self.assertFalse(coord.media_serving_empty)
+
+    def test_the_empty_failure_is_its_own_type(self):
+        media_src = (COMPONENT / "media.py").read_text()
+        self.assertIn("class EmptyRecordingError", media_src)
+        self.assertIn('raise EmptyRecordingError("H500 returned no video data")',
+                      media_src)
+
+    def test_the_coordinator_counts_it_from_downloads(self):
+        coordinator_src = (COMPONENT / "coordinator.py").read_text()
+        body = coordinator_src.split("async def _download", 1)[1].split(
+            "\n    async def ", 1)[0]
+        self.assertIn("EmptyRecordingError", body)
+        self.assertIn("note_empty_download", body)
+        self.assertIn("note_served_download", body)
+
+    def test_the_repair_covers_both_shapes(self):
+        body = REPAIRS.split("def _media", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("media_serving_empty", body)
+
+    def test_the_sensor_covers_both_shapes(self):
+        sensor_src = (COMPONENT / "binary_sensor.py").read_text()
+        body = sensor_src.split("class H500MediaProblem", 1)[1].split(
+            "\nclass ", 1)[0]
+        self.assertIn("media_serving_empty", body)
+
+    def test_the_notice_mentions_the_restart_button(self):
+        text = STRINGS["issues"]["media_wedged"]["description"]
+        self.assertIn("Restart", text)

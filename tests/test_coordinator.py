@@ -106,6 +106,9 @@ def _install_stubs():
     # media.py pulls in more of Home Assistant than this needs; the download
     # path is not what these tests exercise.
     media = types.ModuleType("tapo_h500.media")
+    media.EmptyRecordingError = type(
+        "EmptyRecordingError",
+        (sys.modules["homeassistant.exceptions"].HomeAssistantError,), {})
     media.async_download_clip = None
     media.async_latest_image = None
     media.async_preview_clip = None
