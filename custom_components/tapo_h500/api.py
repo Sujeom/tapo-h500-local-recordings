@@ -182,15 +182,19 @@ class H500Client:
         return self.info
 
     def firmware_update(self) -> dict:
-        """Ask the hub to ask the cloud whether newer firmware exists.
+        """What the hub already knows about newer firmware. Local read only.
 
-        pytapo's own two-request batch, verified on this hub 2026-08-17
-        (both sub-requests error_code 0). The hub does the phoning; callers
-        keep the cadence to hours, the same restraint the app shows.
+        Deliberately NOT pytapo's isUpdateAvailable: that batch includes
+        checkFirmwareVersionByCloud, which COMMANDS the hub to contact
+        TP-Link -- and the whole point of this integration is hub and
+        cameras with no internet access. This reads the cached upgrade_info
+        block and nothing else. On a WAN-blocked hub it is empty forever,
+        which truthfully reads as "no update is coming", because none is.
         """
         with self._hub_lock:
-            reply = self._hub.isUpdateAvailable()
-        return firmware_upgrade(unpack_multiple(reply))
+            reply = self._hub.executeFunction(
+                "getCloudConfig", {"cloud_config": {"name": ["upgrade_info"]}})
+        return firmware_upgrade({"getCloudConfig": reply})
 
     def reboot(self):
         """Restart the hub, immediately. Blocking; run in an executor.

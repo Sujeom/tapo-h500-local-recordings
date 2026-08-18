@@ -176,3 +176,56 @@ class UpdateEntityWiring(unittest.TestCase):
 
     def test_the_raw_cloud_answer_is_visible(self):
         self.assertIn('"upgrade_info"', self.UPDATE)
+
+
+class NothingPhonesHome(unittest.TestCase):
+    """The whole point of this integration is hub and cameras with no
+    internet access. Reading what the hub already knows is fine; COMMANDING
+    it to contact TP-Link is not, and checkFirmwareVersionByCloud is such a
+    command. The update entity therefore reads the cached upgrade_info block
+    only -- on a WAN-blocked hub that is empty forever, which truthfully
+    reads as "no update is coming", because none is.
+    """
+
+    def test_the_firmware_read_commands_no_cloud_contact(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent))
+        import test_api  # noqa: F401 - pytapo stubs
+        import importlib
+        api = importlib.import_module("tapo_h500.api")
+
+        class Hub:
+            calls = []
+
+            def executeFunction(self, method, params):
+                Hub.calls.append(method)
+                return {"cloud_config": {"upgrade_info": {}}}
+
+            def performRequest(self, payload):
+                Hub.calls.append([r["method"] for r in
+                                  payload["params"]["requests"]])
+                return {"result": {"responses": []}}
+
+        Hub.calls = []
+        client = api.H500Client("host", "admin", "local", "cloud")
+        client._hub = Hub()
+        info = client.firmware_update()
+        flat = str(Hub.calls)
+        self.assertNotIn("checkFirmwareVersionByCloud", flat)
+        self.assertIn("getCloudConfig", flat)
+        self.assertIsNone(info["version"])
+
+    def test_the_verb_appears_nowhere_in_the_component(self):
+        for path in COMPONENT.glob("*.py"):
+            self.assertNotIn('"checkFirmwareVersionByCloud"',
+                             path.read_text(), path.name)
+        # ...and pytapo's wrapper for it is not borrowed either. The CALL
+        # shape, not the name: a docstring may rightly name the method it
+        # refuses to use.
+        for path in COMPONENT.glob("*.py"):
+            self.assertNotIn(".isUpdateAvailable(", path.read_text(),
+                             path.name)
+
+    def test_every_polled_hub_request_is_a_local_read(self):
+        for name, _ in status.HUB_STATUS_REQUESTS:
+            self.assertTrue(name.startswith("get"), name)

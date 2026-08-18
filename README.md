@@ -11,6 +11,27 @@ controls such as the siren.
 > two TD21 doorbells). Entity names and options may change without a migration.
 > There is no live view — see [docs/limitations.md](docs/limitations.md).
 
+## Local only, by design
+
+The point of this integration is running the hub and cameras **without
+giving them internet access**. Everything it does happens on your LAN —
+control on `443`, downloads on `8800` — and it never commands the hub to
+contact TP-Link: no cloud checks, no telemetry, nothing. The "TP-Link cloud
+password" asked for at setup is only used to derive the local
+media-encryption key; no cloud account is contacted.
+
+Block the hub and cameras from the WAN freely. Two things to know when you
+do:
+
+- **Leave NTP (UDP 123) open if you can.** A hub that cannot set its clock
+  drifts, and recordings get filed under the wrong day.
+  `sensor.<hub>_clock_offset` shows the drift either way.
+- **Turn the auto-upgrade switch off** (`switch.<hub>_auto_upgrade`) — it
+  cannot fetch anything without internet, and disabling it stops the hub
+  trying on its schedule. The firmware `update` entity only reads what the
+  hub already knows and shows "up to date" on a blocked hub, which is the
+  truth: no update is coming to an offline device.
+
 ## Install
 
 **HACS** → three-dot menu → **Custom repositories** → this repo's URL, category

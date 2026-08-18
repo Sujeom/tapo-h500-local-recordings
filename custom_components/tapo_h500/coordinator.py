@@ -760,8 +760,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             elif self.media_status == "healthy":
                 self._wedge_rotated = False
 
-        # The cloud firmware check, a few times a day. The hub phones
-        # TP-Link for this one, so the cadence is hours.
+        # What the hub already knows about newer firmware, a few times a
+        # day. A local read of its cached block -- nothing commands it to
+        # contact TP-Link; see H500Client.firmware_update.
         firmware = getattr(self.client, "firmware_update", None)
         if firmware is not None and self._polls % self._firmware_every == 0:
             try:

@@ -1,10 +1,11 @@
 """Firmware update entity for the hub.
 
-The hub can ask TP-Link's cloud whether newer firmware exists -- pytapo's
-own two-request batch, verified on this hardware -- and Home Assistant has a
-whole entity type for exactly this answer. Installed comes from the same
-basic_info the device page shows; latest from the cloud check the
-coordinator runs a few times a day.
+Fed by a LOCAL read of the hub's own cached upgrade_info block, a few
+times a day. Nothing here commands the hub to contact TP-Link -- the whole
+point of this integration is hub and cameras with no internet access, so
+on a WAN-blocked hub the block stays empty and the entity truthfully shows
+current, because no update is coming to an offline hub. Installed comes
+from the same basic_info the device page shows.
 
 No install-from-here: setFirmwareUpgrade is deliberately unprobed on a hub
 that is easy to wedge, so the entity reports and the app upgrades. An

@@ -58,6 +58,7 @@ timezone (changing it would shift every clip timestamp).
 
 | Entity | Use |
 | --- | --- |
+| `update.<hub>_firmware` | Whether newer hub firmware exists, from the hub's own cached record — a local read; nothing commands the hub to contact TP-Link. On an internet-blocked hub it always shows current, which is the truth: no update is coming. Report-only; the app does the upgrading. |
 | `button.<hub>_restart` | Restarts the hub — about two minutes of downtime, recordings intact, the same thing it does to itself nightly. The recovery for the media-wedge notice, one press instead of the Tapo app. Cameras cannot be restarted from here: the hub offers no per-camera addressing at all. |
 | `camera.<name>` | The frame from that camera's newest clip. Fetched from the hub if no download has written it yet — so the notification's Camera button shows the event it announced, not the previous one. While the hub is still recording, the previous event is all that exists anywhere. |
 | `event.<name>_activity` | Fires `ring` or `motion`, with `start_time`, `end_time`, `duration` and the hub's raw `hub_type` label as attributes. |

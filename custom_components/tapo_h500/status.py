@@ -354,10 +354,11 @@ def trend_samples(previous: list[tuple[int, float]], at: int,
 
 
 def firmware_upgrade(reply: dict) -> dict:
-    """What the cloud firmware check said.
+    """The hub's cached word on newer firmware.
 
-    Probed on 2026-08-17: an up-to-date hub answers with an EMPTY
-    upgrade_info, so empty means current. The field names of a pending
+    Probed on 2026-08-17: an up-to-date hub holds an EMPTY upgrade_info, so
+    empty means current -- and a WAN-blocked hub holds empty forever, which
+    is also the truth. The field names of a pending
     update are unknown until one exists; the plausible spellings are tried
     and the raw block rides along so nothing is lost if they all miss.
     """
