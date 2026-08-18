@@ -1,6 +1,7 @@
 """Polls the hub, turns new activity into events, and downloads rings."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 
@@ -31,6 +32,7 @@ from .const import (
     AUTO_RESTART_COOLDOWN, CONF_AUTO_RESTART, DEFAULT_AUTO_RESTART,
     EVENT_AUTO_RESTART,
     FIRMWARE_CHECK_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
+    MEDIA_EVIDENCE_MAX_AGE,
     POLL_BACKOFF_MAX, PROWL_WINDOW,
     SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
@@ -42,6 +44,10 @@ from .media import (
 from .status import hub_readings, hours_until_full, trend_samples
 
 _LOGGER = logging.getLogger(__name__)
+
+# Seconds between the deep check's first empty answer and its confirming
+# second fetch. Module-level so tests can zero it.
+EMPTY_CONFIRM_DELAY = 10
 
 
 def interval_or_default(entry: ConfigEntry) -> int:
@@ -129,6 +135,10 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._empty_downloads = 0
         # When the last automatic restart happened, if the owner opted in.
         self._auto_restarted = 0.0
+        # When a media session last taught us anything -- bytes served or a
+        # confirmed empty answer. Stale evidence plus an indexed clip is
+        # what triggers the deep check.
+        self._media_evidence = 0.0
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
@@ -770,6 +780,35 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             elif self.media_status == "healthy":
                 self._wedge_rotated = False
 
+        # The deep check: when no media session has taught us anything for
+        # an hour and an indexed clip exists, fetch two seconds of it in the
+        # background and feed the same counters the downloads feed. This is
+        # what finds the serving-empty failure on a quiet day -- and what
+        # notices recovery without waiting for a download. Skipped while a
+        # session is in flight (evidence is already on its way) and for
+        # clients without the call (the test doubles).
+        fetchable = getattr(self.client, "iter_recording", None)
+        spawn = getattr(self.entry, "async_create_background_task", None)
+        lock = getattr(self.client, "_lock", None)
+        if (fetchable is not None and spawn is not None
+                and now - self._media_evidence >= MEDIA_EVIDENCE_MAX_AGE
+                and not (lock is not None and lock.locked())):
+            newest = None
+            for index in clips_by_camera:
+                for clip in clips_by_camera[index]:
+                    start, end = start_of(clip), end_of(clip)
+                    if (start and end and end > start
+                            and (newest is None or start > newest[1])):
+                        newest = (index, start, end)
+            if newest is not None:
+                index, start, end = newest
+                # Provisional stamp so the next 2-second poll does not
+                # spawn a second fetch while this one runs.
+                self._media_evidence = now
+                spawn(self.hass,
+                      self._deep_media_check(cameras[index], start, end),
+                      f"{DOMAIN} media health check")
+
         # Opt-in self-healing. Both media failure modes -- refused sessions
         # and the hollow ones -- are cured by a reboot and by nothing else
         # ever found, so with the owner's say-so the coordinator presses its
@@ -911,9 +950,39 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
 
     def note_empty_download(self) -> None:
         self._empty_downloads += 1
+        self._media_evidence = dt_util.utcnow().timestamp()
 
     def note_served_download(self) -> None:
         self._empty_downloads = 0
+        self._media_evidence = dt_util.utcnow().timestamp()
+
+    async def _deep_media_check(self, camera, start: int, end: int) -> None:
+        """Two bounded seconds of the newest clip, as evidence.
+
+        Bytes are the all-clear -- recovery gets noticed without waiting
+        for a download. An empty answer could be one freak clip, so it is
+        confirmed with a second fetch moments later rather than a second
+        quiet hour later; two empties flag the state exactly as two empty
+        downloads do. An error is inconclusive: the wedge has its own
+        detector, and a hub mid-reboot must not be miscounted.
+        """
+        for attempt in range(2):
+            received = 0
+            try:
+                async for chunk in self.client.iter_recording(
+                        camera, start, min(end, start + 2),
+                        kind="healthcheck"):
+                    received += len(chunk)
+            except Exception as err:  # noqa: BLE001 - inconclusive by design
+                _LOGGER.debug("Media health fetch inconclusive: %s", err)
+                return
+            if received:
+                self.note_served_download()
+                return
+            self.note_empty_download()
+            if self.media_serving_empty:
+                return
+            await asyncio.sleep(EMPTY_CONFIRM_DELAY)
 
     @property
     def media_serving_empty(self) -> bool:

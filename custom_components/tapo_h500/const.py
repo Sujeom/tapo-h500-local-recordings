@@ -173,6 +173,12 @@ LOOKBACK_SECONDS = 86400
 # misses a photograph, at a cost of one unauthenticated TCP exchange.
 MEDIA_CHECK_SECONDS = 900
 
+# How stale media EVIDENCE may get before the coordinator fetches two
+# bounded seconds of the newest clip itself. Every served or empty download
+# is evidence; on a quiet day with no downloads, this is what finds the
+# serving-empty failure within the hour instead of never.
+MEDIA_EVIDENCE_MAX_AGE = 3600
+
 # Opt-in self-healing: restart the hub when its media service is seen in
 # either failure state. Off by default -- an automatic reboot is the owner's
 # decision -- and never more often than the cooldown, which makes a reboot
