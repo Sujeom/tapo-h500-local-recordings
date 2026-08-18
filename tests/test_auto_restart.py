@@ -192,3 +192,48 @@ class CircuitBreaker(unittest.TestCase):
         issue = strings["issues"]["restart_ineffective"]
         self.assertTrue(issue["title"])
         self.assertIn("diagnostics", issue["description"].lower())
+
+
+class PostRestartRecheck(unittest.TestCase):
+    """The cure is verified, not assumed.
+
+    A few minutes after an automatic restart, the deep media check is
+    forced to run at the next opportunity: bytes prove the cure and re-arm
+    everything, an empty answer feeds the breaker while the failure is
+    still inside its cure window. Without this, a restart that fixed
+    nothing would sit undiscovered until the next event or quiet hour.
+    """
+
+    def test_a_restart_arms_the_recheck(self):
+        coord, client = _build()
+        client.check_media = lambda: "wedged"
+        _poll(coord)
+        self.assertIsNotNone(coord._recheck_at)
+
+    def test_the_recheck_forces_the_deep_check_due(self):
+        coord, client = _build()
+        client.check_media = lambda: "wedged"
+        _poll(coord)
+        coord._media_evidence = 1_786_600_000  # fresh, would normally skip
+        coord._recheck_at = 1_786_600_000 - 1  # due now
+        _poll(coord)
+        self.assertIsNone(coord._recheck_at)
+        self.assertEqual(coord._media_evidence, 0.0,
+                         "evidence must be forced stale so the deep check "
+                         "runs at the first opportunity")
+
+    def test_it_only_fires_once_per_restart(self):
+        coord, client = _build()
+        client.check_media = lambda: "wedged"
+        _poll(coord)
+        coord._recheck_at = 1_786_600_000 - 1
+        _poll(coord)
+        stamped = coord._media_evidence
+        _poll(coord)
+        self.assertEqual(coord._recheck_at, None)
+        self.assertGreaterEqual(coord._media_evidence, stamped)
+
+    def test_no_restart_means_no_recheck(self):
+        coord, client = _build(auto=False)
+        _poll(coord, 3)
+        self.assertIsNone(coord._recheck_at)

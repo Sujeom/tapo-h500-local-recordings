@@ -189,6 +189,9 @@ AUTO_RESTART_COOLDOWN = 6 * 3600
 # A failure back within this long of an automatic restart means restarting
 # is not the cure; the breaker trips and only real recovery re-arms it.
 AUTO_RESTART_CURE_WINDOW = 1800
+# How soon after an automatic restart the deep media check is forced, so
+# the cure is verified rather than assumed.
+AUTO_RESTART_RECHECK = 180
 EVENT_AUTO_RESTART = f"{DOMAIN}_auto_restart"
 
 # How often the hub is asked to check the cloud for newer firmware. Hours:

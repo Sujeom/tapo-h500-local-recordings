@@ -29,7 +29,8 @@ from .const import (
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
     DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
-    AUTO_RESTART_COOLDOWN, AUTO_RESTART_CURE_WINDOW, CONF_AUTO_RESTART,
+    AUTO_RESTART_COOLDOWN, AUTO_RESTART_CURE_WINDOW, AUTO_RESTART_RECHECK,
+    CONF_AUTO_RESTART,
     DEFAULT_AUTO_RESTART,
     EVENT_AUTO_RESTART,
     FIRMWARE_CHECK_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
@@ -139,6 +140,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # until real recovery re-arms them.
         self._auto_restarted = 0.0
         self._auto_restart_broken = False
+        # When to force the deep check after an automatic restart, so the
+        # cure is verified rather than assumed. None means nothing pending.
+        self._recheck_at: float | None = None
         # When a media session last taught us anything -- bytes served or a
         # confirmed empty answer. Stale evidence plus an indexed clip is
         # what triggers the deep check.
@@ -791,6 +795,14 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # notices recovery without waiting for a download. Skipped while a
         # session is in flight (evidence is already on its way) and for
         # clients without the call (the test doubles).
+        # The post-restart recheck: minutes after an automatic restart,
+        # force the deep check due. Bytes prove the cure and re-arm
+        # everything; an empty answer feeds the breaker while the failure
+        # is still inside its cure window.
+        if self._recheck_at is not None and now >= self._recheck_at:
+            self._recheck_at = None
+            self._media_evidence = 0.0
+
         fetchable = getattr(self.client, "iter_recording", None)
         spawn = getattr(self.entry, "async_create_background_task", None)
         lock = getattr(self.client, "_lock", None)
@@ -846,6 +858,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                     "Restarting the hub automatically: media service %s. "
                     "Expect about two minutes of downtime. Turn this off "
                     "under Configure if it was not wanted.", reason)
+                self._recheck_at = now + AUTO_RESTART_RECHECK
                 self.hass.bus.async_fire(EVENT_AUTO_RESTART, {
                     "entry_id": self.entry.entry_id, "reason": reason})
                 try:
