@@ -772,8 +772,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         if (check is not None and self._polls % self._media_every == 0
                 and not (lock is not None and lock.locked())):
             try:
-                self.media_status = await self.hass.async_add_executor_job(
-                    check)
+                self.note_media_status(
+                    await self.hass.async_add_executor_job(check))
             except Exception as err:  # noqa: BLE001 - a health check must not hurt
                 _LOGGER.debug("Media port check failed: %s", err)
             # The case-D experiment: one fresh player_id per wedge episode,
@@ -983,11 +983,26 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._media_evidence = dt_util.utcnow().timestamp()
 
     def note_served_download(self) -> None:
+        recovering = self.media_serving_empty
         self._empty_downloads = 0
         self._media_evidence = dt_util.utcnow().timestamp()
         # Real bytes flowed: whatever was wrong is over, so a tripped
         # breaker re-arms and future failures may be auto-cured again.
         self._auto_restart_broken = False
+        if recovering:
+            # Every clip during the outage burned its one frame-fetch
+            # attempt on an empty answer. Clearing the marks lets the
+            # camera picture repair itself at the next look instead of
+            # staying stale until the next event. Only on recovery: a
+            # routine download clearing them would invite a redundant
+            # refetch per clip.
+            self._frame_attempts.clear()
+
+    def note_media_status(self, status: str) -> None:
+        """Record the sentinel's verdict, noticing recovery on the way."""
+        if status == "healthy" and self.media_status == "wedged":
+            self._frame_attempts.clear()
+        self.media_status = status
 
     async def _deep_media_check(self, camera, start: int, end: int) -> None:
         """Two bounded seconds of the newest clip, as evidence.

@@ -172,3 +172,45 @@ class Routing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HealsWithTheHub(unittest.TestCase):
+    """Attempt marks clear when media recovers, so the picture self-repairs.
+
+    Every clip that occurs during a media outage burns its one fetch
+    attempt on an empty answer. Without this, the camera picture stays
+    stale after recovery until the NEXT event -- the stale-image complaint,
+    scheduled to recur. Only recovery clears the marks: a routine served
+    download must not, or every download would invite a redundant refetch.
+    """
+
+    def _flagged(self, coord):
+        coord.note_empty_download()
+        coord.note_empty_download()
+
+    def test_recovery_from_hollow_sessions_clears_the_marks(self):
+        coord, _ = harness._build()
+        coord._frame_attempts[0] = 123
+        self._flagged(coord)
+        coord.note_served_download()
+        self.assertEqual(coord._frame_attempts, {})
+
+    def test_recovery_from_the_wedge_clears_the_marks(self):
+        coord, _ = harness._build()
+        coord._frame_attempts[0] = 123
+        coord.media_status = "wedged"
+        coord.note_media_status("healthy")
+        self.assertEqual(coord._frame_attempts, {})
+
+    def test_a_routine_download_does_not(self):
+        coord, _ = harness._build()
+        coord._frame_attempts[0] = 123
+        coord.note_served_download()
+        self.assertEqual(coord._frame_attempts, {0: 123})
+
+    def test_staying_healthy_does_not_either(self):
+        coord, _ = harness._build()
+        coord._frame_attempts[0] = 123
+        coord.media_status = "healthy"
+        coord.note_media_status("healthy")
+        self.assertEqual(coord._frame_attempts, {0: 123})
