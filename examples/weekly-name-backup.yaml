@@ -1,0 +1,38 @@
+# A weekly copy of everything you typed in, kept where a reinstall cannot
+# take it.
+#
+# Face names, the camera layout and the authored settings live on the config
+# entry; deleting the integration deletes them, and months of working out
+# who a twelve-digit number is does not come back by itself. backup_names
+# hands the whole lot over in restore_names' own input shape.
+#
+# This drops the snapshot into a persistent notification every Sunday
+# morning — copy it somewhere safe when you notice it. To write a file
+# instead, add Home Assistant's file notify service and swap the action:
+#
+#   notify:
+#     - platform: file
+#       name: tapo_backup
+#       filename: /config/tapo_h500_backup.json
+#       timestamp: false
+
+alias: Weekly Tapo H500 name backup
+mode: single
+
+triggers:
+  - trigger: time
+    at: "09:03:00"
+
+conditions:
+  - condition: time
+    weekday: [sun]
+
+actions:
+  - action: tapo_h500.backup_names
+    data:
+      config_entry_id: YOUR_CONFIG_ENTRY_ID
+    response_variable: backup
+  - action: notify.persistent_notification
+    data:
+      title: "Tapo H500 backup — copy me somewhere safe"
+      message: "```{{ backup | to_json }}```"

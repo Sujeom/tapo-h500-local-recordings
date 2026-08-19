@@ -161,8 +161,11 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Somebody at the camera:** the hub's tamper alarm raises a repair notice
   naming the camera and the time, instead of a sensor that clears after 30
   seconds and is only ever seen by someone who happened to be looking.
-- **Backups:** `tapo_h500.backup_names` hands back the face names and camera
-  layout — the only things here a hub cannot reproduce.
+- **Backups:** `tapo_h500.backup_names` hands back the face names, camera
+  layout and every setting you chose — the things a hub cannot reproduce.
+  A [weekly automation](examples/weekly-name-backup.yaml) is in
+  `examples/`, next to [casting the doorbell clip to a
+  display](examples/cast-last-clip.yaml) seconds after the press.
 - **Download what matters:** pick which detections are worth the disk instead
   of choosing between presses and everything — a road-facing camera fills a
   drive with traffic, and the clips people go back for have a person in them.

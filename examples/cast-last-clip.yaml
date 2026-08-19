@@ -1,0 +1,58 @@
+# Play the doorbell clip on a display, moments after the press.
+#
+# A press fires immediately; the recording exists on the hub perhaps half a
+# minute later and is auto-downloaded moments after that. So this waits for
+# the camera's own "last activity" sensor to reach the press it was woken
+# by, gives the download a few seconds, asks list_recordings for the day,
+# and casts the newest downloaded clip's media_content_id to a player —
+# a Chromecast, an Android TV, a Google or Alexa display, anything that
+# plays media in Home Assistant.
+#
+# Two things to change: the entity ids for YOUR doorbell, and the player.
+# Everything is local — the clip streams from Home Assistant's own media,
+# never from a cloud.
+
+alias: Cast the doorbell clip to the kitchen display
+mode: single          # a second press during playback restarts cleanly
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: event.front_doorbell_activity
+
+conditions:
+  # Presses only. detection_types lists everything that fired at once, so a
+  # press that also saw a person still matches.
+  - condition: template
+    value_template: >-
+      {{ 17 in (state_attr(trigger.entity_id, 'detection_types') or []) }}
+
+actions:
+  - variables:
+      moment: "{{ trigger.to_state.state | as_timestamp | int }}"
+      camera_index: "{{ state_attr(trigger.entity_id, 'camera_index') }}"
+  # Wait until this press's own clip has been indexed by the hub...
+  - wait_template: >-
+      {{ as_timestamp(states('sensor.front_doorbell_last_activity'), 0) | int
+         >= moment }}
+    timeout: "00:03:00"
+    continue_on_timeout: false
+  # ...and give the automatic download a moment to write the file.
+  - delay: "00:00:10"
+  - action: tapo_h500.list_recordings
+    data:
+      config_entry_id: YOUR_CONFIG_ENTRY_ID
+      camera_index: "{{ camera_index }}"
+    response_variable: listing
+  - variables:
+      clip: >-
+        {{ (listing.recordings | selectattr('downloaded') | list | last)
+           | default(none) }}
+  - condition: template
+    value_template: "{{ clip is not none }}"
+  - action: media_player.play_media
+    target:
+      entity_id: media_player.kitchen_display
+    data:
+      media_content_type: video
+      media_content_id: "{{ clip.media_content_id }}"
