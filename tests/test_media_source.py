@@ -348,3 +348,58 @@ class ByType(unittest.TestCase):
             url=url, mime_type=mime)
         resolved = asyncio.run(source.async_resolve_media(item))
         self.assertEqual(resolved.mime_type, "video/mp4")
+
+
+class TodayFolder(unittest.TestCase):
+    """One folder for "what happened today", cameras merged, newest first."""
+
+    def setUp(self):
+        self.root = tempfile.TemporaryDirectory()
+        self.addCleanup(self.root.cleanup)
+        self._old_root = media_source.media_root
+        media_source.media_root = lambda hass: Path(self.root.name)
+        self.addCleanup(setattr, media_source, "media_root", self._old_root)
+        self.base = Path(self.root.name) / "tapo_h500"
+        # The harness clock is frozen; "today" is its local date.
+        import datetime
+        from homeassistant.util import dt as dt_util
+        self.today = dt_util.as_local(dt_util.utc_from_timestamp(
+            int(dt_util.utcnow().timestamp()))).strftime("%Y-%m-%d")
+        self.yesterday = (datetime.date.fromisoformat(self.today)
+                          - datetime.timedelta(days=1)).isoformat()
+
+    def _clip(self, camera, date, clock):
+        day = self.base / camera / date
+        day.mkdir(parents=True, exist_ok=True)
+        (day / f"{clock}.mp4").write_bytes(b"v")
+        (day / f"{clock}.jpg").write_bytes(b"t")
+
+    def _hass(self):
+        class _Hass:
+            async def async_add_executor_job(self, fn, *args):
+                return fn(*args)
+        return _Hass()
+
+    def _browse(self, identifier):
+        source = media_source.H500MediaSource(self._hass())
+        item = types.SimpleNamespace(identifier=identifier)
+        return asyncio.run(source.async_browse_media(item))
+
+    def test_the_root_offers_it_first(self):
+        self._clip("front", self.today, "120000")
+        children = self._browse("").children
+        self.assertEqual(children[-5].title, "Today",
+                         "Today leads the virtual folders")
+
+    def test_it_merges_cameras_newest_first_today_only(self):
+        self._clip("front", self.today, "090000")
+        self._clip("side", self.today, "110000")
+        self._clip("front", self.yesterday, "230000")
+        found = self._browse("today").children
+        self.assertEqual([child.identifier for child in found],
+                         [f"side/{self.today}/110000.mp4",
+                          f"front/{self.today}/090000.mp4"])
+
+    def test_a_quiet_day_is_an_empty_folder_not_an_error(self):
+        self._clip("front", self.yesterday, "230000")
+        self.assertEqual(self._browse("today").children, [])

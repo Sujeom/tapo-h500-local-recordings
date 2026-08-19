@@ -28,10 +28,31 @@ TYPE_FOLDERS = (
     ("pets", "Pets", 9),
 )
 TYPE_PREFIX = "by-type"
+TODAY_ID = "today"
 
 # Enough to answer "what has been through here lately" without handing the
 # frontend a thousand tiles. Newest first, so the cap drops the oldest.
 TYPE_LISTING_CAP = 100
+
+
+def _today_clips(root: Path, today: str, cap: int) -> list[Path]:
+    """Every camera's clips from one local date, merged newest first.
+
+    "What happened today" without picking a camera first. The folder names
+    ARE local dates -- clip_path writes them that way -- so this is a walk
+    of one directory per camera, not a scan.
+    """
+    found: list[Path] = []
+    if not root.is_dir():
+        return found
+    for camera in root.iterdir():
+        day = camera / today
+        if not day.is_dir():
+            continue
+        found.extend(video for video in day.iterdir()
+                     if video.suffix in MIME_TYPES)
+    found.sort(key=lambda path: path.name, reverse=True)
+    return found[:cap]
 
 
 def _typed(root: Path, code: int, cap: int) -> list[Path]:
@@ -158,6 +179,8 @@ class H500MediaSource(MediaSource):
 
     async def async_browse_media(self, item: MediaSourceItem) -> BrowseMediaSource:
         identifier = item.identifier or ""
+        if identifier == TODAY_ID:
+            return await self._browse_today()
         if identifier.split("/", 1)[0] == TYPE_PREFIX:
             return await self._browse_type(identifier)
         depth = len([part for part in identifier.split("/") if part])
@@ -177,8 +200,30 @@ class H500MediaSource(MediaSource):
             else MediaClass.DIRECTORY,
             children=[self._child(identifier, name, depth, path / name, poster)
                       for name, poster in children]
-            + ([self._type_folder(slug, title)
-                for slug, title, _ in TYPE_FOLDERS] if depth == 0 else []),
+            + ([BrowseMediaSource(
+                    domain=DOMAIN, identifier=TODAY_ID,
+                    media_class=MediaClass.DIRECTORY,
+                    media_content_type=MediaType.VIDEO,
+                    title="Today", can_play=False, can_expand=True)]
+               + [self._type_folder(slug, title)
+                  for slug, title, _ in TYPE_FOLDERS] if depth == 0 else []),
+        )
+
+    async def _browse_today(self) -> BrowseMediaSource:
+        from homeassistant.util import dt as dt_util
+
+        today = dt_util.as_local(dt_util.utc_from_timestamp(
+            int(dt_util.utcnow().timestamp()))).strftime("%Y-%m-%d")
+        root = media_root(self.hass) / MEDIA_DIR
+        videos = await self.hass.async_add_executor_job(
+            _today_clips, root, today, TYPE_LISTING_CAP)
+        return BrowseMediaSource(
+            domain=DOMAIN, identifier=TODAY_ID,
+            media_class=MediaClass.DIRECTORY,
+            media_content_type=MediaType.VIDEO,
+            title="Today", can_play=False, can_expand=True,
+            children_media_class=MediaClass.VIDEO,
+            children=[self._typed_child(root, video) for video in videos],
         )
 
     def _type_folder(self, slug: str, title: str) -> BrowseMediaSource:
