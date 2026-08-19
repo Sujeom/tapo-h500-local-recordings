@@ -48,6 +48,7 @@ class CameraSensor(SensorEntityDescription):
 HUB_SENSORS: tuple[HubSensor, ...] = (
     HubSensor(
         key="storage_free", translation_key="storage_free",
+        entity_category=EntityCategory.DIAGNOSTIC,
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.GIGABYTES,
         state_class=SensorStateClass.MEASUREMENT,
@@ -182,6 +183,7 @@ CAMERA_SENSORS: tuple[CameraSensor, ...] = (
     ),
     CameraSensor(
         key="recordings_1h", translation_key="recordings_1h",
+        entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="recordings",
         value=lambda c, i, cam: events_since(
@@ -198,16 +200,19 @@ CAMERA_SENSORS: tuple[CameraSensor, ...] = (
     # stored: the window is a day, and anything longer is the recorder's job.
     CameraSensor(
         key="busiest_hour", translation_key="busiest_hour",
+        entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda c, i, cam: busiest_hour(c.clips_for(i)),
     ),
     CameraSensor(
         key="people_seen", translation_key="people_seen",
+        entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="people",
         value=lambda c, i, cam: unique_faces(c.clips_for(i)),
     ),
     CameraSensor(
         key="unknown_faces", translation_key="unknown_faces",
+        entity_category=EntityCategory.DIAGNOSTIC,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="recordings",
         value=lambda c, i, cam: unknown_face_count(c.clips_for(i)),

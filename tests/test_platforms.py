@@ -232,3 +232,33 @@ class NamePromptFix(unittest.TestCase):
         step = strings["issues"]["unnamed_face"]["fix_flow"]["step"]["init"]
         self.assertTrue(step["title"])
         self.assertIn("{face_id}", step["description"])
+
+
+class DevicePageTidiness(unittest.TestCase):
+    """Analyst numbers live in the diagnostic section; glanceables lead.
+
+    The hub device carries thirty-odd entities now. The page should open
+    with what somebody actually checks -- activity, health, storage level
+    -- and file the numbers that exist for statistics and graphs under
+    Diagnostic, where they keep recording exactly as before. Nothing is
+    removed or disabled; this is shelving, not pruning.
+    """
+
+    SENSOR = (COMPONENT / "sensor.py").read_text()
+
+    def _block(self, key):
+        import re
+        match = re.search(
+            r'key="%s".*?\n    \)' % key, self.SENSOR, re.S)
+        self.assertIsNotNone(match, key)
+        return match.group(0)
+
+    def test_the_analyst_numbers_are_shelved(self):
+        for key in ("storage_free", "recordings_1h", "busiest_hour",
+                    "people_seen", "unknown_faces"):
+            self.assertIn("EntityCategory.DIAGNOSTIC", self._block(key), key)
+
+    def test_the_glanceables_lead(self):
+        for key in ("storage_used", "hub_health", "last_activity",
+                    "recordings_24h"):
+            self.assertNotIn("EntityCategory", self._block(key), key)
