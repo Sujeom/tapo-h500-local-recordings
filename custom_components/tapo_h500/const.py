@@ -179,6 +179,12 @@ MEDIA_CHECK_SECONDS = 900
 # serving-empty failure within the hour instead of never.
 MEDIA_EVIDENCE_MAX_AGE = 3600
 
+# How long a person's entity_picture URL is reused before being re-signed.
+# Half the signature's 12-hour life: stable enough that the frontend caches
+# the photograph instead of refetching per poll, refreshed long before the
+# signature can expire into a broken image.
+PICTURE_RESIGN_SECONDS = 6 * 3600
+
 # Opt-in self-healing: restart the hub when its media service is seen in
 # either failure state. Off by default -- an automatic reboot is the owner's
 # decision -- and never more often than the cooldown, which makes a reboot

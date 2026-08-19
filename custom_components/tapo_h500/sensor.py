@@ -24,9 +24,11 @@ from .clips import (
 from .const import (
     DATA_HUBS, DOMAIN, FACE_PRESENCE_WINDOW, LOITER_GAP, LOOKBACK_SECONDS,
     SIGNAL_FACES_CHANGED,
+    PICTURE_RESIGN_SECONDS,
 )
 from .coordinator import H500Coordinator
 from .entity import H500Entity
+from .preview import preview_url
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -579,6 +581,30 @@ class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
     def native_value(self):
         seen = self._face.get("last_seen")
         return dt_util.utc_from_timestamp(seen) if seen else None
+
+    @property
+    def entity_picture(self) -> str | None:
+        """Their photograph: the frame of their newest sighting.
+
+        Served through the preview endpoint, which generates the frame from
+        the hub if no download ever wrote it and caches it on disk after
+        the first look. The signed URL is cached per sighting and re-signed
+        only as its signature nears expiry -- a fresh signature per poll
+        would make the frontend refetch the same photograph every two
+        seconds.
+        """
+        face = self._face
+        seen, index = face.get("last_seen"), face.get("camera_index")
+        if seen is None or index is None or self.hass is None:
+            return None
+        now = dt_util.utcnow().timestamp()
+        if (getattr(self, "_picture_for", None) != seen
+                or now - getattr(self, "_picture_signed", 0)
+                > PICTURE_RESIGN_SECONDS):
+            self._picture = preview_url(
+                self.hass, self.coordinator.entry.entry_id, index, seen)
+            self._picture_for, self._picture_signed = seen, now
+        return self._picture
 
     @property
     def extra_state_attributes(self) -> dict:

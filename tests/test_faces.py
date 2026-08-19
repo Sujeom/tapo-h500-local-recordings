@@ -305,3 +305,43 @@ class Service(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FacesWithFaces(unittest.TestCase):
+    """A named person's entities carry their photograph.
+
+    The hub has a picture of everyone it recognises; the per-person sensors
+    showed a generic icon. entity_picture now points at the preview endpoint
+    for their newest sighting -- which generates the frame from the hub if
+    no download ever wrote it, and is cached on disk after the first look.
+    """
+
+    SENSOR = (COMPONENT / "sensor.py").read_text()
+    BODY = SENSOR.split("class H500FaceSensor", 1)[1].split("\nclass ", 1)[0]
+
+    def test_the_picture_is_their_newest_sighting(self):
+        self.assertIn("def entity_picture", self.BODY)
+        self.assertIn("preview_url", self.BODY)
+        self.assertIn("last_seen", self.BODY.split("def entity_picture", 1)[1])
+        self.assertIn("camera_index",
+                      self.BODY.split("def entity_picture", 1)[1])
+
+    def test_the_url_is_stable_between_sightings(self):
+        """A fresh signature per poll would make the frontend refetch the
+        same photograph every two seconds. The URL is cached per sighting
+        and only re-signed as its signature nears expiry."""
+        body = self.BODY.split("def entity_picture", 1)[1]
+        self.assertIn("PICTURE_RESIGN_SECONDS", body)
+        self.assertIn("_picture_for", body)
+
+    def test_a_person_never_seen_shows_no_broken_image(self):
+        body = self.BODY.split("def entity_picture", 1)[1]
+        self.assertIn("return None", body)
+
+    def test_resigning_happens_well_inside_the_signatures_life(self):
+        import importlib
+        const_mod = importlib.import_module("tapo_h500.const")
+        media_src = (COMPONENT / "media.py").read_text()
+        # URL_LIFETIME is 12 hours; re-sign at half that.
+        self.assertLessEqual(const_mod.PICTURE_RESIGN_SECONDS, 6 * 3600)
+        self.assertIn("URL_LIFETIME = timedelta(hours=12)", media_src)
