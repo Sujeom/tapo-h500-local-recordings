@@ -404,3 +404,55 @@ class ButtonBudget(unittest.TestCase):
     def test_the_first_notification_offers_snooze(self):
         titles = [button["title"] for button in self._buttons("first", False)]
         self.assertIn("Snooze 1h", titles)
+
+
+class QuietHours(unittest.TestCase):
+    """No notifications between two clock times -- unless it matters.
+
+    Rendered for real with now() stubbed, wrap-around included, because a
+    window crossing midnight is exactly where a grepped-for template goes
+    wrong. `notable` (tampering any time, an unfamiliar face at night)
+    punches through: the whole point of a loud channel is that quiet hours
+    do not apply to it.
+    """
+
+    def _passes(self, clock, start, end, notable=False):
+        import datetime
+        import types
+        import jinja2
+        env = jinja2.Environment()  # noqa: S701 - not HTML
+        hour, minute = map(int, clock.split(":"))
+        env.globals["now"] = lambda: datetime.datetime(
+            2026, 8, 19, hour, minute)
+        template = next(
+            inner["value_template"]
+            for outer in DOC["conditions"] for inner in
+            outer.get("conditions", [{}])[-1].get("conditions", [])
+            if "quiet_start" in inner.get("value_template", ""))
+        rendered = env.from_string(template).render(
+            input_quiet_start=start, input_quiet_end=end,
+            notable=notable)
+        return rendered.strip() == "True"
+
+    def test_unset_means_always_notify(self):
+        self.assertTrue(self._passes("03:00", "", ""))
+
+    def test_inside_the_window_is_silent(self):
+        self.assertFalse(self._passes("23:30", "22:00", "07:00"))
+        self.assertFalse(self._passes("03:00", "22:00", "07:00"))
+
+    def test_outside_the_window_notifies(self):
+        self.assertTrue(self._passes("12:00", "22:00", "07:00"))
+        self.assertTrue(self._passes("21:59", "22:00", "07:00"))
+        self.assertTrue(self._passes("07:00", "22:00", "07:00"))
+
+    def test_a_window_inside_one_day_works_too(self):
+        self.assertFalse(self._passes("14:00", "13:00", "15:00"))
+        self.assertTrue(self._passes("16:00", "13:00", "15:00"))
+
+    def test_notable_punches_through(self):
+        self.assertTrue(self._passes("03:00", "22:00", "07:00", notable=True))
+
+    def test_the_inputs_exist_with_time_selectors(self):
+        for name in ("quiet_start", "quiet_end"):
+            self.assertIn("time", str(DOC["blueprint"]["input"][name]))

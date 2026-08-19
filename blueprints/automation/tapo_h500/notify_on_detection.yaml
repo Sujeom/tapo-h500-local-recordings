@@ -87,6 +87,24 @@ blueprint:
             - domain: switch
               integration: tapo_h500
 
+    quiet_start:
+      name: Quiet from
+      description: >-
+        Optional. No notifications between these two times — crossing
+        midnight is fine — except notable ones (tampering at any hour, an
+        unfamiliar face at night), which are loud precisely so quiet hours
+        do not apply to them. Leave both empty to always notify.
+      default: ""
+      selector:
+        time:
+
+    quiet_end:
+      name: Quiet until
+      description: The end of the quiet window. Ignored unless both are set.
+      default: ""
+      selector:
+        time:
+
     repeat_minutes:
       name: Repeat suppression
       description: >-
@@ -206,6 +224,28 @@ conditions:
             value_template: >-
               {{ not input_snooze_entity
                  or states(input_snooze_entity) != 'on' }}
+          # Quiet hours, wrap-around included. Notable events punch through:
+          # the whole point of the loud channel is that silence does not
+          # apply to it.
+          - condition: template
+            value_template: >-
+              {%- set notable = notable
+                  if notable is defined
+                  else state_attr(trigger.entity_id, 'notable') or false -%}
+              {%- if not input_quiet_start or not input_quiet_end -%}
+                {{ true }}
+              {%- elif notable -%}
+                {{ true }}
+              {%- else -%}
+                {%- set clock = now().strftime('%H:%M') -%}
+                {%- set start = input_quiet_start[0:5] -%}
+                {%- set finish = input_quiet_end[0:5] -%}
+                {%- if start <= finish -%}
+                  {{ not (start <= clock < finish) }}
+                {%- else -%}
+                  {{ not (clock >= start or clock < finish) }}
+                {%- endif -%}
+              {%- endif -%}
           # Repeat suppression. last_triggered belongs to the automation, so this
           # covers every camera it watches rather than each one separately.
           - condition: template
@@ -224,6 +264,8 @@ variables:
   input_quiet_state: !input quiet_state
   input_snooze_entity: !input snooze_entity
   input_repeat_minutes: !input repeat_minutes
+  input_quiet_start: !input quiet_start
+  input_quiet_end: !input quiet_end
   input_send_photo: !input send_photo
   service: !input notify_service
   dashboard: !input dashboard_path
