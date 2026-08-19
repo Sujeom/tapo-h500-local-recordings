@@ -89,6 +89,29 @@ export const dayWindow = (offset, now = new Date()) => {
   return { start_date: utcDay(start), end_date: utcDay(end) };
 };
 
+/** How long after a detection the camera is treated as recording now. */
+export const RECORDING_NOW_SECONDS = 45;
+
+/** Is this camera in the middle of an event right now?
+ *
+ * The event entity's state changes the moment the hub reports a detection,
+ * tens of seconds before any clip is indexed -- the one window where
+ * "something is happening at this door" is knowable at all. Matched by the
+ * camera_index attribute rather than by guessing entity ids from names,
+ * which renames would break.
+ */
+export const recordingNow = (states, index, now = Date.now()) => {
+  for (const entity of Object.values(states || {})) {
+    const attributes = entity.attributes || {};
+    if (attributes.camera_index !== index) continue;
+    if (!("detection_types" in attributes)) continue;   // ours, specifically
+    const moment = Date.parse(entity.state);
+    if (!Number.isNaN(moment)
+        && now - moment < RECORDING_NOW_SECONDS * 1000) return true;
+  }
+  return false;
+};
+
 /** The recordings carrying one detection code; null means all of them. */
 export const byDetection = (recordings, code) =>
   code === null || code === undefined
@@ -324,6 +347,11 @@ const BASE_STYLE = `
      card overflows instead of scrolling. */
   .list, .scroll { flex: 1 1 auto; min-height: 0; }
   .head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .recording-now {
+    color: var(--error-color, #d33); font-size: 0.85rem;
+    animation: tapo-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes tapo-pulse { 50% { opacity: 0.35; } }
   .head h2 { flex: 1; margin: 0; font-size: 1.1rem; font-weight: 500; }
   .cameras { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
   .cameras button[aria-pressed="true"] {
@@ -415,6 +443,8 @@ class H500Base extends HTMLElement {
 
   disconnectedCallback() {
     clearInterval(this._timer);
+    clearTimeout(this._pulseTimer);
+    this._pulseTimer = null;
   }
 
   async _call(service, data) {
@@ -634,9 +664,20 @@ class H500Base extends HTMLElement {
             aria-pressed="${cam.index === this._index}">${esc(cam.alias)}</button>
         `).join("")}</div>`
       : "";
+    const live = this._hass
+      && recordingNow(this._hass.states, this._index) ? `
+        <span class="recording-now" role="status">&#9679; Recording…</span>`
+      : "";
+    if (live && !this._pulseTimer) {
+      // One re-render at expiry, so the dot goes out by itself.
+      this._pulseTimer = setTimeout(() => {
+        this._pulseTimer = null;
+        this._render();
+      }, RECORDING_NOW_SECONDS * 1000);
+    }
     this._card.innerHTML = `
       <div class="head">
-        <h2>${esc(title)}</h2>
+        <h2>${esc(title)}</h2>${live}
         <button data-action="refresh">Refresh</button>
       </div>
       ${picker}

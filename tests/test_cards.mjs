@@ -831,6 +831,48 @@ test("no offset keeps the normal rolling window", () => {
   assert.deepEqual(window, mod.windowDates(3));
 });
 
+test("recordingNow spots a fresh event on this camera and only this one", () => {
+  const now = Date.now();
+  const states = {
+    "event.front_activity": {
+      state: new Date(now - 20000).toISOString(),
+      attributes: { camera_index: 0, detection_types: [2, 6] },
+    },
+    "event.side_activity": {
+      state: new Date(now - 3600000).toISOString(),
+      attributes: { camera_index: 1, detection_types: [2] },
+    },
+    "event.someone_elses": {
+      state: new Date(now - 1000).toISOString(),
+      attributes: {},
+    },
+  };
+  assert.equal(mod.recordingNow(states, 0, now), true);
+  assert.equal(mod.recordingNow(states, 1, now), false, "an hour is not now");
+  assert.equal(mod.recordingNow(states, 2, now), false);
+  assert.equal(mod.recordingNow({}, 0, now), false);
+  assert.equal(
+    mod.recordingNow({ "event.x": { state: "unknown",
+      attributes: { camera_index: 0, detection_types: [] } } }, 0, now),
+    false, "an unknown state is not a moment");
+});
+
+test("a fresh event puts the pulse in the card header", () => {
+  const card = build(TapoH500Card);
+  card._hass = { states: { "event.front_activity": {
+    state: new Date().toISOString(),
+    attributes: { camera_index: 0, detection_types: [6] },
+  } }, connection: { sendMessagePromise: async () => ({}) },
+    callWS: async () => [] };
+  card._render();
+  assert.ok(card._card.innerHTML.includes("recording-now"));
+  card._hass.states["event.front_activity"].state =
+    new Date(Date.now() - 600000).toISOString();
+  card._render();
+  assert.ok(!card._card.innerHTML.includes("recording-now"),
+            "ten minutes ago is not now");
+});
+
 await Promise.all(pending);
 console.log(failures ? `\n${failures} failure(s)` : "\nall card tests passed");
 process.exit(failures ? 1 : 0);
