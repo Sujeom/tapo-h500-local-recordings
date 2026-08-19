@@ -17,3 +17,9 @@ intents:
           - "what did the cameras see [today]"
           - "(summarise|summarize) [the] (camera|cameras|doorbell) activity"
           - "was there any activity today"
+  TapoH500Snooze:
+    data:
+      - sentences:
+          - "snooze [the] (doorbell|camera|cameras) [notifications] [for an hour]"
+          - "quiet [the] (doorbell|cameras) for an hour"
+          - "(mute|silence) [the] (doorbell|camera|cameras) [notifications]"

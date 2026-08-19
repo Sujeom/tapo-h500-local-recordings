@@ -24,6 +24,7 @@ from .const import (
 
 INTENT_LAST_EVENT = "TapoH500LastEvent"
 INTENT_TODAY = "TapoH500Today"
+INTENT_SNOOZE = "TapoH500Snooze"
 
 
 def _hubs(hass: HomeAssistant):
@@ -122,6 +123,31 @@ class TodayIntent(intent.IntentHandler):
         return response
 
 
+class SnoozeIntent(intent.IntentHandler):
+    """An hour of quiet, spoken.
+
+    Every hub, because the sentence names none and a two-hub household
+    asking for quiet means quiet. The switch turns it back off early, the
+    notifications resume by themselves otherwise, and nothing stops
+    recording -- the same promises the service makes, because it IS the
+    service's machinery.
+    """
+
+    intent_type = INTENT_SNOOZE
+
+    async def async_handle(self, request: intent.Intent) -> intent.IntentResponse:
+        hass = request.hass
+        hubs = _hubs(hass)
+        for coordinator in hubs:
+            coordinator.snooze(3600)
+        response = request.create_response()
+        response.async_set_speech(
+            "Notifications are snoozed for an hour. Recording continues."
+            if hubs else "No Tapo hub is set up.")
+        return response
+
+
 async def async_setup_intents(hass: HomeAssistant) -> None:
     intent.async_register(hass, LastEventIntent())
     intent.async_register(hass, TodayIntent())
+    intent.async_register(hass, SnoozeIntent())

@@ -223,3 +223,32 @@ class Removal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VoiceSnooze(unittest.TestCase):
+    """"Quiet the doorbell for an hour" works out loud.
+
+    The snooze machinery exists -- switch, service, notification button --
+    and Assist is the one place it could not be reached from. The intent
+    snoozes every hub (the spoken sentence names none), defaults to an
+    hour, and answers with when the quiet ends.
+    """
+
+    INTENT = (COMPONENT / "intent.py").read_text()
+    SENTENCES = (COMPONENT / "intents" / "en.yaml").read_text()
+
+    def test_the_intent_exists_and_is_registered(self):
+        self.assertIn('INTENT_SNOOZE = "TapoH500Snooze"', self.INTENT)
+        self.assertIn("intent.async_register(hass, SnoozeIntent())",
+                      self.INTENT)
+
+    def test_it_snoozes_every_hub_for_an_hour(self):
+        body = self.INTENT.split("class SnoozeIntent", 1)[1]
+        self.assertIn("for coordinator in hubs", body)
+        self.assertIn("_hubs(hass)", body)
+        self.assertIn("3600", body)
+
+    def test_the_sentences_sound_like_speech(self):
+        self.assertIn("TapoH500Snooze:", self.SENTENCES)
+        for phrase in ("snooze", "quiet"):
+            self.assertIn(phrase, self.SENTENCES)
