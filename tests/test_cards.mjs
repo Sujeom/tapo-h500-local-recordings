@@ -785,6 +785,52 @@ test("an empty filter result explains itself instead of showing nothing", () => 
   assert.ok(card._card.innerHTML.includes("Nothing with that in it"));
 });
 
+test("dayWindow covers exactly one local day, evenings included", () => {
+  const evening = new Date("2026-08-13T05:46:40Z");  // 22:46 local at -07:00
+  const today = mod.dayWindow(0, evening);
+  // The local day begins on the previous UTC date and ends on this one.
+  assert.deepEqual(today, mod.windowDates(1, evening));
+  const yesterday = mod.dayWindow(1, evening);
+  assert.ok(yesterday.start_date < today.start_date);
+  assert.ok(yesterday.end_date <= today.start_date,
+            "one day back must not overlap today");
+});
+
+test("stepping back N days lands N days back", () => {
+  const now = new Date("2026-08-13T20:00:00Z");
+  const three = mod.dayWindow(3, now);
+  const four = mod.dayWindow(4, now);
+  assert.ok(four.start_date < three.start_date);
+});
+
+test("the recordings card grows day arrows, and today hides the forward one", () => {
+  const card = build(TapoH500Card);
+  card._render();
+  const html = card._card.innerHTML;
+  assert.ok(html.includes('data-action="day-back"'));
+  assert.ok(!html.includes('data-action="day-forward"'),
+            "there is no tomorrow to page into");
+  card._dayOffset = 2;
+  card._render();
+  const paged = card._card.innerHTML;
+  assert.ok(paged.includes('data-action="day-forward"'));
+  assert.ok(paged.includes('data-action="day-today"'),
+            "a jump home from two days back");
+});
+
+test("a day offset asks for that single day", () => {
+  const card = build(TapoH500Card);
+  card._dayOffset = 2;
+  const window = card._window();
+  assert.deepEqual(window, mod.dayWindow(2));
+});
+
+test("no offset keeps the normal rolling window", () => {
+  const card = build(TapoH500Card, { days: 3 });
+  const window = card._window();
+  assert.deepEqual(window, mod.windowDates(3));
+});
+
 await Promise.all(pending);
 console.log(failures ? `\n${failures} failure(s)` : "\nall card tests passed");
 process.exit(failures ? 1 : 0);

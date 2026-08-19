@@ -73,6 +73,22 @@ export const CHIP_FILTERS = [
   ["Vehicles", 8],
 ];
 
+/** The UTC dates covering exactly one local day, `offset` days back.
+ *
+ * offset 0 is today and matches windowDates(1): the local day spans up to
+ * two UTC dates, and both are requested so the evening is not lost.
+ */
+export const dayWindow = (offset, now = new Date()) => {
+  const day = new Date(now);
+  day.setDate(day.getDate() - offset);
+  const start = new Date(day);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  end.setMilliseconds(-1);              // 23:59:59.999 local
+  return { start_date: utcDay(start), end_date: utcDay(end) };
+};
+
 /** The recordings carrying one detection code; null means all of them. */
 export const byDetection = (recordings, code) =>
   code === null || code === undefined
@@ -362,6 +378,7 @@ class H500Base extends HTMLElement {
     // Whether the OWNER chose a day count, before defaults blur it: the
     // difference between "show 3 days" and "show whatever Configure says".
     this._explicitDays = "days" in config;
+    this._dayOffset = 0;
     this._config = { days: 1, max_height: 400, ...this.constructor.defaults,
                      ...config };
     if (!this.shadowRoot) {
@@ -411,6 +428,14 @@ class H500Base extends HTMLElement {
     return result.response;
   }
 
+  _window() {
+    // The list card overrides day paging in; everyone else keeps the
+    // rolling window, global default included.
+    if (this._dayOffset > 0) return dayWindow(this._dayOffset);
+    return windowFor(this._explicitDays, this._config.days,
+                     this.constructor.defaults.days);
+  }
+
   async _entryId() {
     if (this._config.entry_id) return this._config.entry_id;
     if (this._resolvedEntry) return this._resolvedEntry;
@@ -430,8 +455,7 @@ class H500Base extends HTMLElement {
       const response = await this._call("list_recordings", {
         config_entry_id: await this._entryId(),
         camera_index: this._index,
-        ...windowFor(this._explicitDays, this._config.days,
-                     this.constructor.defaults.days),
+        ...this._window(),
       });
       // What the listing actually covers, when the integration decided.
       this._days = response.days ?? this._config.days;
@@ -460,6 +484,14 @@ class H500Base extends HTMLElement {
         await this._load();
       } else if (action === "camera") {
         this._index = Number(button.dataset.index);
+        this._recordings = null;
+        this._playing = null;
+        this._render();
+        await this._load();
+      } else if (action === "day-back" || action === "day-forward"
+                 || action === "day-today") {
+        this._dayOffset = action === "day-back" ? this._dayOffset + 1
+          : action === "day-forward" ? Math.max(0, this._dayOffset - 1) : 0;
         this._recordings = null;
         this._playing = null;
         this._render();
@@ -617,7 +649,11 @@ class TapoH500Card extends H500Base {
   // Rows are what a list wants; a narrow one still reads, so columns can go low.
   static grid = { rows: 6, min_rows: 2, columns: 12, min_columns: 4 };
   static style = `
-    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+    .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+           margin: 0 0 8px; }
+    .pager { display: flex; gap: 4px; align-items: center; }
+    .pager button { border-radius: 6px; padding: 3px 8px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
     .chips button {
       border-radius: 14px; padding: 3px 12px;
       background: var(--secondary-background-color);
@@ -668,6 +704,26 @@ class TapoH500Card extends H500Base {
       ${this._player(item)}`;
   }
 
+  _dayLabel() {
+    if (this._dayOffset === 0) return "";
+    const day = new Date();
+    day.setDate(day.getDate() - this._dayOffset);
+    return day.toLocaleDateString(undefined,
+      { weekday: "short", month: "short", day: "numeric" });
+  }
+
+  _pager() {
+    // Back always exists; forward and the jump home only once off today,
+    // because there is no tomorrow to page into.
+    const off = this._dayOffset > 0;
+    return `<div class="pager">
+      <button data-action="day-back" aria-label="Previous day">&#9664;</button>
+      ${off ? `<button data-action="day-today">${esc(this._dayLabel())}</button>
+      <button data-action="day-forward" aria-label="Next day">&#9654;</button>`
+      : ""}
+    </div>`;
+  }
+
   _chips() {
     return `<div class="chips">${CHIP_FILTERS.map(([label, code]) => `
       <button data-action="filter" data-code="${code === null ? "" : code}"
@@ -680,7 +736,7 @@ class TapoH500Card extends H500Base {
     const rows = shown.length
       ? shown.map((item) => this._row(item)).join("")
       : `<p class="muted">Nothing with that in it for this period.</p>`;
-    return `${this._chips()}
+    return `<div class="bar">${this._pager()}${this._chips()}</div>
       <div class="list"${this._maxHeight()}>${rows}</div>`;
   }
 }
