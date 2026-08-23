@@ -1,0 +1,11 @@
+{
+  "runId": "ril-20260823-215339",
+  "iter": 0,
+  "branch": "improvments",
+  "lastGreenCommit": "340260b",
+  "minedCategories": {},
+  "agentsUsedThisWorkflow": 0,
+  "workflowSession": 1,
+  "status": "running",
+  "profilePath": ".improvement-loop/PROFILE.md"
+}
