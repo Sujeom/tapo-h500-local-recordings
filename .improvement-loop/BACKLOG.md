@@ -123,3 +123,67 @@ ha-conformance, so none of them were touched.
   (1145) and C6 evidence the fix pass had since invalidated. Fixed by a SUPERSEDED pointer at
   `.improvement-loop/LOG.md:6-9` naming both staleness points, with the entry kept verbatim below it
   as the record, and by the final iteration-1 entry appended at the foot with the measured 1147.
+
+## Iteration 2 close-out (2026-08-24)
+
+**Stale paragraph flagged, not rewritten.** The paragraph above beginning "Iteration 1 is NOT closed
+as done" is false as of now, in both halves: iteration 1's tree WAS committed, at `b30d1d9`, by an
+explicit driver decision taken after the FAIL verdict and recorded in `.improvement-loop/LOG.md`
+under `GreenCommit:`; and the test count it quotes (1147) has since moved to 1148. Left in place as
+the record of what the close-out believed, superseded here — the same convention [B-012] and [B-014]
+established.
+
+**Board state for iteration 3.** `.improvement-loop/board-iter2.json` holds **29 live candidates,
+0 dropped** — every entry carries `still_holds: true`, re-checked against HEAD by the iteration-2
+validator. Iteration 2 consumed exactly one of them (`offline-6`), so 28 remain unmined and iteration
+3 should draw from that file rather than paying for a fresh sweep. Dimensions represented include
+correctness, offline-resilience, frontend-cards, security and tests. The debate council, skipped in
+iteration 2 for the reason recorded in `.improvement-loop/LEDGER.md`, returns for iteration 3, which
+faces a genuine choice among them.
+
+### From the iteration-2 audit (2026-08-24) — new findings
+
+- [B-015] [polish] The new comment's single line-cite covers the face proof but not the battery proof
+  it also claims. `custom_components/tapo_h500/api.py:134-136` reads "docs/protocol-notes.md:131
+  establishes -40209 as this H500's answer to a method that exists and was called with the wrong
+  shape, and uses exactly that to prove the face and battery methods absent." Line 131 sits inside the
+  face-detection section (`being called wrongly answers -40209 or -40211 — that is how the face`),
+  with the face conclusion at `docs/protocol-notes.md:132-133`; the BATTERY application of the same
+  rule is a separate section at `docs/protocol-notes.md:168-171` ("with none of the `-40209`/`-40211`
+  replies that mean \"exists, wrong params\"") that the comment does not cite. Both halves of the
+  claim are TRUE and both are in the file — the cite simply under-covers one of them, and a reader
+  following the pointer lands on the correct rule. Not a miscite, not misleading, does not block. Fix
+  if that comment is ever touched: cite `docs/protocol-notes.md:130-133 and :168-171`.
+
+- [B-016] [polish] The comment justifies excluding -40401 as "invalid stok" only, but on THIS hub
+  -40401 with an inner -60502 is also the documented wrong-USERNAME signature.
+  `custom_components/tapo_h500/api.py:129-130` (pre-existing from `b30d1d9`, untouched by the
+  iteration-2 diff) says "Deliberately not -40401 (invalid stok) or -40413 (invalid nonce), which
+  pytapo already retries by itself". But `docs/protocol-notes.md:39` records `| -40401 | login |
+  Refused; seen with inner -60502, undocumented |`, and `docs/protocol-notes.md:45-57` documents that
+  a TP-Link cloud email in place of the `admin` camera account produces exactly `{'error_code':
+  -40401, 'result': {'data': {'code': -60502}}}` and surfaces as a bare `Exception("Invalid
+  authentication data")`. So -40401 is genuinely three-way ambiguous here: expired stok (pytapo
+  retries it,
+  `.venv/lib/python3.14/site-packages/pytapo/transport/pytapo/pytapo.py:256-263`), a wedge from
+  repeated logins (`:822-829`), AND a wrong username. Excluding it remains the CORRECT call — the
+  ambiguity is precisely why it must fail safe toward retry — but the stated reason is incomplete for
+  this device, and a future reader could mistake "pytapo already retries it" for the whole story.
+  Pre-existing and out of scope for the iteration-2 diff; its practical consequence (a wrong
+  camera-account password still retries forever) is already [B-007]/[B-008].
+
+### Closed during iteration 2 — do NOT re-do
+
+- [B-013] RESOLVED (2026-08-24), applied BEFORE iteration 2's claim was written, which is the only
+  point at which a gate may honestly change. The allow-list now greps out the whole
+  `.improvement-loop/` prefix instead of enumerating files, so the LOG.md and BACKLOG.md writes every
+  close-out performs no longer fail it. Re-run at close-out it exits 0 and prints `ITER2-GATE OK`; the
+  command is recorded verbatim in `.improvement-loop/LEDGER.md` under "Green-tree gate — allow-list,
+  carried from [B-013]". Its old citation (`.improvement-loop/LEDGER.md:161`) still names iteration
+  1's narrower list and is left alone — that is iteration 1's record, not a live gate.
+
+**Still open and untouched by iteration 2:** [B-001] through [B-004] (dx and frontend-cards),
+[B-007] through [B-011]. [B-007] is the one to read alongside iteration 2's work — no member of
+`AUTH_ERROR_CODES` has a demonstrated real-hardware arrival on this hub, which is a reachability gap
+rather than a fail-danger, and the evidence costs a real login against hardware that wedges under
+repeated auth. That is the owner's call, not the loop's.

@@ -297,3 +297,136 @@ written, which is the only point at which a gate may honestly change.
 
 Tree at close-out: green, `bash tools/verify.sh` exit 0, `Ran 1147 tests in 3.326s / OK`. Not
 committed — the verdict is FAIL.
+
+### Iteration 2 — driver decision on research scale (2026-08-24)
+
+Iteration 1 spent ~3M subagent tokens across five Workflows (nine scouts, a 24-agent council, an
+implement pass, and two recovery passes). An endless loop cannot pay that every iteration, and it
+does not need to: the iteration-1 board holds 51 evidence-backed candidates of which exactly ONE was
+consumed, against a codebase that has moved by a single commit. Re-running nine scouts over a
+near-identical tree would rediscover the same findings at full price.
+
+So iteration 2 runs a LEAN research pass instead: one validator that re-checks the strongest surviving
+candidates against the new HEAD and drops any the iteration-1 commit invalidated, plus three fresh
+scouts on the dimensions the council rated strongest but left unmined. The full nine-dimension sweep
+returns when the board is exhausted or the tree has moved enough to make it worth paying for.
+Recorded here because it is a deliberate departure from the skill's default, not an oversight.
+
+Also carried from [B-013]: iteration 2's green-tree claim MUST write its allow-list with the whole
+`.improvement-loop/` prefix, not a file-by-file list. Iteration 1's C6 could never pass because its
+allow-list omitted LOG.md and BACKLOG.md, which every close-out writes by design.
+
+## Iteration 2 — 2026-08-24
+
+**Written AFTER the change, not before it, and that is a departure worth naming.** This file's
+header says claims are written before any code changes. Iteration 2's were not: the work was a
+same-day correction of a defect iteration 1 had just shipped, and the driver moved straight to the
+fix. The claim below is therefore a retrospective record of what was asserted and what the auditor
+found, not a pre-registration. Recorded this way so the next iteration reads it as the exception it
+was and returns to writing claims first.
+
+Selected: [offline-6] `AUTH_ERROR_CODES` contained `-40209`, which this hub answers for a
+wrong-shaped call — so the one live reauth route was aimed at a shape mismatch. Board value: the
+top-ranked candidate on `.improvement-loop/board-iter2.json`.
+
+### Why iteration 2 SKIPPED the debate council — a deliberate driver decision, not drift
+
+Iteration 1 convened a 24-agent, 3-round scored council to pick its target. Iteration 2 did not
+convene one at all, and the next iteration should not read that as the loop quietly dropping a
+step.
+
+The reason is what the top board candidate turned out to be: a fail-dangerous regression in
+**iteration 1's own commit**, shipped one commit earlier by this same loop. `b30d1d9` put `-40209`
+into `AUTH_ERROR_CODES`, and `-40209` is this hub's "the method exists, you called it with the
+wrong shape" reply. The single reachable route to `H500AuthError` is a coded refusal out of
+`Tapo.__init__`'s own `getBasicInfo()` call — a getter with a params shape. So the classifier's
+only live trigger was pointed at the one code most likely to arrive for a reason that has nothing
+to do with credentials, and when it fired, Home Assistant would stop retrying and put a "check your
+password" form in front of an owner whose password was fine.
+
+A scored debate exists to choose between competing goods when the loop has slack to spend. Running
+one to decide *whether* to fix something that can lock an owner out of their own hub would be
+theatre: there is no second option to weigh it against, and the council's output — a value score —
+answers a question nobody was asking. The debate machinery is also the single most expensive part
+of an iteration, and spending it to reach a foregone conclusion is exactly the waste the lean
+research decision above was written to avoid.
+
+What replaced it: the board's own ranking (the candidate was already top), plus the auditor's
+premise check, which is the part of the process that could actually have stopped the change — and
+it was run in full. Council returns for iteration 3, which faces a genuine choice among 29
+candidates.
+
+### Claims — iteration 2
+
+| id | claim | status |
+|----|-------|--------|
+| C1 | `-40209` is removed from `AUTH_ERROR_CODES` because this hub answers it for a wrong-shaped call, not a wrong password; the removal only widens retry | VERIFIED |
+
+**C1 — `-40209` leaves `AUTH_ERROR_CODES`; the removal can only widen retry**  · status=VERIFIED
+
+- statement: `-40209` is removed from `AUTH_ERROR_CODES` because this hub answers it for a
+  wrong-shaped call, not a wrong password; the removal only widens retry.
+- before: `git show b30d1d9:custom_components/tapo_h500/api.py` line 131 —
+  `AUTH_ERROR_CODES = frozenset({-40209, -40414, -40418})`.
+- after: `custom_components/tapo_h500/api.py:143` —
+  `AUTH_ERROR_CODES = frozenset({-40414, -40418})`, with the reasoning written into the comment at
+  `api.py:132-142`.
+- premise, upheld: `docs/protocol-notes.md:130-133` states the rule as a general law of this hub
+  and uses it as a proof technique — "Every method on this hub that exists but is being called
+  wrongly answers `-40209` or `-40211` — that is how the face detection setter and the mirrorscreen
+  shape were both found." Re-applied to the battery probe at `:168-171` ("none of the
+  `-40209`/`-40211` replies that mean \"exists, wrong params\""), and demonstrated params-sensitive
+  at `:305-313`, where `{"mirrorscreen":{"name":["config"]}}` returns `0` while three other shapes
+  of the same call return `-40209`. The counter-source is
+  `.venv/lib/python3.14/site-packages/pytapo/const.py:8` — `"-40209": "Invalid login credentials"` —
+  a hand-written gloss in a 100+ entry table generic to every Tapo device, contradicted by its own
+  `-402xx` neighbours (`-40210 METHOD_DO_NOT_EXIST`, `-40211 MISSING_NECESSARY_PARAMS`) and never
+  branched on anywhere in pytapo's code.
+- the deciding argument, which the auditor supplied and the driver had not made: every `-40209` in
+  these notes was observed on a session that had **already authenticated successfully**
+  (`docs/protocol-notes.md:147` "Re-probed with the `admin` login"; `:673` the siren setter is
+  "accepted" for volume 8 and returns `-40209` for 0 and 11). A code emitted freely on a correctly
+  authenticated session cannot be a credential refusal.
+- fail-safe, proven twice: structurally, the diff touches only the frozenset literal and its
+  comment — every branch of `is_auth_failure` (`api.py:175-207`) is byte-identical to `b30d1d9`,
+  and the set's sole use is the membership test at `:206`, so removing a member is monotone and can
+  turn a True into a False but never a False into a True. Empirically, the auditor swept 27
+  non-credential exception shapes (transport, timeout, wedge sentinel, garbage body, list body,
+  null body, bare pytapo `Exception`, lockout codes, `BaseException`) through the live classifier:
+  all returned False, zero breaches. Only top-level `-40414`, top-level `-40418` and an
+  `error_code` attribute of `-40414` return True.
+- regression test: `tests/test_config_flow.py::AuthClassifier::test_a_wrong_shape_refusal_is_not_a_wrong_password`.
+  Confirmed genuinely failing against the old set — reconstructing `frozenset({-40209, -40414,
+  -40418})` in memory produces `AssertionError: True is not false` on the `-40209` assertion.
+- remaining members justified: `-40414 NEED_LOGIN_BY_LOCAL_PASSWORD` and `-40418
+  TPAP_AUTHENTICATION_FAILED` appear nowhere in this repo's hardware notes — that is true and worth
+  saying. But absent evidence is not contrary evidence: for a code this hub has never emitted,
+  pytapo's table is the only source there is, neither name has a competing non-credential reading,
+  both sit in pytapo's `-404xx` auth family (removing `-40209`, the set's only `-402xx` member,
+  makes the set exactly coincident with it), and `-40414` maps onto a failure this repo did document
+  on hardware — `docs/protocol-notes.md:45-47`, a TP-Link cloud email stored where the local camera
+  account belongs. The honest caveat that no member has a demonstrated arrival is already tracked as
+  [B-007].
+
+### Green-tree gate — allow-list, carried from [B-013]
+
+Iteration 1's C6 could never pass because its allow-list named files one by one and omitted
+`.improvement-loop/LOG.md` and `.improvement-loop/BACKLOG.md`, which every close-out writes by
+design. Fixed here as [B-013] instructed — the allow-list greps out the **whole
+`.improvement-loop/` prefix** rather than enumerating files:
+
+- verify_command: `bash tools/verify.sh && test -z "$(git diff HEAD -- custom_components/tapo_h500/manifest.json)" && test -z "$(git diff --name-only HEAD | grep -vxF -e custom_components/tapo_h500/api.py -e tests/test_config_flow.py | grep -v '^\.improvement-loop/')" && echo "ITER2-GATE OK"`
+- Run at close-out: exits 0, prints `ITER2-GATE OK`. `bash tools/verify.sh` -> exit 0,
+  `Ran 1148 tests in 3.744s / OK`.
+
+### Iteration 2 — audit verdict (2026-08-24): PASS
+
+C1 VERIFIED. Zero blockers, zero must-fixes, zero regressions; `path_ownership` PASS. Two [polish]
+findings, both comment-precision notes and one of them pre-existing, carried to BACKLOG.md.
+
+**And the thing this ledger must not soften: iteration 2 fixed a defect iteration 1 introduced.**
+The loop shipped a classifier whose only reachable trigger would have fired on a parameter-shape
+refusal and permanently ended retries. It was caught one iteration later, by a scout reading this
+repo's own protocol notes — the same file that was on disk when iteration 1 wrote the set. That is
+a miss the loop made and then found, not an improvement the loop delivered, and it is recorded here
+as a miss.

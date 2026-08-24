@@ -235,10 +235,31 @@ class AuthClassifier(unittest.TestCase):
 
     def test_a_rejection_carrying_an_error_code_is_an_auth_failure(self):
         """The hub's own refusal, in the only shape it reaches a caller in:
-        pytapo's "Error: <msg>, Response: {...}" text."""
+        pytapo's "Error: <msg>, Response: {...}" text.
+
+        -40414 is NEED_LOGIN_BY_LOCAL_PASSWORD, which means the credentials
+        and nothing else. Not -40209: pytapo's table calls that one "Invalid
+        login credentials", but that table is generic to every Tapo device and
+        this hub answers -40209 for a method called with the wrong shape.
+        """
         self.assertTrue(api.is_auth_failure(Exception(
-            'Error: Invalid login credentials, '
-            'Response: {"error_code": -40209}')))
+            'Error: Need login by local password, '
+            'Response: {"error_code": -40414}')))
+
+    def test_a_wrong_shape_refusal_is_not_a_wrong_password(self):
+        """-40209 must never end the retries.
+
+        docs/protocol-notes.md:131 establishes it as this hub's reply to a
+        method that exists and was called wrongly -- it is how the face and
+        battery methods were proved absent -- and it is the siren's volume
+        refusal besides. The only reachable route to H500AuthError is a coded
+        refusal out of Tapo.__init__'s own getBasicInfo call, so trusting
+        -40209 would aim that route at a shape mismatch and show a "check your
+        password" notice to somebody whose password is fine.
+        """
+        self.assertFalse(api.is_auth_failure(Exception(
+            'Error: Invalid parameters, Response: {"error_code": -40209}')))
+        self.assertNotIn(-40209, api.AUTH_ERROR_CODES)
 
     def test_a_retryable_error_code_still_retries(self):
         """-40401 is an expired stok, which pytapo re-logs-in for itself."""
@@ -256,20 +277,20 @@ class AuthClassifier(unittest.TestCase):
         """
         self.assertFalse(api.is_auth_failure(Exception(
             'Error: Request failed, Response: '
-            '{"result": {"responses": [{"error_code": -40209}]}, '
+            '{"result": {"responses": [{"error_code": -40414}]}, '
             '"error_code": 0}')))
         # ...and the same body shape must still be read as a refusal when the
         # refusal is the hub's own.
         self.assertTrue(api.is_auth_failure(Exception(
-            'Error: Invalid login credentials, Response: '
+            'Error: Need login by local password, Response: '
             '{"result": {"responses": [{"error_code": 0}]}, '
-            '"error_code": -40209}')))
+            '"error_code": -40414}')))
 
     def test_an_unreadable_body_retries(self):
         """No parseable code is not evidence of a refusal."""
         for err in (Exception("Error: boom, Response: not json at all"),
                     Exception("no response marker here"),
-                    Exception('Error: x, Response: ["error_code", -40209]')):
+                    Exception('Error: x, Response: ["error_code", -40414]')):
             with self.subTest(text=str(err)):
                 self.assertFalse(api.is_auth_failure(err))
 

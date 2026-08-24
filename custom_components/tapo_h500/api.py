@@ -128,7 +128,19 @@ def check_media_port(host: str, port: int = 8800, timeout: float = 5.0) -> str:
 # which pytapo already retries by itself, and deliberately not the lockout
 # codes: a hub refusing everyone for five minutes has to be waited out, not
 # answered by asking its owner to retype a password that was never wrong.
-AUTH_ERROR_CODES = frozenset({-40209, -40414, -40418})
+#
+# Deliberately not -40209 either, whatever pytapo's table says. pytapo/const.py
+# maps it to "Invalid login credentials", but that table is generic to every
+# Tapo device and this hub does not use it that way: docs/protocol-notes.md:131
+# establishes -40209 as this H500's answer to a method that exists and was
+# called with the wrong shape, and uses exactly that to prove the face and
+# battery methods absent. It is also the siren's volume-range refusal, written
+# down in five separate modules. Trusting it here would aim the one reachable
+# route to H500AuthError -- a coded refusal out of Tapo.__init__'s own
+# getBasicInfo call -- straight at a shape mismatch, ending the retries and
+# putting a "check your password" notice in front of somebody whose password is
+# fine. That is the exact direction is_auth_failure exists to refuse.
+AUTH_ERROR_CODES = frozenset({-40414, -40418})
 
 # pytapo's only route for a code that survived its own retries is the text of
 # `Exception("Error: <msg>, Response: {... \"error_code\": N ...}")`.

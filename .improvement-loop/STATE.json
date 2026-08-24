@@ -1,14 +1,15 @@
 {
   "runId": "ril-20260823-215339",
-  "iter": 1,
+  "iter": 2,
   "branch": "improvments",
   "lastGreenCommit": "b30d1d9",
   "minedCategories": {
-    "ha-conformance": 1
+    "ha-conformance": 1,
+    "offline-resilience": 1
   },
   "agentsUsedThisWorkflow": 0,
-  "workflowSession": 4,
+  "workflowSession": 5,
   "status": "running",
   "profilePath": ".improvement-loop/PROFILE.md",
-  "lastIterationStatus": "PARTIAL"
+  "lastIterationStatus": "COMPLETE"
 }
