@@ -1,0 +1,10 @@
+[
+  {
+    "round": 2,
+    "claim": "__init__.py:422 hands one preview_url per browsed clip, so a single media-browser listing fans out N deliberately-drained media sessions through api.py's one unbounded lock.",
+    "slot": 3,
+    "idea_id": "offline-8",
+    "verdict": "overstated",
+    "evidence": "__init__.py:422 `\"thumbnail\": preview_url(hass, call.data[\"config_entry_id\"], call.data[\"camera_index\"], start),` \u2014 but preview.py:34 only returns `async_sign_path(...)`, no session; api.py:614 `async with self._lock:` serializes `iter_recording`, one session at a time; media.py:173 `if await hass.async_add_executor_job(_has_content, thumbnail): return thumbnail` caches; card.js:605 `loading=\"lazy\"`. media_source.py never calls preview_url (only `signed_url(...)` on on-disk .jpg at lines 272/287/297), so the HA media browser is not the caller at all."
+  }
+]

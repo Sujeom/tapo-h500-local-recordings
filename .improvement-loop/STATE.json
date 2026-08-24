@@ -12,5 +12,7 @@
   "workflowSession": 6,
   "status": "running",
   "profilePath": ".improvement-loop/PROFILE.md",
-  "lastIterationStatus": "COMPLETE"
+  "lastIterationStatus": "COMPLETE",
+  "nextIteration": 4,
+  "iter4Checkpoint": "council complete, winner correctness-1 (value 72), implement Workflow NOT yet launched; tree clean and green at 1152"
 }

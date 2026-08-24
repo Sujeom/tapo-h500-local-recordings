@@ -1,0 +1,278 @@
+{
+  "tiers": [
+    {
+      "claims": [
+        {
+          "claim": "repairs.py:113-115 reads coordinator.readings.get(\"storage_total\") and .get(\"storage_free\") \u2014 un-suffixed key names.",
+          "idea": "correctness-1",
+          "source_persona": "Tomas Lindqvist",
+          "round_first_asserted": 1,
+          "load_bearing": "This is the bug itself. If repairs.py actually reads the *_gb keys (or the cited lines contain different code), there is no mismatch and the entire idea has nothing to fix."
+        },
+        {
+          "claim": "status.py:237-238 emits \"storage_free_gb\" and \"storage_total_gb\" \u2014 i.e. the producer only ever supplies _gb-suffixed keys, never bare storage_total/storage_free.",
+          "idea": "correctness-1",
+          "source_persona": "Tomas Lindqvist",
+          "round_first_asserted": 1,
+          "load_bearing": "The mismatch requires the producer side to lack the bare keys. If hub_readings also emits un-suffixed aliases, the lookups succeed and the repair is live, not dead."
+        },
+        {
+          "claim": "coordinator.readings has exactly one writer: coordinator.py:770 assigns the whole dict via self.readings = hub_readings(...), with self.readings: dict = {} seeded at coordinator.py:83 \u2014 no .update() and no second writer anywhere.",
+          "idea": "correctness-1",
+          "source_persona": "Tomas Lindqvist",
+          "round_first_asserted": 2,
+          "load_bearing": "Raised to close C2. If any other code path writes or merges into readings with un-suffixed keys, storage_total is sometimes populated, the repair sometimes fires, and 'permanently dead code' downgrades to an intermittent bug."
+        },
+        {
+          "claim": "repairs.py:118 guard `if not total or free is None:` takes the async_delete_issue branch every time, so async_create_issue in _storage is never reached.",
+          "idea": "correctness-1",
+          "source_persona": "Tomas Lindqvist",
+          "round_first_asserted": 2,
+          "load_bearing": "This converts the key mismatch into user-visible harm. If the guard falls through or the delete branch is not the only consequence, the storage warning is not silently dead and severity collapses to a cosmetic naming issue."
+        },
+        {
+          "claim": "repairs.py is exercised by no test that calls its functions: tests/test_media_health.py:27 loads it as text (REPAIRS = (COMPONENT / \"repairs.py\").read_text()) and every repairs assertion is a substring match, e.g. test_platforms.py:114-120 splits the source on `def {func}` and asserts \"async_create_issue\" / \"if not total or free is None:\" appear in the text.",
+          "idea": "correctness-1",
+          "source_persona": "Tomas Lindqvist",
+          "round_first_asserted": 1,
+          "load_bearing": "This explains how the bug survived 1152 green tests and is the whole justification for the proposed test. If any test actually invokes _storage with real readings, the bug would have been caught, and the 'string-matched, never exercised' framing \u2014 plus the claimed cheap high-value test \u2014 evaporates."
+        },
+        {
+          "claim": "tests/test_platforms.py:50-64 already contains the correct pattern for diagnostics \u2014 `produced = set(status.hub_readings({}))` compared against consumed keys, with a docstring naming \"storage_total for storage_total_gb\" \u2014 and that guard covers diagnostics.py only.",
+          "idea": "correctness-1",
+          "source_persona": "Tomas Lindqvist",
+          "round_first_asserted": 1,
+          "load_bearing": "Establishes both that this bug class shipped-and-was-caught before (precedent for severity) and that the fix is a three-line extension of an existing assertion. If the existing test already spans repairs.py, the bug could not exist as claimed; if no such test exists, the 'three lines of test' cost estimate is wrong."
+        },
+        {
+          "claim": "sensor.py:164 escalates hub_health to \"storage full\" only at `>= 99`, and sensor.py:71 exposes storage_used_percent as a raw numeric sensor requiring a user-written automation to notify.",
+          "idea": "correctness-1",
+          "source_persona": "Tomas Lindqvist / Priya Raman",
+          "round_first_asserted": 3,
+          "load_bearing": "Sole rebuttal to C3 (duplicate-surfacing objection). If the sensor warns earlier than 99% or pushes a notification on its own, the dead repair is redundant with a live warning and the idea reduces to code tidiness rather than a silent pre-loss alert."
+        },
+        {
+          "claim": "The repair's intended threshold is STORAGE_WARN_PERCENT \u2014 >80 and <100 \u2014 per repairs.py:113-121 and the test docstring at test_platforms.py:125-127 (\"Loop recording does not fail at 100%\").",
+          "idea": "correctness-1",
+          "source_persona": "Tomas Lindqvist",
+          "round_first_asserted": 3,
+          "load_bearing": "Makes the repair the only pre-loss warning in the product. If the threshold is actually at or near 100%, it warns no earlier than the sensor and the 'only shipped early notice' claim fails."
+        },
+        {
+          "claim": "status.py:239 already emits \"storage_used_percent\", and total/free were only ever inputs to the subtraction at repairs.py:121 (`used_percent = round((total - free) / total * 100)`).",
+          "idea": "correctness-1",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 3,
+          "load_bearing": "Supports the one-line refinement (delete the subtraction, read the percent directly). If total/free are used elsewhere in _storage \u2014 e.g. in the issue's display placeholders \u2014 the one-line fix is insufficient and the cost estimate rises."
+        },
+        {
+          "claim": "api.py:613-614 is `queued = time.monotonic()` followed by `async with self._lock:` with no timeout on the lock acquisition or the block.",
+          "idea": "offline-8",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 1,
+          "load_bearing": "The wedge site. The board originally cited api.py:602; if the line at HEAD is not an unbounded `async with self._lock:` the located defect does not exist."
+        },
+        {
+          "claim": "Inside that lock, api.py:634-638 does `async with session:` (TCP connect / digest / AES handshake) with no guard; only the per-packet reads are wrapped in asyncio.wait_for(..., 35).",
+          "idea": "offline-8",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 1,
+          "load_bearing": "Directly the target of unresolved concern C5. If the session enter is already bounded \u2014 by a socket/HTTP-layer read or connect timeout, or an aiohttp/client timeout argument the persona did not open \u2014 a wedged handshake raises on its own, the lock releases without new code, and the idea shrinks to tuning an existing timeout value."
+        },
+        {
+          "claim": "An unbounded handshake means the lock is held forever with no self-recovery; only an integration reload / HA restart cures it.",
+          "idea": "offline-8",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 1,
+          "load_bearing": "The entire severity margin over frontend-cards-7 rests on 'does not self-heal'. If any watchdog, task cancellation, coordinator timeout, or outer wait_for eventually tears down the stalled call, the harm becomes bounded and the comparative case is lost."
+        },
+        {
+          "claim": "Both wedge probes are gated on the lock: coordinator.py:786-788 and coordinator.py:823-826 each read `lock = getattr(self.client, \"_lock\", None)` and skip when `lock.locked()`, so a held lock mutes the media check and the deep check for as long as it is held.",
+          "idea": "offline-8",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 1,
+          "load_bearing": "Converts one stuck request into permanent silent blindness \u2014 the amplification that makes this the top-severity item. If either probe has an independent path, staleness bound, or non-lock trigger, the wedge is detected and the 'goes silent precisely during the wedge' claim fails."
+        },
+        {
+          "claim": "coordinator.py:782-784 contains a comment stating the probe skip is deliberate (\"Skipped while a session is open: an extra connection against a hub mid-download is a variable...\").",
+          "idea": "offline-8",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 3,
+          "load_bearing": "Justifies the refined scope \u2014 don't touch the gates, only bound the session. If the comment says otherwise or is absent, fixing the gate becomes a live alternative fix and the proposed minimal change is no longer obviously the right one."
+        },
+        {
+          "claim": "media_source.py:272 and :297 supply every browser thumbnail as signed_url(... .with_suffix(\".jpg\")) \u2014 on-disk JPEGs, no media session opened.",
+          "idea": "offline-8",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 3,
+          "load_bearing": "Asserted as a refutation of Ada's own R2 fan-out story (C4). If false, the discarded fan-out trigger was real and Ada's R2 argument stands; if true, the idea must rely entirely on the replacement trigger below. Either way it determines which severity story is on the table."
+        },
+        {
+          "claim": "REFUTED-BY-OWN-SIDE: __init__.py:422 hands one preview_url per browsed clip, so a media-browser listing fans out N real media sessions through the single lock; media.py:151-163 shows each preview opens and deliberately drains a real session (\"Closing the socket is not the same thing as finishing a session\").",
+          "idea": "offline-8",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 2,
+          "load_bearing": "Was the original multiplier for the wedge's severity; withdrawn in R3 after C4. Listed because if media_source.py's JPEG claim turns out wrong, this premise revives \u2014 and if both are wrong, the idea has lost and not replaced its concurrency-pressure story."
+        },
+        {
+          "claim": "coordinator.py:982-994 \u2014 `for clip in self._fresh(index, clips, self._seen_clips, window)` spawning `self.entry.async_create_background_task(self.hass, self._download(index, camera, clip), ...)` \u2014 creates one background download task per fresh clip, each entering iter_recording behind api.py's single lock, with self._seen_clips: dict[int, set[int]] at coordinator.py:85.",
+          "idea": "offline-8",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 3,
+          "load_bearing": "The replacement fan-out trigger after C4 killed the browser one, and the reason a wedge is claimed to peak when a hub returns holding a backlog. If these tasks are serialized elsewhere, rate-limited, or bounded independently of the lock, the 'stalls every queued download' escalation disappears and the idea rests on the single-handshake case alone."
+        },
+        {
+          "claim": "Existence claim: the api.py lock has no timeout anywhere in its acquisition or body \u2014 no asyncio.timeout, no wait_for wrapping the session enter \u2014 so 'one asyncio.timeout around the session enter' is genuinely new code adding zero hub traffic and no new logins.",
+          "idea": "offline-8",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 1,
+          "load_bearing": "The cost/laziness case. This is the negative assertion C5 attacks. If a timeout already exists at any layer, the proposed fix is a parameter change, not a fix, and its value ranking drops sharply."
+        },
+        {
+          "claim": "offline-7's finding that lost clips never retry is true, constraining the fix to a generous rather than tight bound.",
+          "idea": "offline-8",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 1,
+          "load_bearing": "Sets the tradeoff and the shape of the chosen timeout value. If lost clips do retry, a tight bound is safe and the fix is strictly better than argued; if this is a stronger constraint than stated, a generous bound may not meaningfully cap the wedge."
+        }
+      ],
+      "checks": [
+        {
+          "idea_id": "correctness-1",
+          "overall": "premise-holds",
+          "verdicts": [
+            {
+              "claim": "repairs.py:113-115 reads coordinator.readings.get(\"storage_total\") and .get(\"storage_free\") \u2014 un-suffixed key names.",
+              "verdict": "verified",
+              "evidence": "repairs.py:113-115: `def _storage(hass: HomeAssistant, entry_id: str, coordinator) -> None:` / `total = coordinator.readings.get(\"storage_total\")` / `free = coordinator.readings.get(\"storage_free\")`",
+              "falsifier": "Looked for `_gb` suffixes, a fallback chain (`or .get(\"storage_total_gb\")`), or any alias/normalisation of readings keys before the .get calls; grepped the whole repo for storage_total/storage_free and found these two as the only un-suffixed consumers.",
+              "search_strategy": "grep -rn 'storage_total|storage_free|storage_used_percent' --include=*.py . ; grep -n '' custom_components/tapo_h500/repairs.py | sed -n '108,125p'"
+            },
+            {
+              "claim": "status.py:237-238 emits \"storage_free_gb\" and \"storage_total_gb\" \u2014 the producer only supplies _gb-suffixed keys, never bare storage_total/storage_free.",
+              "verdict": "verified",
+              "evidence": "status.py:237-239: `\"storage_free_gb\": free,` / `\"storage_total_gb\": total,` / `\"storage_used_percent\": used_percent,`",
+              "falsifier": "Read the entire returned dict of hub_readings for a bare `\"storage_total\"`/`\"storage_free\"` alias, and grepped every .py in custom_components for those literals \u2014 the only hits outside repairs.py are sensor.py entity *keys* (key=\"storage_free\"/\"storage_total\"), which are entity ids, not readings keys.",
+              "search_strategy": "grep -rn '\"storage_total\"|\"storage_free\"' --include=*.py custom_components ; sed -n '200,250p' custom_components/tapo_h500/status.py"
+            },
+            {
+              "claim": "coordinator.readings has exactly one writer: coordinator.py:770 `self.readings = hub_readings(...)`, seeded `self.readings: dict = {}` at coordinator.py:83 \u2014 no .update(), no second writer.",
+              "verdict": "verified",
+              "evidence": "coordinator.py:83 `self.readings: dict = {}`; coordinator.py:770 `self.readings = hub_readings(`",
+              "falsifier": "Grepped for `.readings =`, `readings.update`, `readings[` across custom_components and tests. Production hits: only lines 83 and 770 (others are reads: 631, 777, 916). The one other assignment, tests/test_forecast.py:178 `coord.readings = {\"storage_used_percent\": 50.0}`, is a test double, not production.",
+              "search_strategy": "grep -rn '\\.readings\\s*=|readings\\.update|readings\\[' --include=*.py custom_components tests ; grep -n readings custom_components/tapo_h500/coordinator.py"
+            },
+            {
+              "claim": "repairs.py:118 guard `if not total or free is None:` always takes the async_delete_issue branch, so async_create_issue in _storage is never reached.",
+              "verdict": "verified",
+              "evidence": "repairs.py:118-119: `if not total or free is None:` / `ir.async_delete_issue(hass, DOMAIN, issue_id)`; create is at 125.",
+              "falsifier": "Checked that no other code path creates STORAGE_ISSUE (grep 'STORAGE_ISSUE|storage_nearly_full' \u2192 only repairs.py:34,116,129, en.json:372, one test string check), and that _storage is reached at all (repairs.py:62 calls it from async_check). Since total is always None (claims 1-3), line 118 is unconditionally true \u2192 delete, return."
+            },
+            {
+              "claim": "repairs.py is exercised by no test that calls its functions; tests read it as text (test_media_health.py:27) and assert substrings (test_platforms.py:114-120).",
+              "verdict": "verified",
+              "evidence": "test_media_health.py:27 `REPAIRS = (COMPONENT / \"repairs.py\").read_text()`; test_platforms.py:115 `body = REPAIRS.split(f\"def {func}\", 1)[1].split(\"\\ndef \", 1)[0]`; :120 `self.assertIn(\"if not total or free is None:\", REPAIRS)`",
+              "falsifier": "Grepped every test file for `tapo_h500.repairs`, `import_module(\"tapo_h500.repairs\")`, and `_storage(` \u2014 zero module imports and zero calls; all six files referencing repairs use read_text plus assertIn/split. test_platforms.py's own module docstring states the rest is 'checked statically'.",
+              "search_strategy": "grep -rn 'REPAIRS|repairs' tests/*.py ; grep -rn 'tapo_h500.repairs|_storage(' tests/ custom_components/"
+            },
+            {
+              "claim": "tests/test_platforms.py:50-64 holds the produced-vs-consumed pattern (`produced = set(status.hub_readings({}))`, docstring naming \"storage_total for storage_total_gb\") and covers diagnostics.py only.",
+              "verdict": "verified",
+              "evidence": "test_platforms.py:50 `def test_every_allow_listed_reading_actually_exists`; :53-54 \"`storage_total` for `storage_total_gb`\"; `produced = set(status.hub_readings({}))`; `listed` parsed from `DIAG.split(\"SAFE_READINGS = (\"...)`",
+              "falsifier": "Checked what `listed` is built from \u2014 DIAG, i.e. diagnostics.py read at test_platforms.py:18 \u2014 and grepped the test file for any equivalent produced/consumed comparison against REPAIRS; there is none (all REPAIRS assertions are assertIn substring checks)."
+            },
+            {
+              "claim": "sensor.py:164 escalates hub_health to \"storage full\" only at >= 99, and sensor.py:71 exposes storage_used_percent as a raw numeric sensor needing a user automation to notify.",
+              "verdict": "verified",
+              "evidence": "sensor.py:164 `\"storage full\" if (r.get(\"storage_used_percent\") or 0) >= 99 else`; sensor.py:71 `value=lambda r: r.get(\"storage_used_percent\"),` (HubSensor key=\"storage_used\", unit \"%\").",
+              "falsifier": "Looked for any earlier-firing fullness alert: binary_sensor.py's storage_problem (line 54-58) is driven by `storage_healthy` (disk status != normal), not fullness; blueprints/automation/tapo_h500/watch_health.yaml's storage trigger takes a user-selected binary_sensor and is opt-in with a user-chosen notify service. Caveat worth noting: sensor.py:480 ships a `storage_full_in` forecast sensor (hours-until-full), also a passive numeric entity with no notification of its own.",
+              "search_strategy": "grep -n storage custom_components/tapo_h500/binary_sensor.py ; grep -rn 'hours_until_full|storage_full_in' custom_components/tapo_h500/*.py ; sed -n '50,95p' blueprints/automation/tapo_h500/watch_health.yaml"
+            },
+            {
+              "claim": "The repair's intended threshold is STORAGE_WARN_PERCENT \u2014 >80 and <100 \u2014 per repairs.py:113-121 and the test docstring at test_platforms.py:125-127.",
+              "verdict": "verified",
+              "evidence": "repairs.py:32 `STORAGE_WARN_PERCENT = 95`; repairs.py:122 `if used_percent < STORAGE_WARN_PERCENT:`; test_platforms.py:126-127 `self.assertLess(percent, 100)` / `self.assertGreater(percent, 80)`",
+              "falsifier": "Read the constant's actual value rather than the docstring's promise (95, so genuinely earlier than sensor.py's 99). Line citations are slightly off \u2014 the constant is at repairs.py:32 and the comparison at :122 (not 113-121), and the docstring is at :123-124 with the range assertions at :126-127 \u2014 but the substance holds."
+            },
+            {
+              "claim": "status.py:239 already emits \"storage_used_percent\", and total/free were only ever inputs to the subtraction at repairs.py:121.",
+              "verdict": "overstated",
+              "evidence": "status.py:239 `\"storage_used_percent\": used_percent,`; repairs.py:121 `used_percent = round((total - free) / total * 100)`; placeholders at :130 `translation_placeholders={\"used\": str(used_percent)}`",
+              "falsifier": "Read the whole _storage body (113-131) for other uses of total/free. The display placeholders use only `used`, so the load-bearing worry is disproved \u2014 but total and free are ALSO consumed by the unknown-value guard at line 118 (`if not total or free is None:`), so 'only ever inputs to the subtraction' is inaccurate; the refinement replaces two lines (guard plus subtraction), not one."
+            }
+          ]
+        },
+        {
+          "idea_id": "offline-8",
+          "overall": "overstated",
+          "verdicts": [
+            {
+              "claim": "api.py:613-614 is `queued = time.monotonic()` followed by `async with self._lock:` with no timeout on the acquisition or block.",
+              "verdict": "verified",
+              "evidence": "api.py:613-614: \"queued = time.monotonic()\" / \"async with self._lock:\" \u2014 self._lock is a plain asyncio.Lock (api.py:227: \"self._lock = asyncio.Lock()\").",
+              "falsifier": "I grepped api.py for every asyncio.timeout/wait_for/async_timeout; the only hit inside iter_recording is line 642 (per-packet wait_for(...,35)). An `async with asyncio.timeout(...)` wrapping the acquisition would have disproven it.",
+              "search_strategy": "grep -n \"queued = time.monotonic|async with self._lock|_lock\" api.py; grep -rn \"asyncio.timeout|async_timeout|wait_for\" custom_components/tapo_h500/*.py"
+            },
+            {
+              "claim": "Inside the lock, api.py:634-638 does `async with session:` (TCP connect / digest / AES handshake) with no guard; only per-packet reads are wrapped in wait_for(...,35).",
+              "verdict": "overstated",
+              "evidence": "api.py:635 \"async with session:\" is unguarded, but pytapo session.py:100-101 bounds the connect leg: \"self._reader, self._writer = await asyncio.wait_for(asyncio.open_connection(...), timeout=CONNECTION_TIMEOUT)\" (const.py:133: CONNECTION_TIMEOUT = 10). The digest and key-exchange legs after it are bare \"await self._reader.readuntil(b'\\r\\n\\r\\n')\" with no timeout.",
+              "falsifier": "I opened pytapo's HttpMediaSession.__aenter__/start end to end looking for any wait_for or socket timeout covering the whole handshake; had readuntil been wrapped, the defect would vanish. It is not \u2014 but the sweeping 'no guard' is wrong for the connect leg."
+            },
+            {
+              "claim": "An unbounded handshake means the lock is held forever with no self-recovery; only an integration reload / HA restart cures it.",
+              "verdict": "verified",
+              "evidence": "No cancellation path exists: grep across custom_components finds wait_for only in api.py:642 and contact_sheet.py:115; downloads run as fire-and-forget \"self.entry.async_create_background_task(...)\" (coordinator.py:991) with no timeout, and the finally/lock release only runs when the await returns.",
+              "falsifier": "I looked for a watchdog, a session-age reaper, a DataUpdateCoordinator timeout around the call, or a cancel() on stalled tasks. The auto-restart self-heal (coordinator.py:850-870) is gated on self.media_status, which only the lock-gated probes update, so it cannot fire from a healthy prior status. Caveat: the documented hub failure (plan doc \u00a71.4) is a socket close, which raises immediately; the forever-hang needs the 'silent' variant.",
+              "search_strategy": "grep -rn \"asyncio.timeout|async_timeout|wait_for|watchdog|shield|cancel()\" custom_components/tapo_h500/*.py; read coordinator.py:840-880, 1101-1150"
+            },
+            {
+              "claim": "Both wedge probes are gated on the lock (coordinator.py:786-788 and :823-826), so a held lock mutes the media check and the deep check.",
+              "verdict": "verified",
+              "evidence": "coordinator.py:786-788 \"lock = getattr(self.client, \\\"_lock\\\", None)\" / \"if (check is not None and self._polls % self._media_every == 0 and not (lock is not None and lock.locked())):\"; identical gate at 823-826 for the deep check.",
+              "falsifier": "I checked for an independent staleness escape: the deep check's other condition (now - self._media_evidence >= MEDIA_EVIDENCE_MAX_AGE) and the post-restart force (line 819 self._media_evidence = 0.0) are ANDed with the lock gate, not ORed. The only other media_status writers are note_empty_download/note_served_download, both fed by sessions that themselves need the same lock."
+            },
+            {
+              "claim": "coordinator.py:782-784 contains a comment stating the probe skip is deliberate.",
+              "verdict": "verified",
+              "evidence": "coordinator.py:782-784: \"# The media port's handshake, on its own slow cadence. Skipped while / # a session is open: an extra connection against a hub mid-download / # is a variable the wedge investigation does not need.\"",
+              "falsifier": "Read the three lines verbatim rather than trusting the paraphrase; a comment saying the gate was a stopgap would have made fixing the gate a live alternative. Note this is a comment (data), not proof the gate is correct \u2014 it only shows intent."
+            },
+            {
+              "claim": "media_source.py:272 and :297 supply every browser thumbnail as signed_url(... .with_suffix('.jpg')) \u2014 on-disk JPEGs, no media session opened.",
+              "verdict": "verified",
+              "evidence": "media_source.py:272 \"thumbnail=signed_url(self.hass, video.with_suffix(\\\".jpg\\\")),\" and :297 \"thumbnail=signed_url(self.hass, path.with_suffix(\\\".jpg\\\")),\"; the third thumbnail site (:287) is also signed_url on an on-disk poster.",
+              "falsifier": "I grepped media_source.py for preview_url and for any client/iter_recording use \u2014 zero hits; its only media import is \"from .media import media_root, signed_url\" (line 15). A preview_url in the browse path would have revived the fan-out story.",
+              "search_strategy": "grep -n \"preview_url|signed_url|thumbnail\" media_source.py; grep -rn \"preview_url\" custom_components/tapo_h500/*.py (hits only preview.py, __init__.py:422, sensor.py:609)"
+            },
+            {
+              "claim": "REFUTED-BY-OWN-SIDE: __init__.py:422 hands one preview_url per browsed clip, so a media-browser listing fans out N media sessions through the lock.",
+              "verdict": "false",
+              "evidence": "__init__.py:422 sits inside the list_recordings SERVICE handler (async def list_recordings at :362), not the media browser, and the adjacent comment says it \"is generated when something actually asks for the image, not here, so listing stays one call.\" preview.py's module docstring makes the same point: images are fetched lazily per rendered row.",
+              "falsifier": "I traced preview_url's three call sites and confirmed media_source.py has none; I also checked whether the service pre-generates previews (it only mints signed URLs). The media.py:151-163 half of the claim is true \u2014 \"Closing the socket is not the same thing as finishing a session\" \u2014 but it attaches to on-demand HTTP fetches, not a browser listing."
+            },
+            {
+              "claim": "coordinator.py:982-994 spawns one background download task per fresh clip, each entering iter_recording behind the single lock, with self._seen_clips at :85.",
+              "verdict": "verified",
+              "evidence": "coordinator.py:982 \"for clip in self._fresh(index, clips, self._seen_clips, window):\" and :991-993 \"self.entry.async_create_background_task(self.hass, self._download(index, camera, clip), ...)\"; coordinator.py:85 \"self._seen_clips: dict[int, set[int]] = {}\". _download -> async_download_clip -> media.py:233 \"async for chunk in client.iter_recording(...)\".",
+              "falsifier": "I looked for a semaphore, a queue, a per-poll cap, or a single-flight guard around the spawn loop and in media.py/preview.py \u2014 none exists; serialization comes only from api.py's _lock."
+            },
+            {
+              "claim": "The api.py lock has no timeout anywhere in its acquisition or body, so 'one asyncio.timeout around the session enter' is genuinely new code.",
+              "verdict": "overstated",
+              "evidence": "True inside api.py \u2014 the sole bound in iter_recording is api.py:642 \"response = await asyncio.wait_for(stream.__anext__(), 35)\" \u2014 but a timeout already exists one layer down at session.py:100-101 (CONNECTION_TIMEOUT = 10) covering the TCP connect, so the fix is new code for the read legs only, not for the whole enter.",
+              "falsifier": "Grepped api.py for asyncio.timeout/async_timeout/wait_for (one hit) and then read pytapo's session start; had readuntil also been wrapped there, the proposal would collapse to tuning CONNECTION_TIMEOUT.",
+              "search_strategy": "grep -n \"wait_for|timeout\" custom_components/tapo_h500/api.py; grep -n \"TIMEOUT\" .venv/.../pytapo/media_stream/session.py and const.py"
+            },
+            {
+              "claim": "offline-7's finding that lost clips never retry is true, constraining the fix to a generous bound.",
+              "verdict": "overstated",
+              "evidence": "coordinator.py:947-949 marks a clip seen at listing time (\"seen.add(key)\") before any download, and _download's two failure paths (EmptyRecordingError, HomeAssistantError, :1114-1125) return without discarding the key. But one path does retry: :1138 \"self._seen_clips.get(index, set()).discard((start_time,))\" when a downloaded file fails to decode.",
+              "falsifier": "I read _fresh and every _download exit looking for a re-arm; the undecodable-file branch is a real, if narrow, retry, so 'never retry' is true for failed sessions and false in general."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

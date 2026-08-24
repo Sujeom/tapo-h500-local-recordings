@@ -1,0 +1,71 @@
+{
+  "ideas": {
+    "frontend-cards-7": {
+      "raw": 29.7,
+      "adjusted": 27.7,
+      "rounds_active": 3,
+      "champions": 2,
+      "per_round": 9.2,
+      "per_arg": 4.6,
+      "peak": 8.3,
+      "factors": {
+        "I": 25,
+        "F": 33,
+        "E": 32,
+        "D": 28
+      }
+    },
+    "correctness-1": {
+      "raw": 31.9,
+      "adjusted": 31.9,
+      "rounds_active": 3,
+      "champions": 2,
+      "per_round": 10.6,
+      "per_arg": 5.3,
+      "peak": 8.5,
+      "factors": {
+        "I": 28,
+        "F": 36,
+        "E": 34,
+        "D": 29
+      }
+    },
+    "preview-500": {
+      "raw": 21.3,
+      "adjusted": 21.3,
+      "rounds_active": 2,
+      "champions": 2,
+      "per_round": 10.7,
+      "per_arg": 5.3,
+      "peak": 8,
+      "factors": {
+        "I": 16,
+        "F": 26,
+        "E": 23,
+        "D": 20
+      }
+    },
+    "offline-8": {
+      "raw": 31.6,
+      "adjusted": 23.6,
+      "rounds_active": 3,
+      "champions": 2,
+      "per_round": 7.9,
+      "per_arg": 3.9,
+      "peak": 8.5,
+      "factors": {
+        "I": 32,
+        "F": 29,
+        "E": 33,
+        "D": 32
+      }
+    }
+  },
+  "agents": {
+    "Mei Sato": 22.4,
+    "Tomas Lindqvist": 24.1,
+    "Priya Raman": 23.1,
+    "Ada Okonkwo": 23.1,
+    "Idris Bello": 21.8
+  }
+}

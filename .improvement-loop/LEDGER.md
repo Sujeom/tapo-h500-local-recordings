@@ -610,3 +610,45 @@ verify_command, which does not survive into the test suite. Carried to BACKLOG.m
 iteration 4, along with [B-018] (forced reads append off-cadence storage_trend samples) and [B-019]
 (`format_hub_storage` writes and never refreshes — this same defect class at a site C2's scope did
 not cover).
+
+## Iteration 4 — CHECKPOINT (council done, NOT implemented) — 2026-08-24
+
+Stopped at a usage-limit checkpoint AFTER the council returned and BEFORE the implement Workflow was
+launched. Nothing is half-applied: `git status` is clean at 02ace16 and `bash tools/verify.sh` is
+green at 1152 tests. Resume by launching the implement Workflow for the winner below.
+
+WINNER: [correctness-1] Fix the storage-nearly-full repair's dead key lookup (value 72, floor 55).
+Adjusted 31.9 vs 27.7 (frontend-cards-7), 23.6 (offline-8, docked -6), 21.3 (preview-500). Nothing
+was disqualified this round. Artifacts in .improvement-loop/council-iter4/.
+
+PREMISE — re-verified by the driver at HEAD 02ace16, not taken on trust:
+  repairs.py:114-115 read "storage_total" / "storage_free"; status.py:237-239 emit only
+  "storage_free_gb", "storage_total_gb", "storage_used_percent". Both lookups therefore return None,
+  the guard at repairs.py:118 (`if not total or free is None`) always takes the delete branch, and
+  async_create_issue at repairs.py:124 is unreachable. repairs.py:32 sets STORAGE_WARN_PERCENT = 95
+  while sensor.py:164 only flips hub_health to "storage full" at >= 99, so between 95% and 99%
+  nothing warns at all before loop recording overwrites the oldest footage.
+
+DECOMPOSITION (from the council):
+  1. In repairs._storage, read `used_percent = coordinator.readings.get("storage_used_percent")`,
+     replacing both lookups AND the subtraction at repairs.py:121.
+  2. Keep unknown-is-not-fine: `if used_percent is None:` delete the issue and return. The old guard
+     used total and free, so it must be REWRITTEN, not left in place.
+  3. Add a REAL BEHAVIOURAL test to tests/test_platforms.py — call _storage with a fake coordinator
+     whose readings use status.hub_readings' actual key names; at 96% assert async_create_issue
+     fires, at 90% assert it is deleted. THIS IS THE POINT OF THE ITERATION: the existing "coverage"
+     at tests/test_platforms.py:119-120 is `self.assertIn("if not total or free is None:", REPAIRS)`
+     — a string match against module source, which is exactly why 1152 tests stayed green over a
+     dead branch. The auditor must confirm the new test FAILS against the old two-key code.
+  4. Run tools/verify.sh.
+owner_glob: {custom_components/tapo_h500/repairs.py, tests/test_platforms.py}, .improvement-loop/**
+
+SCOPE CAVEAT to carry into the log (the standing dissent, never retired): this restores the only
+PUSH warning, not the only fullness signal — sensor.py also ships storage_used_percent and a
+storage_full_in forecast sensor, so an owner who already badges those gains nothing from this fix.
+Say that plainly rather than overselling the win.
+
+NOTE: this iteration touches repairs.py (a pure read of coordinator.readings) and a test file. There
+is no network surface in the diff at all, so the separate no-cloud / hub-safety guard agents are
+folded into the auditor as an explicit zero-network-surface check. Recorded as a deliberate,
+proportionate departure, not an omission.

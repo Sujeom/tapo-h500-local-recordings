@@ -1,0 +1,32 @@
+{
+  "mode": "embedded",
+  "rounds": 3,
+  "personas": 5,
+  "blind_scoring": false,
+  "agent_counts": {
+    "debater": 15,
+    "auditor": 4,
+    "verifier": 3,
+    "extractor": 1,
+    "arbiter": 0,
+    "verdict": 1
+  },
+  "compressed_rounds": 0,
+  "concurrency_halved": false,
+  "unverifiable": [],
+  "verdict_fallback": false,
+  "budget": {
+    "total": null,
+    "spent_at_verdict": 1213010,
+    "reserve": 291600,
+    "projected_agents": 24,
+    "compressed_at_round": null
+  },
+  "models": {},
+  "effort": {
+    "debater": "medium",
+    "auditor": "medium",
+    "verifier": "medium",
+    "verdict": "high"
+  }
+}

@@ -1,0 +1,54 @@
+[
+  {
+    "id": "C1",
+    "idea": "preview-500",
+    "concern": "The security case rests on the 500 response body leaking a traceback with absolute media paths. If aiohttp/HomeAssistantView returns a generic '500 Internal Server Error' body and logs the traceback server-side only, the leakage half of the argument is false and the idea shrinks to log noise plus a wrong status code.",
+    "raised_round": 1,
+    "status": "resolved",
+    "routed_round": 2,
+    "resolved_round": 2,
+    "resolved_by": "Priya Raman"
+  },
+  {
+    "id": "C2",
+    "idea": "correctness-1",
+    "concern": "The mismatch is only a live defect if coordinator.readings is actually populated from status.hub_readings and the storage repair path is reachable at runtime. Nobody traced readings from producer to _storage; if another writer supplies un-suffixed keys, the repair works and the fix would break it.",
+    "raised_round": 1,
+    "status": "resolved",
+    "routed_round": 2,
+    "resolved_round": 2,
+    "resolved_by": "Tomas Lindqvist"
+  },
+  {
+    "id": "C3",
+    "idea": "correctness-1",
+    "concern": "The repair may be the second surfacing, not the only one. sensor.py already exposes storage_used_percent as an entity a user can automate or badge on, and coordinator.py:631 feeds a storage trend from it. If the percent sensor already tells the user the hub is filling up, fixing the dead repair adds a redundant notification rather than restoring a lost warning, and the impact case collapses to tidiness.",
+    "raised_round": 2,
+    "status": "resolved",
+    "resolved_round": 3,
+    "resolved_by": "Tomas Lindqvist"
+  },
+  {
+    "id": "C4",
+    "idea": "offline-8",
+    "concern": "The fan-out premise behind both offline-8's severity and its DA attack is unshown: nobody has verified that a media-browser listing actually issues N concurrent preview requests. preview.py's own header notes the card marks images loading=\"lazy\", which would serialize or suppress most of them, and Home Assistant's browse response may return thumbnails without fetching them at all. If previews arrive one at a time on scroll, there is no pile-up through the lock and the unbounded-hold scenario needs a different trigger.",
+    "raised_round": 2,
+    "status": "resolved",
+    "resolved_round": 3,
+    "resolved_by": "Idris Bello"
+  },
+  {
+    "id": "C5",
+    "idea": "offline-8",
+    "concern": "Nobody has shown the session can actually hold the lock unboundedly. If the client's socket or HTTP layer already carries a read timeout, a wedged handshake raises on its own and the lock releases without any new code \u2014 the whole idea then reduces to shortening an existing timeout. The api.py connect/read path and its timeout arguments need opening before the bound is priced.",
+    "raised_round": 3,
+    "status": "open"
+  },
+  {
+    "id": "C6",
+    "idea": "frontend-cards-7",
+    "concern": "The '60s empty card' half of the severity case looks false: _load()'s finally clears _busy and calls _render() when the in-flight request returns, so a click swallowed by the _busy guard leaves the card empty only until that response lands. If so, the residual symptom is a seconds-long stale label, and the request-token rewrite is bought for less than claimed.",
+    "raised_round": 3,
+    "status": "open"
+  }
+]
