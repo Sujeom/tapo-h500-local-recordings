@@ -72,4 +72,6 @@ Note:       This iteration fixed a defect iteration 1 introduced. Iteration 1 sh
             miss, not a win.
 Council:    SKIPPED, deliberately. The top board candidate was a fail-dangerous regression in iteration 1's own commit; a scored debate over whether to fix something that can lock an owner out of their hub would be theatre, with no second option to weigh and a value score answering a question nobody asked. Reasoning in full at LEDGER.md, "Why iteration 2 SKIPPED the debate council". Council returns for iteration 3, which faces a real choice among 29 candidates.
 Gate:       [B-013] applied before the claim was written — the allow-list now greps out the whole `.improvement-loop/` prefix instead of enumerating files, and the gate exits 0 printing `ITER2-GATE OK`.
-GreenCommit: pending — written into this line by the follow-up commit
+GreenCommit: afa1533 — the iteration's own commit. This line was written by a second, separate commit
+            immediately after it, because the hash cannot exist before the commit that produces it and
+            the branch is auto-pushed by a post-commit hook, so amending would need a force push.
