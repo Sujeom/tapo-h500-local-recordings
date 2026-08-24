@@ -426,3 +426,56 @@ class BatchedActivity(unittest.TestCase):
         self.assertEqual(len(client.batched), 1)
         self.assertNotIn("recent", client.calls)
         self.assertNotIn("detections", client.calls)
+
+
+class WriteConfirmation(unittest.TestCase):
+    """A write must be confirmed by the poll it already schedules.
+
+    Status is read every 30th poll at the default 2s interval, so the refresh
+    a switch or a number asks for after a write usually skips the one read
+    that would confirm it -- and the control snaps back in the frontend for
+    up to a minute. The flag changes what that poll fetches. It must never
+    add a second poll, and it must never stay on: this hub wedges under a
+    stream of sessions.
+    """
+
+    def test_a_write_forces_the_status_read_on_a_poll_that_would_skip(self):
+        """Poll 1 of 3 is a skipping poll; the write makes it read anyway."""
+        coord, client = _build(interval=20)     # status every 3rd poll
+        coord._polls = 1                        # 1 % 3 != 0, due to skip
+        coord._force_status = True
+        asyncio.run(coord._async_update_data())
+        self.assertIn("hub_status", client.calls)
+
+    def test_the_write_helper_refreshes_exactly_once(self):
+        """The refresh the caller was already making, not an extra one."""
+        coord, _ = _build(interval=20)
+        refreshes = []
+
+        async def record():
+            refreshes.append(1)
+        # On the instance: the shared stub base is carried into every other
+        # test file by sys.modules and must not gain a method here.
+        coord.async_request_refresh = record
+        asyncio.run(coord.async_refresh_after_write())
+        self.assertEqual(len(refreshes), 1)
+        self.assertTrue(coord._force_status)
+
+    def test_status_is_still_skipped_when_no_write_asked_for_it(self):
+        """The ordinary poll gains no round trip. Making the read
+        unconditional would be per-poll session churn on a hub that wedges."""
+        coord, client = _build(interval=20)
+        coord._polls = 1
+        asyncio.run(coord._async_update_data())
+        self.assertEqual(client.calls.count("hub_status"), 0)
+
+    def test_the_forced_read_happens_once_not_forever(self):
+        """One write, one forced read. The flag is cleared inside the branch
+        it triggers, so it cannot latch the read permanently on."""
+        coord, client = _build(interval=20)
+        coord._polls = 1
+        coord._force_status = True
+        asyncio.run(coord._async_update_data())
+        self.assertFalse(coord._force_status)
+        asyncio.run(coord._async_update_data())   # 2 % 3 != 0, still skipping
+        self.assertEqual(client.calls.count("hub_status"), 1)

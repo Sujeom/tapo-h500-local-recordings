@@ -88,6 +88,10 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._frame_attempts: dict[int, int] = {}
         self._primed = False
         self._polls = 0
+        # Set by a write so the next poll reads status even when the modulo
+        # would skip it; at a 2s interval status is every 30th poll, so
+        # without this a control snaps back to its old value for a minute.
+        self._force_status = False
         self._failures = 0
         # Who has already been seen today, and which day that refers to.
         self._arrived: set[str] = set()
@@ -676,6 +680,16 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 quiet.append(camera.get("alias") or f"Camera {index}")
         return quiet
 
+    async def async_refresh_after_write(self) -> None:
+        """Refresh once after a write, and make that poll read status.
+
+        The refresh is the one the caller was already making -- the flag only
+        changes what it fetches, never how often. Asking for a second poll
+        would be exactly the traffic this hub wedges under.
+        """
+        self._force_status = True
+        await self.async_request_refresh()
+
     async def _async_update_data(self) -> dict:
         """Poll, and back off while the hub is not answering."""
         try:
@@ -750,7 +764,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # lookups, so every notification waited on a round trip fetching LED
         # state and storage figures. Poll 0 still fetches it, so nothing is
         # blank on startup.
-        if self._polls % self._status_every == 0:
+        if self._force_status or self._polls % self._status_every == 0:
+            self._force_status = False
             try:
                 self.readings = hub_readings(
                     await self.hass.async_add_executor_job(self.client.hub_status))

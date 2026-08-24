@@ -36,4 +36,4 @@ class H500HubControl(CoordinatorEntity[H500Coordinator]):
             raise HomeAssistantError(f"The H500 refused the change: {err}") from err
         # One poll after the write, not one per call: this hub is easy to
         # overload and the readings all arrive in a single round trip anyway.
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_after_write()
