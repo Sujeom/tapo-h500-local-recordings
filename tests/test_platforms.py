@@ -1,10 +1,11 @@
 """Diagnostics, logbook, repairs and the image platform.
 
-The logbook phrasing is pure and is exercised for real. The rest is checked
-statically, since all three import the Home Assistant runtime. What is worth
-protecting is mostly about what must NOT happen: diagnostics is a file people
-paste into public bug reports, and a repair issue that never clears is worse
-than one that never appears.
+The logbook phrasing is pure and is exercised for real, and so are the storage
+checks, over a stubbed issue registry. The rest is checked statically, since it
+imports the Home Assistant runtime. What is worth protecting is mostly about
+what must NOT happen: diagnostics is a file people paste into public bug
+reports, and a repair issue that never clears is worse than one that never
+appears.
 """
 import importlib
 import json
@@ -31,6 +32,21 @@ package.__path__ = [str(COMPONENT)]
 sys.modules.setdefault("tapo_h500", package)
 logbook = importlib.import_module("tapo_h500.logbook")
 status = importlib.import_module("tapo_h500.status")
+
+# repairs.py talks to the issue registry and to nothing else, so a recorder in
+# its place is enough to run the checks for real. Registered here rather than
+# in the shared harness, which every other test file inherits.
+ISSUES = []
+_registry = types.ModuleType("homeassistant.helpers.issue_registry")
+_registry.async_create_issue = (
+    lambda hass, domain, issue_id, **kwargs:
+    ISSUES.append(("create", issue_id, kwargs)))
+_registry.async_delete_issue = (
+    lambda hass, domain, issue_id: ISSUES.append(("delete", issue_id, {})))
+_registry.IssueSeverity = types.SimpleNamespace(WARNING="warning",
+                                               ERROR="error")
+sys.modules.setdefault("homeassistant.helpers.issue_registry", _registry)
+repairs = importlib.import_module("tapo_h500.repairs")
 
 
 class Diagnostics(unittest.TestCase):
@@ -116,9 +132,6 @@ class Repairs(unittest.TestCase):
             self.assertIn("async_create_issue", body, func)
             self.assertIn("async_delete_issue", body, func)
 
-    def test_unknown_storage_is_not_treated_as_healthy(self):
-        self.assertIn("if not total or free is None:", REPAIRS)
-
     def test_it_warns_before_the_disk_is_full(self):
         """Loop recording does not fail at 100%, it discards the oldest footage
         silently, so warning at 100 would be warning after the loss."""
@@ -136,6 +149,62 @@ class Repairs(unittest.TestCase):
         coordinator = (COMPONENT / "coordinator.py").read_text()
         block = coordinator.split("from .repairs import async_check", 1)[1][:300]
         self.assertIn("except Exception", block)
+
+
+class StorageWarning(unittest.TestCase):
+    """The near-full warning, exercised by calling it rather than reading it.
+
+    It asked `readings` for `storage_total` and `storage_free`, which nothing
+    emits -- `status.hub_readings` publishes `storage_used_percent` -- so both
+    were None, every poll took the unknown branch, and the warning could not
+    be raised at any fullness. A test that matched the guard's source text
+    stayed green through all of it, which is why these call the function.
+    """
+
+    def setUp(self):
+        ISSUES.clear()
+
+    @staticmethod
+    def _poll(readings):
+        """One check against a hub reporting `readings`.
+
+        `hass` is passed straight through to the registry, so anything will
+        do; `readings` is the whole input.
+        """
+        repairs._storage(object(), "e1",
+                         types.SimpleNamespace(readings=readings))
+
+    def test_a_nearly_full_hub_raises_the_warning(self):
+        """The branch that could not be reached: at 96% the hub is one
+        recording away from overwriting its oldest footage."""
+        self._poll({"storage_used_percent": 96})
+        self.assertEqual([action for action, _, _ in ISSUES], ["create"])
+        _, issue_id, kwargs = ISSUES[0]
+        self.assertEqual(issue_id, "storage_nearly_full_e1")
+        self.assertEqual(kwargs["translation_key"], "storage_nearly_full")
+        self.assertEqual(kwargs["translation_placeholders"], {"used": "96"})
+
+    def test_the_threshold_itself_warns(self):
+        """95 is where the warning is wanted, not where it starts being
+        withheld: `<` and `<=` differ by exactly this poll."""
+        self._poll({"storage_used_percent": repairs.STORAGE_WARN_PERCENT})
+        self.assertEqual([action for action, _, _ in ISSUES], ["create"])
+
+    def test_a_comfortable_hub_clears_the_warning(self):
+        """An issue that never clears is worse than one that never appears."""
+        self._poll({"storage_used_percent": 90})
+        self.assertEqual(ISSUES, [("delete", "storage_nearly_full_e1", {})])
+
+    def test_unknown_storage_is_not_treated_as_healthy(self):
+        """A hub that reports no figure must not read as plenty of room --
+        and must not raise the warning on a guess either. Missing and
+        explicitly None arrive from different firmwares."""
+        for readings in ({}, {"storage_used_percent": None}):
+            with self.subTest(readings=readings):
+                ISSUES.clear()
+                self._poll(readings)
+                self.assertEqual(
+                    ISSUES, [("delete", "storage_nearly_full_e1", {})])
 
 
 class NamePrompt(unittest.TestCase):
