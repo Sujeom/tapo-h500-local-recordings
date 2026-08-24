@@ -2,7 +2,7 @@
   "runId": "ril-20260823-215339",
   "iter": 4,
   "branch": "improvments",
-  "lastGreenCommit": "50b247d",
+  "lastGreenCommit": "910d5f2",
   "minedCategories": {
     "ha-conformance": 1,
     "offline-resilience": 1,
