@@ -1,0 +1,721 @@
+[
+  {
+    "round": 1,
+    "phase": "propose",
+    "compressed": false,
+    "arguments": [
+      {
+        "persona": "Mei Sato",
+        "da": false,
+        "idea_id": "frontend-cards-2",
+        "stance": "propose",
+        "title": "Stop the 60s poll killing playback",
+        "argument": "correctness-1 and offline-1 are true defects, but a repair issue that never fires is a bug no user has ever seen; nobody is filing a ticket about a missing notification. frontend-cards-2 is the one a person feels every time they use the product: `_load()` always ends in `this._render()` (line 499-501), `_render()` assigns `this._card.innerHTML` (line 678), and the open clip is `<video controls autoplay src=...>` (line 622). The 60s `setInterval(() => this._load(), 60000)` (line 441) therefore blows away the player mid-clip and autoplays it from zero. Every clip longer than a minute is unwatchable in the card.\n\nSimplest fix that delivers: skip the re-render in `_load`'s finally while `this._playing` is set. One guard, one sitting, trivially revertible. Falsifiable test in tests/test_cards.mjs, which already drives `_playing` and asserts on `innerHTML` (lines 290-300): set `_playing`, run `_load()`, assert the markup was not rebuilt.\n\nTradeoff I accept: the list goes stale while you watch. That is the correct priority \u2014 you are watching, not browsing.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/www/tapo-h500-card.js",
+            "lines": "441",
+            "quote": "this._timer = setInterval(() => this._load(), 60000);",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/www/tapo-h500-card.js",
+            "lines": "499-501",
+            "quote": "} finally { this._busy = false; this._render(); }",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/www/tapo-h500-card.js",
+            "lines": "622",
+            "quote": "? `<video controls autoplay src=\"${esc(item.url)}\"></video>` : \"\";",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/www/tapo-h500-card.js",
+            "lines": "678",
+            "quote": "this._card.innerHTML = `",
+            "firsthand": true
+          },
+          {
+            "file": "tests/test_cards.mjs",
+            "lines": "290-300",
+            "quote": "card._playing = String(CLIPS[0].start_time); ... assert.ok(html.includes(\"<video\"));",
+            "firsthand": true
+          }
+        ]
+      },
+      {
+        "persona": "Tomas Lindqvist",
+        "da": false,
+        "idea_id": "correctness-1",
+        "stance": "propose",
+        "argument": "I open correctness-1, and I can tell you exactly why 1134 tests missed it: repairs.py has no behavioural test at all. Every assertion in tests/test_platforms.py is a substring match against the module's own source. tests/test_platforms.py:120 is literally `self.assertIn(\"if not total or free is None:\", REPAIRS)` \u2014 that passes whether the keys are `storage_total` or `storage_totally_wrong`. Line 115 splits source on `def _storage`; line 137 greps coordinator.py text. No test ever calls `async_check`.\n\nThat makes correctness-1 the most falsifiable item on the board. The premise is grep-verifiable now: repairs.py:114-115 reads `storage_total`/`storage_free`; status.py:237-238 emits `storage_free_gb`/`storage_total_gb`. The copy-paste source is sensor.py:50, where those are entity keys, not reading keys.\n\nFix: two key names, plus one test that constructs a fake coordinator with real status.py output and asserts the issue fires. Tradeoff: it does not fix the string-match habit \u2014 offline-1 lives in the same blind spot \u2014 but it converts one file from text-asserted to called. Same-sitting, trivially revertible. Scope cut: no repairs.py refactor.",
+        "citations": [
+          {
+            "file": "tests/test_platforms.py",
+            "lines": "119-120",
+            "quote": "def test_unknown_storage_is_not_treated_as_healthy(self):\n        self.assertIn(\"if not total or free is None:\", REPAIRS)",
+            "firsthand": true
+          },
+          {
+            "file": "tests/test_platforms.py",
+            "lines": "114-117",
+            "quote": "for func in (\"_storage\", \"_reachable\", \"_unnamed_faces\"):\n            body = REPAIRS.split(f\"def {func}\", 1)[1]",
+            "firsthand": true
+          },
+          {
+            "file": "tests/test_platforms.py",
+            "lines": "135-138",
+            "quote": "coordinator = (COMPONENT / \"coordinator.py\").read_text()\n        block = coordinator.split(\"from .repairs import async_check\", 1)[1][:300]",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/status.py",
+            "lines": "237-238",
+            "quote": "\"storage_free_gb\": free,\n        \"storage_total_gb\": total,",
+            "firsthand": false
+          },
+          {
+            "file": "custom_components/tapo_h500/repairs.py",
+            "lines": "114-115",
+            "quote": "total = coordinator.readings.get(\"storage_total\")",
+            "firsthand": false
+          },
+          {
+            "file": "custom_components/tapo_h500/sensor.py",
+            "lines": "50-56",
+            "quote": "key=\"storage_free\", translation_key=\"storage_free\", ... value=lambda r: r.get(\"storage_free_gb\")",
+            "firsthand": false
+          }
+        ]
+      },
+      {
+        "persona": "Priya Raman",
+        "da": false,
+        "idea_id": "ha-conformance-1",
+        "stance": "propose",
+        "title": "Reauth instead of infinite login retry",
+        "argument": "I open the case for ha-conformance-1 (security-1 is the same defect; merge them). I opened `__init__.py`: every connect() failure \u2014 including a rejected password \u2014 becomes ConfigEntryNotReady, and `config_flow.py` has no `async_step_reauth` at all (steps are user/init/faces/layout/sensitivity/settings), with zero `reauth` keys in en.json or strings.json. So a changed cloud password means HA retries the login on a backoff forever, with no repair card and no way for the user to enter new credentials short of deleting the entry.\n\nCrucially this collides with the hardware constraint the codebase itself already respects: the first-refresh handler warns the hub \"wedges under repeated ones and recovers only on a timeout\". Auth failure is exactly the case where retrying is both useless and harmful.\n\nScope: catch the auth-shaped error, raise ConfigEntryAuthFailed, add async_step_reauth_confirm plus two translation keys. One sitting, reversible, and it leaves a falsifiable test \u2014 assert ConfigEntryAuthFailed and assert connect() called once. Tradeoff: classifying \"auth-shaped\" from pytapo's untyped exceptions is the only judgement call; be conservative, default to NotReady.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/__init__.py",
+            "lines": "196-202",
+            "quote": "except Exception as err: ... raise ConfigEntryNotReady(f\"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}\") from err",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/__init__.py",
+            "lines": "209-213",
+            "quote": "recovers only on a timeout. The exception still leaves, because it is what schedules the retry.",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/config_flow.py",
+            "lines": "45-301",
+            "quote": "async_step_user / async_step_init / async_step_faces / async_step_layout / async_step_sensitivity / async_step_settings",
+            "firsthand": true
+          }
+        ]
+      },
+      {
+        "persona": "Ada Okonkwo",
+        "da": false,
+        "idea_id": "offline-2",
+        "stance": "propose",
+        "argument": "offline-2 is the one defect on this board that the hardware constraint itself makes dangerous, and the tests missed it because it lives in __init__, not in logic.\n\nI opened coordinator.py:835-869 firsthand. The guard is `elapsed >= AUTO_RESTART_COOLDOWN` with `elapsed = now - self._auto_restarted`, and `_auto_restarted` starts at 0.0 with `now = int(dt_util.utcnow().timestamp())` (line 716). After every Home Assistant restart or config-entry reload, elapsed is ~1.8 billion seconds: the six-hour cooldown is vacuously satisfied, and the breaker `0 < elapsed <= CURE_WINDOW` never trips. So a supervisor restarting HA, or an owner toggling options, reboots a wedged hub on the *first* poll, every time \u2014 exactly the repeated-reconnect pressure the charter forbids adding. Wall-clock also means a host booting before NTP sync can invert the comparison.\n\nLazy fix: set `_auto_restarted = utcnow()` at construction (one line, one grace window per HA start), not a Store. Tradeoff: a genuine post-restart wedge waits six hours; that is the safe direction. Falsifiable test: build a coordinator, poll with media_status \"wedged\", assert reboot was not called.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/coordinator.py",
+            "lines": "852-855",
+            "quote": "if (reason is not None and reboot is not None\n and not self._auto_restart_broken\n and elapsed >= AUTO_RESTART_COOLDOWN):",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/coordinator.py",
+            "lines": "716",
+            "quote": "now = int(dt_util.utcnow().timestamp())",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/const.py",
+            "lines": "194",
+            "quote": "AUTO_RESTART_COOLDOWN = 6 * 3600",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/coordinator.py",
+            "lines": "141-142",
+            "quote": "self._auto_restarted = 0.0 / self._auto_restart_broken = False",
+            "firsthand": false
+          }
+        ]
+      },
+      {
+        "persona": "Idris Bello",
+        "da": false,
+        "idea_id": "security-2",
+        "stance": "propose",
+        "title": "Bound preview start to known clips",
+        "argument": "I open security-2, and I widen why it matters: this is the integration's only trust boundary, and its whole validation is `if start < 0 or index < 0` (preview.py:55-56). Everything past that goes straight into `client.iter_recording(camera, start_time, start_time + PREVIEW_SECONDS, kind=\"preview\")` (media.py:180-182) \u2014 one media session per request, on hardware the charter says wedges under session pressure. So the real need isn't \"reject a bad int\", it's: a signed-URL replay or a curious authenticated user can walk start_time and mint unbounded sessions plus unbounded `.ts.part` temp files, since the on-disk cache only hits for a start that already produced a frame.\n\nLaziest fix that delivers it: the coordinator already caches clips \u2014 check `start` is a known clip start, else 404. One guard, no new state, reversible. Tradeoff: a clip listed after the last poll 404s until the next one; acceptable versus a wedged hub. Leaves the falsifiable test tests-4 says doesn't exist: preview.py's HTTP path has zero coverage today, so any test here is net-new teeth. No new network calls, nothing phones home.\n\nNot proposing rate limiting or a session semaphore \u2014 speculative until the guard proves insufficient.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/preview.py",
+            "lines": "55-56",
+            "quote": "if start < 0 or index < 0: return web.Response(status=400, text=\"Bad preview request\")",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/media.py",
+            "lines": "180-182",
+            "quote": "async for chunk in client.iter_recording(camera, start_time, start_time + PREVIEW_SECONDS, kind=\"preview\"):",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/preview.py",
+            "lines": "172-174",
+            "quote": "thumbnail = clip_path(hass, camera, start_time, \".jpg\"); if await hass.async_add_executor_job(_has_content, thumbnail): return thumbnail",
+            "firsthand": true
+          }
+        ]
+      }
+    ],
+    "scores": [
+      {
+        "slot": 0,
+        "idea_id": "frontend-cards-2",
+        "impact": 7,
+        "feasibility": 9,
+        "evidence": 9,
+        "debate_value": 6,
+        "why": "I opened the card myself: the 60s setInterval, the finally-block _render, the innerHTML rebuild and the autoplay video element are all exactly as quoted, so the mid-clip reset is a real, user-felt defect with a one-guard fix and a test hook that already exists; debate value is lower because it dismisses rival ideas by assertion rather than engaging their evidence."
+      },
+      {
+        "slot": 1,
+        "idea_id": "correctness-1",
+        "impact": 7,
+        "feasibility": 9,
+        "evidence": 9,
+        "debate_value": 7,
+        "why": "Verified firsthand: repairs.py:114-115 reads storage_total/storage_free while status.py:237-238 emits storage_free_gb/storage_total_gb, and the cited tests are genuinely substring matches against module source, so the explanation for why 1134 tests missed it holds; impact is a silent never-firing disk warning rather than a visible break."
+      },
+      {
+        "slot": 2,
+        "idea_id": "ha-conformance-1",
+        "impact": 8,
+        "feasibility": 7,
+        "evidence": 8,
+        "debate_value": 7,
+        "why": "Confirmed by grep: no async_step_reauth and no ConfigEntryAuthFailed anywhere in the component or tests, and no reauth translation keys, so a changed password means endless retry against hardware this project documents as wedging under repeated auth; feasibility is docked for the acknowledged judgement call of classifying untyped pytapo exceptions."
+      },
+      {
+        "slot": 3,
+        "idea_id": "offline-2",
+        "impact": 7,
+        "feasibility": 8,
+        "evidence": 8,
+        "debate_value": 7,
+        "why": "The vacuous-cooldown mechanism checks out firsthand \u2014 _auto_restarted starts at 0.0 while elapsed is computed from a Unix timestamp, so the six-hour guard is satisfied on the first poll after every restart; impact is held below 8 because the branch also requires reboot is not None, i.e. the owner opted in, which the argument never prices."
+      },
+      {
+        "slot": 4,
+        "idea_id": "security-2",
+        "impact": 5,
+        "feasibility": 7,
+        "evidence": 6,
+        "debate_value": 5,
+        "why": "The quoted validation and the per-request media session are real, but the load-bearing harm \u2014 unbounded session minting by a replayed signed URL or curious user \u2014 is asserted rather than shown, with no read of the view's auth posture, and the known-clip-start guard trades a real behavioural regression for a threat whose actor is never pinned down."
+      }
+    ],
+    "merges": [],
+    "open_concerns": [
+      {
+        "idea": "offline-2",
+        "concern": "The vacuous-cooldown branch only runs when reboot is not None, i.e. the owner opted into automatic restarts. If that option is off by default, the blast radius is a small subset of installs and the impact case shrinks sharply; nobody priced the default."
+      },
+      {
+        "idea": "security-2",
+        "concern": "The preview endpoint's authentication posture is never established. If it is a HomeAssistantView with requires_auth left at its default, the attacker must already be an authenticated HA user, which reprices the whole threat and may make the proposed known-clip-start guard a net regression."
+      }
+    ],
+    "cumulative": {
+      "correctness-1": 8,
+      "frontend-cards-2": 7.8,
+      "ha-conformance-1": 7.5,
+      "offline-2": 7.5,
+      "security-2": 5.8
+    }
+  },
+  {
+    "round": 2,
+    "phase": "contest",
+    "compressed": false,
+    "arguments": [
+      {
+        "persona": "Tomas Lindqvist",
+        "da": false,
+        "assigned": "offline-2",
+        "idea_id": "correctness-1",
+        "stance": "defend",
+        "argument": "Assignment, offline-2: Ada's mechanism is real but the suite already ruled on it. Every breaker test starts from a fresh coordinator whose _auto_restarted is 0.0 and comments the first poll \"# restarts once\" (tests/test_auto_restart.py:138), then hand-sets the timestamp to explore the cooldown. Cold-start-restarts-immediately is the suite's *fixture*, not a gap. Add C1's DEFAULT_AUTO_RESTART = False and const.py:422-424 \u2014 the author writing that persisting in-memory state to disk is \"a lot of machinery\" \u2014 and offline-2 asks for a Store this codebase has explicitly priced and declined, on an opt-in path, to prevent a reboot the owner asked for. Churn, on a mature repo whose floor is 55.\n\ncorrectness-1 has the opposite shape: no test encodes the wrong keys as intended, because no test calls _storage at all \u2014 they substring-match REPAIRS source. Falsifiable fix: assert repairs reads keys hub_readings actually emits.",
+        "citations": [
+          {
+            "file": "tests/test_auto_restart.py",
+            "lines": "136-142",
+            "quote": "coord, client = _build() ... _poll(coord)  # restarts once ... coord._auto_restarted = 1_786_600_000 - 600",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/const.py",
+            "lines": "422-424",
+            "quote": "Held in memory only, and deliberately so. Writing a sample a minute to disk to survive a restart is a lot of machinery",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/const.py",
+            "lines": "193",
+            "quote": "DEFAULT_AUTO_RESTART = False",
+            "firsthand": false
+          },
+          {
+            "file": "tests/test_platforms.py",
+            "lines": "114-117",
+            "quote": "for func in (\"_storage\", \"_reachable\", \"_unnamed_faces\"): body = REPAIRS.split(f\"def {func}\", 1)[1]",
+            "firsthand": false
+          }
+        ]
+      },
+      {
+        "persona": "Mei Sato",
+        "da": false,
+        "assigned": "security-2",
+        "idea_id": "frontend-cards-2",
+        "stance": "defend",
+        "argument": "Assignment first: security-2's strongest claim collapses when you open the file. H500PreviewView subclasses HomeAssistantView with requires_auth left at its default and every URL is minted by async_sign_path with URL_LIFETIME (preview.py:33-38, 42-46), so Idris's \"any authenticated user\" actor is just... the household. And the \"500 with a traceback\" half is wrong: out-of-range starts land on `if path is None: return web.Response(status=404` (preview.py:70). C2 resolves against security-2; a known-clip-start whitelist would be a regression for a threat that isn't one.\n\nMine survives and is the one a person on the dashboard actually sees. New firsthand ground: `_playing` is durable card state, compared per item at line 610. So the fix is one guard \u2014 skip the 60s `_render` while `this._playing` is set \u2014 using state that already exists, with test_cards.mjs:290-300 as the assertion hook. Tradeoff: a playing card's list goes stale until you press Hide. Cheap, reversible, felt.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/preview.py",
+            "lines": "42-46",
+            "quote": "class H500PreviewView(HomeAssistantView): url = PREVIEW_PATH; name = \"api:tapo_h500:preview\"",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/preview.py",
+            "lines": "33-38",
+            "quote": "\"\"\"A signed URL the dashboard can put straight into <img>.\"\"\" return async_sign_path(hass,",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/preview.py",
+            "lines": "68-70",
+            "quote": "if path is None: ... return web.Response(status=404, text=\"No preview available\")",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/www/tapo-h500-card.js",
+            "lines": "610",
+            "quote": "return this._playing === String(item.start_time);",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/www/tapo-h500-card.js",
+            "lines": "622",
+            "quote": "? `<video controls autoplay src=\"${esc(item.url)}\"></video>` : \"\";",
+            "firsthand": false
+          },
+          {
+            "file": "tests/test_cards.mjs",
+            "lines": "290-300",
+            "quote": "card._playing = String(CLIPS[0].start_time); ... assert.ok(html.includes(\"<video\"));",
+            "firsthand": false
+          }
+        ]
+      },
+      {
+        "persona": "Idris Bello",
+        "da": false,
+        "assigned": "C2\u2192assigned",
+        "idea_id": "ha-conformance-1",
+        "stance": "refine",
+        "argument": "C2 conceded, not dodged. preview.py:42-46 subclasses HomeAssistantView with no requires_auth override \u2014 so it inherits auth-required \u2014 and every URL is minted through async_sign_path (preview.py:34-39) with an expiry. The attacker is therefore an already-authenticated HA user replaying their own short-lived URL. That reprices security-2 to a self-inflicted DoS, and a known-clip-start allow-list would be a net regression against a hub whose clip index moves. I withdraw security-2 and adopt ha-conformance-1, which is the same lens done honestly: credentials.\n\nFirsthand, it is worse than \"no reauth flow\". api.py:157-166 shows connect() builds a fresh Tapo with username/password/cloud_password and immediately hits basicInfo \u2014 a full login per attempt. ConfigEntryNotReady retries that forever, and this hardware is documented to wedge under repeated authentication. Tradeoff: classifying untyped pytapo errors is a judgement call, so scope it to \"raise ConfigEntryAuthFailed only on the login-rejected signature, everything else stays NotReady\" \u2014 one branch, one test, reversible.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/preview.py",
+            "lines": "42-46",
+            "quote": "class H500PreviewView(HomeAssistantView): ... url = PREVIEW_PATH  name = \"api:tapo_h500:preview\"",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/preview.py",
+            "lines": "33-39",
+            "quote": "\"\"\"A signed URL the dashboard can put straight into <img>.\"\"\" return async_sign_path(",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/api.py",
+            "lines": "156-166",
+            "quote": "def connect(self): self._hub = Tapo(self.host, self.username, self.password, self.cloud_password,",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/__init__.py",
+            "lines": "196-202",
+            "quote": "raise ConfigEntryNotReady(f\"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}\") from err",
+            "firsthand": false
+          }
+        ]
+      },
+      {
+        "persona": "Ada Okonkwo",
+        "da": true,
+        "assigned": "C1\u2192assigned",
+        "idea_id": "ha-conformance-1",
+        "stance": "refine",
+        "argument": "C1: conceded, with evidence. const.py:193 reads `DEFAULT_AUTO_RESTART = False` under a comment saying an automatic reboot is the owner's decision. offline-2's vacuous cooldown is real but only bites opt-in installs, so I drop it and adopt ha-conformance-1 \u2014 the same reliability lens, no opt-in gate.\n\nAgainst the leader, in good faith: correctness-1's premise is true but its harm is a warning that never appears, and repairs.py:118 already deletes the issue on unknown, so nothing wrong is ever shown. Worse, readings already carry storage_used_percent, so the honest fix deletes the arithmetic at repairs.py:121 rather than renaming two keys \u2014 an unpriced scope question. And its failure mode was a substring test; a rename likely ships another substring test.\n\nha-conformance-1 wins on my lens: __init__.py:196-202 retries forever on bad credentials, re-authenticating against hardware documented to wedge under repeated auth, and every HA restart re-arms it. ConfigEntryAuthFailed stops the hammering and leaves a falsifiable test.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/const.py",
+            "lines": "189-193",
+            "quote": "Off by default -- an automatic reboot is the owner's decision",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/repairs.py",
+            "lines": "113-121",
+            "quote": "if not total or free is None: ir.async_delete_issue(...) return; used_percent = round((total - free) / total * 100)",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/__init__.py",
+            "lines": "196-202",
+            "quote": "raise ConfigEntryNotReady(f\"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}\") from err",
+            "firsthand": false
+          }
+        ]
+      },
+      {
+        "persona": "Priya Raman",
+        "da": false,
+        "assigned": "offline-2",
+        "idea_id": "ha-conformance-1",
+        "stance": "defend",
+        "argument": "Assignment first: offline-2's premise is true but its impact collapses. I opened const.py:189 \u2014 \"Off by default -- an automatic reboot is the owner's decision\" with DEFAULT_AUTO_RESTART = False (const.py:193), and coordinator.py:835 gates the whole block on that option. C1 is now answered against Ada: opt-in, AND the branch additionally requires reason is not None, i.e. media_status is *wedged right now*. So the \"re-armed immediate reboot\" fires only for an owner who asked for reboots, on a hub that is genuinely broken \u2014 which is what they asked for. What survives is only the forgotten breaker, and the fix is a Store plus async lifecycle for a sub-1% case. That is churn against a 55 floor.\n\nha-conformance-1 stands stronger by the same test: it needs no opt-in. Any changed password hits __init__.py:196-202's ConfigEntryNotReady loop, hammering hardware this repo documents as wedging under repeated auth \u2014 the exact HA-quality-scale gap (no async_step_reauth, no reauth strings). One classifier plus a raise, one test asserting ConfigEntryAuthFailed.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/const.py",
+            "lines": "188-193",
+            "quote": "Off by default -- an automatic reboot is the owner's decision",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/coordinator.py",
+            "lines": "835-837",
+            "quote": "if self.entry.options.get(CONF_AUTO_RESTART, DEFAULT_AUTO_RESTART): reason = (\"wedged\" if self.media_status == \"wedged\"",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/__init__.py",
+            "lines": "196-202",
+            "quote": "raise ConfigEntryNotReady(f\"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}\") from err",
+            "firsthand": false
+          }
+        ]
+      }
+    ],
+    "scores": [
+      {
+        "slot": 0,
+        "idea_id": "correctness-1",
+        "impact": 7,
+        "feasibility": 9,
+        "evidence": 8,
+        "debate_value": 7,
+        "why": "Meets the assignment with a real firsthand read (tests/test_auto_restart.py:136-142 does start cold and restart on the first poll), and the const.py:422-424 \"a lot of machinery\" quote prices offline-2's fix honestly; docked because \"cold start is the fixture, not a gap\" argues intent from a test comment rather than from the guard's contract, and because the DEFAULT_AUTO_RESTART key claim is relayed."
+      },
+      {
+        "slot": 1,
+        "idea_id": "frontend-cards-2",
+        "impact": 7,
+        "feasibility": 9,
+        "evidence": 9,
+        "debate_value": 8,
+        "why": "I opened preview.py myself: H500PreviewView subclasses HomeAssistantView with no requires_auth override and every URL is minted through async_sign_path, and an unpreviewable start hits the 404 at line 70, so both halves of the assignment land firsthand; the new ground on its own idea (_playing compared at card.js:610) is also true, giving a one-guard fix with an existing test hook."
+      },
+      {
+        "slot": 2,
+        "idea_id": "ha-conformance-1",
+        "impact": 8,
+        "feasibility": 7,
+        "evidence": 8,
+        "debate_value": 8,
+        "why": "Withdrawing its own idea on evidence it went and gathered is a genuine update, and api.py:156-166 is exactly as quoted -- connect() constructs Tapo with credentials and immediately calls basicInfo, so every ConfigEntryNotReady retry is a fresh login against hardware this repo documents as wedging; feasibility stays at 7 because the untyped-error classifier is still an unproven judgement call, scoped but not shown to be possible."
+      },
+      {
+        "slot": 3,
+        "idea_id": "ha-conformance-1",
+        "impact": 8,
+        "feasibility": 7,
+        "evidence": 9,
+        "debate_value": 9,
+        "why": "The round's sharpest turn: concedes C1 against its own idea with const.py:189-193 firsthand, then lands a real attack on the leader -- I confirmed repairs.py:118 deletes the issue on unknown keys (so nothing wrong is ever displayed) and that status.py:239 already emits storage_used_percent, which makes correctness-1's filed fix arguably the wrong change; feasibility unchanged by the same classifier risk as slot 2."
+      },
+      {
+        "slot": 4,
+        "idea_id": "ha-conformance-1",
+        "impact": 8,
+        "feasibility": 7,
+        "evidence": 8,
+        "debate_value": 7,
+        "why": "Both firsthand citations check out -- coordinator.py:835 gates the block on the opt-in option and the restart additionally requires reason is not None -- which is the fullest answer to C1 anyone gave; debate value is lower only because the offline-2 kill arrives third this round and the ha-conformance-1 case restates round 1 with the same relayed __init__.py:196-202 quote."
+      }
+    ],
+    "merges": [],
+    "open_concerns": [
+      {
+        "idea": "ha-conformance-1",
+        "concern": "Nobody has shown that pytapo surfaces a distinguishable login-rejected signature. If bad credentials and an unreachable hub raise the same untyped Exception, the proposed classifier either never fires (no benefit) or misclassifies an offline hub as an auth failure, leaving an entry that has stopped retrying a hub that was only briefly down -- a worse regression than the retry loop it replaces."
+      },
+      {
+        "idea": "correctness-1",
+        "concern": "readings already carries storage_used_percent (status.py:239), so the correct repair may be to delete the total/free arithmetic at repairs.py:113-121 and read the percentage directly, not to rename two keys. The idea as filed is a key rename; if the honest fix is a deletion, the winning proposal is scoped wrong and its impact claim is unpriced."
+      }
+    ],
+    "cumulative": {
+      "ha-conformance-1": 31.1,
+      "frontend-cards-2": 16.1,
+      "correctness-1": 15.8,
+      "offline-2": 7.5,
+      "security-2": 5.8
+    }
+  },
+  {
+    "round": 3,
+    "phase": "converge",
+    "compressed": false,
+    "arguments": [
+      {
+        "persona": "Idris Bello",
+        "da": false,
+        "idea_id": "ha-conformance-1",
+        "stance": "refine",
+        "argument": "C3 is resolvable without a pytapo exception classifier, and I opened the file that resolves it. api.py already ships an unauthenticated reachability probe: `sock = socket.create_connection((host, port)...) except OSError: return \"unreachable\"` (api.py:107-109), with \"healthy\"/\"wedged\" for a hub that answers. So the signal is orthogonal to the exception text: connect() failed AND the probe is not \"unreachable\" means the hub is up and refused us \u2014 ConfigEntryAuthFailed. Otherwise keep ConfigEntryNotReady. No new login, no media session, no WAN call; the existing probe is reused, satisfying constraints 1 and 2. Falsifiable test: fake client, connect raises, probe returns \"healthy\" \u2192 expect ConfigEntryAuthFailed; probe \"unreachable\" \u2192 ConfigEntryNotReady. Note config_flow.py:55-56 collapses everything to `errors[\"base\"] = \"cannot_connect\"` \u2014 same laziness, but there the user retypes, so leave it; scope stays __init__.py only. Steelman for frontend-cards-2: it is the only candidate a user feels within one second, and its guard is smaller than mine. It loses only because a restarted video is annoying, while a wedged hub after repeated logins is the hardware failure this repo is built around.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/api.py",
+            "lines": "106-123",
+            "quote": "except OSError: return \"unreachable\" ... return \"healthy\" if data else \"wedged\"",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/config_flow.py",
+            "lines": "55-56",
+            "quote": "except Exception: errors[\"base\"] = \"cannot_connect\"",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/__init__.py",
+            "lines": "196-202",
+            "quote": "raise ConfigEntryNotReady(f\"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}\") from err",
+            "firsthand": false
+          }
+        ]
+      },
+      {
+        "persona": "Mei Sato",
+        "da": false,
+        "idea_id": "frontend-cards-2",
+        "stance": "defend",
+        "argument": "Steelmanning correctness-1, which I am not championing: Ada's C4 makes it stronger, not weaker. If the honest repair is deleting repairs.py's total/free arithmetic and reading storage_used_percent, the diff shrinks to one key plus a None guard \u2014 that is the laziest correct fix on the board, and it beats ha-conformance-1, whose classifier (C3) is still unproven against untyped pytapo errors and risks stranding a briefly-offline hub. But correctness-1 fixes a warning nobody has ever seen fire. Nobody notices it ship.\n\nfrontend-cards-2 is what the person on the dashboard feels. The fix lives once in the shared base: `_player` at card.js:620-622 is inherited by all five cards, so guarding the 60s re-render while `this._playing` is set covers every card in one place. The test harness already exists \u2014 test_cards.mjs:288-294 sets `card._playing` and asserts on `body()`; a poll-during-playback assertion is five lines beside it.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/www/tapo-h500-card.js",
+            "lines": "620-622",
+            "quote": "return this._isPlaying(item) && item.url ? `<video controls autoplay src=\"${esc(item.url)}\"></video>` : \"\";",
+            "firsthand": true
+          },
+          {
+            "file": "tests/test_cards.mjs",
+            "lines": "288-294",
+            "quote": "card._playing = String(CLIPS[0].start_time); const html = card.body(); assert.ok(html.includes(\"<video\"));",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/repairs.py",
+            "lines": "113-121",
+            "quote": "used_percent = round((total - free) / total * 100)",
+            "firsthand": false
+          }
+        ]
+      },
+      {
+        "persona": "Tomas Lindqvist",
+        "da": false,
+        "idea_id": "correctness-1",
+        "stance": "refine",
+        "argument": "I concede C4 and rescope. I opened status.py: `used_percent = round((total - free) / total * 100, 1)` sits at line 222 and ships as `storage_used_percent` (line 239), left None when the disk is unknown. So repairs.py's total/free arithmetic is duplicate code reading keys hub_readings never emits; the honest fix deletes lines 113-121 down to one read plus `if used_percent is None`, not a two-key rename. Smaller diff, same outcome.\n\nTest lens: this is the cheapest falsifiable check on the board \u2014 feed a real `hub_readings(fixture)` dict into `_storage` and assert the issue is created at 95%. Today's guard is `self.assertIn(\"if not total or free is None:\", REPAIRS)` (test_platforms.py:119-120) \u2014 a substring match that passes on dead code, which is precisely why 1134 tests missed it.\n\nSteelman for ha-conformance-1: it is the only candidate that removes login attempts from fragile hardware, a bigger prize than mine. But C3 is unresolved, and an untestable exception classifier leaves no falsifiable test \u2014 the judging criterion it must win on.",
+        "citations": [
+          {
+            "file": "custom_components/tapo_h500/status.py",
+            "lines": "220-222",
+            "quote": "used_percent = None; if free is not None and total: used_percent = round((total - free) / total * 100, 1)",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/status.py",
+            "lines": "237-239",
+            "quote": "\"storage_free_gb\": free, \"storage_total_gb\": total, \"storage_used_percent\": used_percent,",
+            "firsthand": true
+          },
+          {
+            "file": "tests/test_platforms.py",
+            "lines": "119-120",
+            "quote": "self.assertIn(\"if not total or free is None:\", REPAIRS)",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/repairs.py",
+            "lines": "113-121",
+            "quote": "if not total or free is None: ir.async_delete_issue(...) return; used_percent = round((total - free) / total * 100)",
+            "firsthand": false
+          }
+        ]
+      },
+      {
+        "persona": "Priya Raman",
+        "da": true,
+        "idea_id": "ha-conformance-1",
+        "stance": "refine",
+        "argument": "C3 is answerable, and the answer cuts both ways. I opened the bundled pytapo: a rejected login raises `Exception(\"Invalid authentication data\")` (transport/pytapo/pytapo.py:693,716), a stable string an unreachable host never produces \u2014 so the classifier can fire. But as devil's advocate against my own leader: line 716 emits that identical string after MAX_LOGIN_RETRIES on `error_code == -40413` (:703), i.e. a device_confirm mismatch \u2014 exactly the shape a wedged H500 shows. So ConfigEntryAuthFailed would misfire on the failure mode this repo documents as fragile, stopping retries and nagging reauth for a hub that only needed a timeout. Refined scope: match the string, but raise auth failure only from `async_setup_entry`'s first attempt path, leaving reauth reversible in one guard plus one test.\n\nSteelman for the other camp: frontend-cards-2 touches zero network, is one `_playing` guard, and already has tests/test_cards.mjs:290-300 as its harness \u2014 strictly safer to ship.",
+        "citations": [
+          {
+            "file": ".venv/lib/python3.14/site-packages/pytapo/transport/pytapo/pytapo.py",
+            "lines": "693",
+            "quote": "raise Exception(\"Invalid authentication data\")",
+            "firsthand": true
+          },
+          {
+            "file": ".venv/lib/python3.14/site-packages/pytapo/transport/pytapo/pytapo.py",
+            "lines": "702-716",
+            "quote": "responseData[\"error_code\"] == -40413 ... loginRetryCount < MAX_LOGIN_RETRIES ... raise Exception(\"Invalid authentication data\")",
+            "firsthand": true
+          },
+          {
+            "file": ".venv/lib/python3.14/site-packages/pytapo/__init__.py",
+            "lines": "199-208",
+            "quote": "raise Exception(\"Error: {}, Response: {}\".format(",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/www/tapo-h500-card.js",
+            "lines": "610",
+            "quote": "_playing compared per clip start_time",
+            "firsthand": false
+          }
+        ]
+      },
+      {
+        "persona": "Ada Okonkwo",
+        "da": false,
+        "idea_id": "ha-conformance-1",
+        "stance": "refine",
+        "argument": "C3 is answerable, and I answered it by opening pytapo itself. The two failure modes are distinguishable at the type level, not the string level: an unreachable hub surfaces as a `requests.RequestException` propagating out of `transport.send` (pytapo only swallows it in the KLAP probe, `__init__.py:144`), while a rejected session comes back as JSON and is re-raised as a plain `Exception(\"Error: {msg}, Response: {json}\")` at `__init__.py:268-272`. So the classifier is: raise ConfigEntryAuthFailed only when the error is NOT an OSError/RequestException and its text carries an error_code; everything else stays ConfigEntryNotReady. That fails safe toward retry, which kills the C3 regression \u2014 a briefly-down hub is never misclassified. It also survives HA restart, since reauth state lives in the config entry, not coordinator memory (unlike offline-2, which I dropped). Note -40401 already retries internally (`:264`), so HA's outer retry multiplies logins against hardware documented to wedge under exactly that. Steelmanning frontend-cards-2: it is the only leader a user *sees* fail, and its guard is three lines with an existing test hook \u2014 but a restarted video is an annoyance, an entry that never recovers is an outage.",
+        "citations": [
+          {
+            "file": ".venv/lib/python3.14/site-packages/pytapo/__init__.py",
+            "lines": "268-272",
+            "quote": "raise Exception(\"Error: {}, Response: {}\".format(self.getErrorMessage(responseJSON[\"error_code\"]), json.dumps(responseJSON)))",
+            "firsthand": true
+          },
+          {
+            "file": ".venv/lib/python3.14/site-packages/pytapo/__init__.py",
+            "lines": "144",
+            "quote": "except requests.RequestException as err:",
+            "firsthand": true
+          },
+          {
+            "file": ".venv/lib/python3.14/site-packages/pytapo/__init__.py",
+            "lines": "264",
+            "quote": ") and loginRetryCount < MAX_LOGIN_RETRIES:",
+            "firsthand": true
+          },
+          {
+            "file": "custom_components/tapo_h500/__init__.py",
+            "lines": "196-202",
+            "quote": "raise ConfigEntryNotReady(f\"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}\") from err",
+            "firsthand": false
+          },
+          {
+            "file": "custom_components/tapo_h500/api.py",
+            "lines": "156-166",
+            "quote": "def connect(self): self._hub = Tapo(self.host, self.username, self.password, self.cloud_password,",
+            "firsthand": false
+          }
+        ]
+      }
+    ],
+    "scores": [
+      {
+        "slot": 0,
+        "idea_id": "ha-conformance-1",
+        "impact": 8,
+        "feasibility": 8,
+        "evidence": 9,
+        "debate_value": 8,
+        "why": "Genuinely novel answer to C3 that sidesteps exception parsing by reusing the existing api.py probe, and both firsthand quotes check out verbatim (api.py:106-123, config_flow.py:55-56); docked because the probe also returns \"wedged\"/\"silent\" for a hub that accepted the connection, so the stated rule \"not unreachable means it refused us\" would raise ConfigEntryAuthFailed on exactly the wedge state C3 warns about."
+      },
+      {
+        "slot": 1,
+        "idea_id": "frontend-cards-2",
+        "impact": 7,
+        "feasibility": 9,
+        "evidence": 8,
+        "debate_value": 5,
+        "why": "The shared-base point is true and verified (_player at card.js:620-622 lives in the base class all five cards inherit, and test_cards.mjs:288-294 is a ready harness), and the steelman of correctness-1 is honest; but the card evidence is the same ground held in rounds 1 and 2, the impact case is again asserted rather than shown, and the flagged repeat leaves little new."
+      },
+      {
+        "slot": 2,
+        "idea_id": "correctness-1",
+        "impact": 6,
+        "feasibility": 9,
+        "evidence": 9,
+        "debate_value": 8,
+        "why": "Concedes C4 outright and rescopes from a two-key rename to a deletion, with every firsthand citation verified (status.py:220-222, :237-239, test_platforms.py:119-120 really is a substring match that would pass on dead code); impact stays modest because the defect is a warning nobody has observed fire."
+      },
+      {
+        "slot": 3,
+        "idea_id": "ha-conformance-1",
+        "impact": 8,
+        "feasibility": 7,
+        "evidence": 9,
+        "debate_value": 9,
+        "why": "The round's sharpest evidence: I opened the bundled pytapo and both quotes are exact -- the -40413 device_confirm path raises the identical \"Invalid authentication data\" string after MAX_LOGIN_RETRIES, so a string classifier misfires on precisely the wedge shape this repo documents; turning that against its own leader as devil's advocate, then offering a scoped first-attempt-only guard, is a landed attack."
+      },
+      {
+        "slot": 4,
+        "idea_id": "ha-conformance-1",
+        "impact": 8,
+        "feasibility": 8,
+        "evidence": 9,
+        "debate_value": 8,
+        "why": "Answers C3 with a type-level rule verified firsthand (pytapo/__init__.py:144 swallows RequestException only in the KLAP probe; :267-272 re-raises JSON errors carrying an error_code), and the rule fails safe toward retry, which is what actually kills the regression C3 describes -- the plain \"Invalid authentication data\" wedge string slot 3 found carries no error_code and so stays ConfigEntryNotReady."
+      }
+    ],
+    "merges": [],
+    "open_concerns": [
+      {
+        "idea": "ha-conformance-1",
+        "concern": "The probe-based variant recreates the very regression it claims to close: api.py returns \"wedged\" or \"silent\" whenever the hub accepts the TCP connection but fails the exchange, so \"probe is not unreachable therefore the hub refused our credentials\" classifies a wedged H500 -- the documented failure mode -- as an auth failure and stops retrying. Any shipped classifier must treat wedged/silent as not-authenticated-failure, and nobody has stated that."
+      },
+      {
+        "idea": "correctness-1",
+        "concern": "Nobody has shown storage_used_percent is ever non-None against a real H500. It is computed only when disk() yields both video_total_space and video_free_space; if the hub omits those keys the repair never fires before or after the fix, and the rescoped deletion has zero user-visible effect. A single captured status fixture would settle it."
+      }
+    ],
+    "cumulative": {
+      "ha-conformance-1": 56,
+      "correctness-1": 23.8,
+      "frontend-cards-2": 23.4,
+      "offline-2": 7.5,
+      "security-2": 5.8
+    }
+  }
+]

@@ -15,11 +15,24 @@
         "data_description": {
           "poll_interval": "How quickly activity reaches Home Assistant. This is the whole notification delay -- nothing arrives sooner than the next check. A check costs the hub about 40ms, so 2 seconds is comfortable and 1 is allowed. Changeable later under Configure."
         }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect to your Tapo H500",
+        "description": "The hub refused the stored credentials outright rather than simply failing to answer. Retype the camera account -- the local account made in the Tapo app, not the TP-Link email used to sign in to it. All traffic remains local; the TP-Link cloud password is still used only for local media encryption.",
+        "data": {
+          "username": "Camera account username",
+          "password": "Camera account password",
+          "cloud_password": "TP-Link cloud account password"
+        }
       }
     },
     "error": {
       "cannot_connect": "Could not connect or authenticate with the H500.",
-      "no_cameras": "The H500 reported no paired cameras."
+      "no_cameras": "The H500 reported no paired cameras.",
+      "invalid_auth": "The H500 rejected these credentials."
+    },
+    "abort": {
+      "reauth_successful": "Reconnected. The stored credentials have been replaced."
     }
   },
   "options": {

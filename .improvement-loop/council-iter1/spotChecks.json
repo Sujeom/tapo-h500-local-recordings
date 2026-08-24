@@ -1,0 +1,10 @@
+[
+  {
+    "round": 2,
+    "claim": "readings already carry storage_used_percent, so the honest fix deletes the arithmetic at repairs.py:121 rather than renaming two keys",
+    "slot": 3,
+    "idea_id": "ha-conformance-1",
+    "verdict": "verified",
+    "evidence": "status.py:239 `\"storage_used_percent\": used_percent,` (status.py:222 `used_percent = round((total - free) / total * 100, 1)`); repairs.py:121 `used_percent = round((total - free) / total * 100)`; repairs.py:114-115 read `\"storage_total\"` / `\"storage_free\"`, keys hub_readings never emits. coordinator.py:755 `self.readings = hub_readings(` is the only assignment to readings in custom_components/, so hub_readings is the sole producer. Nuance: the delete-the-arithmetic fix still needs one key read (storage_used_percent), a guard change from `if not total or free is None` to a None check, and rounding for the placeholder at repairs.py:130, since status.py keeps one decimal."
+  }
+]

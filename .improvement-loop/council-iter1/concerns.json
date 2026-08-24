@@ -1,0 +1,54 @@
+[
+  {
+    "id": "C1",
+    "idea": "offline-2",
+    "concern": "The vacuous-cooldown branch only runs when reboot is not None, i.e. the owner opted into automatic restarts. If that option is off by default, the blast radius is a small subset of installs and the impact case shrinks sharply; nobody priced the default.",
+    "raised_round": 1,
+    "status": "resolved",
+    "routed_round": 2,
+    "resolved_round": 2,
+    "resolved_by": "Priya Raman"
+  },
+  {
+    "id": "C2",
+    "idea": "security-2",
+    "concern": "The preview endpoint's authentication posture is never established. If it is a HomeAssistantView with requires_auth left at its default, the attacker must already be an authenticated HA user, which reprices the whole threat and may make the proposed known-clip-start guard a net regression.",
+    "raised_round": 1,
+    "status": "resolved",
+    "routed_round": 2,
+    "resolved_round": 2,
+    "resolved_by": "Mei Sato"
+  },
+  {
+    "id": "C3",
+    "idea": "ha-conformance-1",
+    "concern": "Nobody has shown that pytapo surfaces a distinguishable login-rejected signature. If bad credentials and an unreachable hub raise the same untyped Exception, the proposed classifier either never fires (no benefit) or misclassifies an offline hub as an auth failure, leaving an entry that has stopped retrying a hub that was only briefly down -- a worse regression than the retry loop it replaces.",
+    "raised_round": 2,
+    "status": "resolved",
+    "resolved_round": 3,
+    "resolved_by": "Ada Okonkwo"
+  },
+  {
+    "id": "C4",
+    "idea": "correctness-1",
+    "concern": "readings already carries storage_used_percent (status.py:239), so the correct repair may be to delete the total/free arithmetic at repairs.py:113-121 and read the percentage directly, not to rename two keys. The idea as filed is a key rename; if the honest fix is a deletion, the winning proposal is scoped wrong and its impact claim is unpriced.",
+    "raised_round": 2,
+    "status": "resolved",
+    "resolved_round": 3,
+    "resolved_by": "Tomas Lindqvist"
+  },
+  {
+    "id": "C5",
+    "idea": "ha-conformance-1",
+    "concern": "The probe-based variant recreates the very regression it claims to close: api.py returns \"wedged\" or \"silent\" whenever the hub accepts the TCP connection but fails the exchange, so \"probe is not unreachable therefore the hub refused our credentials\" classifies a wedged H500 -- the documented failure mode -- as an auth failure and stops retrying. Any shipped classifier must treat wedged/silent as not-authenticated-failure, and nobody has stated that.",
+    "raised_round": 3,
+    "status": "open"
+  },
+  {
+    "id": "C6",
+    "idea": "correctness-1",
+    "concern": "Nobody has shown storage_used_percent is ever non-None against a real H500. It is computed only when disk() yields both video_total_space and video_free_space; if the hub omits those keys the repair never fires before or after the fix, and the rescoped deletion has zero user-visible effect. A single captured status fixture would settle it.",
+    "raised_round": 3,
+    "status": "open"
+  }
+]

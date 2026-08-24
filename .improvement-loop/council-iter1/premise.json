@@ -1,0 +1,351 @@
+{
+  "tiers": [
+    {
+      "claims": [
+        {
+          "claim": "custom_components/tapo_h500/__init__.py:196-202 catches a bare Exception from connect() and raises ConfigEntryNotReady with the message \"Cannot reach the H500 at {host}: {err}\", i.e. every connect failure including a rejected password becomes ConfigEntryNotReady.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 1,
+          "load_bearing": "This is the defect itself. If some auth-shaped errors already raise ConfigEntryAuthFailed, or the handler discriminates error types, there is no infinite-retry-on-bad-credentials bug and the entire idea has no target."
+        },
+        {
+          "claim": "custom_components/tapo_h500/config_flow.py contains no async_step_reauth (its steps are only user/init/faces/layout/sensitivity/settings, lines 45-301).",
+          "idea": "ha-conformance-1",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 1,
+          "load_bearing": "The \"no way to enter new credentials short of deleting the entry\" harm and the HA-quality-scale conformance gap both rest on this absence. If a reauth step exists, the user-facing half of the idea disappears and only the retry-loop half remains."
+        },
+        {
+          "claim": "There are zero `reauth` translation keys in en.json and strings.json.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 1,
+          "load_bearing": "Corroborates the no-reauth-flow claim and sizes the scope (\"add two translation keys\"). If reauth strings already exist, the flow may be partly present and the scope estimate is wrong."
+        },
+        {
+          "claim": "The codebase itself documents that the H500 hub \"wedges under repeated [authentications] and recovers only on a timeout\" (comment near __init__.py:209-213).",
+          "idea": "ha-conformance-1",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 1,
+          "load_bearing": "This is the entire severity argument \u2014 it converts a cosmetic conformance gap into hardware harm. If the repo does not document wedging under repeated auth, retrying forever is merely wasteful and the idea drops to a quality-scale checkbox."
+        },
+        {
+          "claim": "custom_components/tapo_h500/api.py:156-166 shows connect() constructs a fresh Tapo(host, username, password, cloud_password, ...) and immediately calls basicInfo \u2014 a full login on every attempt.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 2,
+          "load_bearing": "Links the ConfigEntryNotReady retry loop to actual repeated logins against the hub. If connect() reused a session or did not authenticate per attempt, the retry loop would not hammer the documented wedge-inducing path."
+        },
+        {
+          "claim": "custom_components/tapo_h500/preview.py:42-46 defines H500PreviewView subclassing HomeAssistantView with no requires_auth override, and preview.py:33-39 mints every URL through async_sign_path with an expiry.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 2,
+          "load_bearing": "This is the basis for withdrawing security-2 and consolidating behind ha-conformance-1. If requires_auth defaulted to False or URLs were unsigned, security-2 would be a live competing candidate rather than a conceded one."
+        },
+        {
+          "claim": "custom_components/tapo_h500/api.py:106-123 contains an unauthenticated TCP reachability probe: socket.create_connection(...) returning \"unreachable\" on OSError, and \"healthy\" if data else \"wedged\".",
+          "idea": "ha-conformance-1",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 3,
+          "load_bearing": "The probe-based classifier variant exists only if this probe exists and returns exactly these three states. If it does not exist or does not distinguish unreachable from answering, the C3 objection (classifying untyped pytapo exceptions) is unresolved and the idea reverts to a fragile string/type match."
+        },
+        {
+          "claim": "The probe's \"wedged\" and \"silent\" outcomes are distinct from \"unreachable\" \u2014 a hub that accepts TCP but fails the exchange is reported as not-unreachable.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 3,
+          "load_bearing": "Seed of concern C5. The proposed rule \"connect failed AND probe is not unreachable therefore auth failure\" is only safe if wedged/silent are excluded. If wedged/silent are indeed returned by a wedged H500, the classifier misfires on the documented failure mode and the fix reintroduces the harm it claims to close."
+        },
+        {
+          "claim": "config_flow.py:55-56 collapses all connect exceptions to errors[\"base\"] = \"cannot_connect\".",
+          "idea": "ha-conformance-1",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 3,
+          "load_bearing": "Used to justify keeping scope to __init__.py only. If config_flow already discriminated auth errors, the repo has an existing classification pattern to reuse and the proposed scope/approach would be inconsistent with it."
+        },
+        {
+          "claim": "The bundled pytapo raises Exception(\"Invalid authentication data\") at transport/pytapo/pytapo.py:693 for a rejected login \u2014 a stable string an unreachable host never produces.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 3,
+          "load_bearing": "The string-matching classifier variant depends on this exact literal and its uniqueness to auth rejection. If the string differs, varies by transport, or is also emitted on transport errors, the classifier cannot fire reliably."
+        },
+        {
+          "claim": "pytapo.py:702-716 emits that same \"Invalid authentication data\" string after MAX_LOGIN_RETRIES on error_code == -40413 (a device_confirm mismatch), i.e. the wedged-hub shape.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 3,
+          "load_bearing": "This is the self-inflicted counter-premise: if true, the string classifier misfires on the wedge mode, forcing the narrower \"first attempt only\" scope. If false, the simpler string classifier is safe and the refined scope is unnecessary caution."
+        },
+        {
+          "claim": "In pytapo, an unreachable hub surfaces as requests.RequestException (only swallowed in the KLAP probe at __init__.py:144) while a rejected session returns JSON re-raised as plain Exception(\"Error: {msg}, Response: {json}\") at __init__.py:268-272 \u2014 so the two modes are distinguishable at the type level, not the string level.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 3,
+          "load_bearing": "Ada's type-based classifier (raise AuthFailed only when not OSError/RequestException and text carries an error_code) rests entirely on this type separation. If RequestException is caught and re-raised as plain Exception anywhere on the connect path, the classifier misclassifies a briefly-down hub and the C3 regression returns."
+        },
+        {
+          "claim": "pytapo __init__.py:264 shows error_code -40401 already retries internally up to MAX_LOGIN_RETRIES, so HA's outer retry multiplies logins.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 3,
+          "load_bearing": "Amplifies the hardware-harm severity (retries multiply rather than add). If pytapo does not retry internally, the login volume against the hub is much lower and the urgency argument weakens."
+        },
+        {
+          "claim": "Reauth state lives in the config entry rather than coordinator memory, so the fix survives an HA restart.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Ada Okonkwo",
+          "round_first_asserted": 3,
+          "load_bearing": "Distinguishes this idea from offline-2 (dropped for needing a Store plus async lifecycle). If reauth state were in-memory, the fix would need the same persistence machinery it criticized, erasing its cost advantage."
+        },
+        {
+          "claim": "const.py:189-193 sets DEFAULT_AUTO_RESTART = False under a comment that automatic reboot is the owner's decision, and coordinator.py:835-837 gates the auto-restart block on that option plus reason is not None.",
+          "idea": "ha-conformance-1",
+          "source_persona": "Priya Raman / Ada Okonkwo",
+          "round_first_asserted": 2,
+          "load_bearing": "This is the basis for dropping offline-2 and consolidating behind ha-conformance-1 (\"mine needs no opt-in\"). If auto-restart defaulted on, offline-2 would be a live competitor and the field would not have collapsed toward this finalist."
+        },
+        {
+          "claim": "www/tapo-h500-card.js:441 sets this._timer = setInterval(() => this._load(), 60000).",
+          "idea": "frontend-cards-2",
+          "source_persona": "Mei Sato",
+          "round_first_asserted": 1,
+          "load_bearing": "The 60-second cadence is why the bug is felt on every clip longer than a minute. If there is no periodic poll, or the interval is far longer, nothing interrupts playback and the defect does not exist."
+        },
+        {
+          "claim": "www/tapo-h500-card.js:499-501 shows _load() ends in `finally { this._busy = false; this._render(); }` \u2014 the re-render is unconditional.",
+          "idea": "frontend-cards-2",
+          "source_persona": "Mei Sato",
+          "round_first_asserted": 1,
+          "load_bearing": "The unconditional re-render in the finally block is the mechanism. If _render is already skipped when nothing changed, or is diff-based, the poll does not destroy the player and the whole case fails."
+        },
+        {
+          "claim": "www/tapo-h500-card.js:678 assigns this._card.innerHTML = `...` \u2014 a full DOM rebuild rather than a diff.",
+          "idea": "frontend-cards-2",
+          "source_persona": "Mei Sato",
+          "round_first_asserted": 1,
+          "load_bearing": "innerHTML replacement is what destroys the live <video> element. If _render patched the DOM or reused the existing video node, the poll would not reset playback and the user-visible harm disappears."
+        },
+        {
+          "claim": "www/tapo-h500-card.js:620-622 renders the open clip as `<video controls autoplay src=\"${esc(item.url)}\"></video>` when _isPlaying(item) and item.url are truthy.",
+          "idea": "frontend-cards-2",
+          "source_persona": "Mei Sato",
+          "round_first_asserted": 1,
+          "load_bearing": "The autoplay attribute is why the rebuilt element restarts from zero instead of staying paused. Without autoplay the symptom would be a stopped video rather than a restarted one, changing the severity claim."
+        },
+        {
+          "claim": "www/tapo-h500-card.js:610 compares `this._playing === String(item.start_time)` \u2014 _playing is durable card state persisting across renders, keyed per clip start_time.",
+          "idea": "frontend-cards-2",
+          "source_persona": "Mei Sato",
+          "round_first_asserted": 2,
+          "load_bearing": "The whole \"one guard using state that already exists\" cost claim depends on _playing surviving the re-render. If _playing were reset or recomputed each render, the guard would need new state and the diff grows beyond one line."
+        },
+        {
+          "claim": "The _player helper at card.js:620-622 lives in a shared base class inherited by all five cards, so one guard covers every card.",
+          "idea": "frontend-cards-2",
+          "source_persona": "Mei Sato",
+          "round_first_asserted": 3,
+          "load_bearing": "This is the root-cause-versus-symptom argument and the reason the fix is claimed to be single-site. If each card has its own player/_load, the fix must be repeated five times and the minimal-diff advantage over ha-conformance-1 evaporates."
+        },
+        {
+          "claim": "tests/test_cards.mjs:288-300 already sets card._playing = String(CLIPS[0].start_time), calls card.body(), and asserts html.includes(\"<video\") \u2014 an existing harness that drives _playing and asserts on markup.",
+          "idea": "frontend-cards-2",
+          "source_persona": "Mei Sato",
+          "round_first_asserted": 1,
+          "load_bearing": "The \"falsifiable test is five lines beside the existing one\" claim rests on this harness existing and exercising exactly this state. If no such test exists, the idea needs new test scaffolding for a JS card and its cheapness-to-verify edge over the rival is gone."
+        },
+        {
+          "claim": "preview.py:68-70 returns web.Response(status=404, text=\"No preview available\") when path is None, so out-of-range clip starts do not produce a 500 with a traceback.",
+          "idea": "frontend-cards-2",
+          "source_persona": "Mei Sato",
+          "round_first_asserted": 2,
+          "load_bearing": "Used to kill security-2 (concern C2) and clear the field for this finalist. If out-of-range starts actually 500, security-2 survives as a competing candidate."
+        },
+        {
+          "claim": "repairs.py:113-121 computes used_percent = round((total - free) / total * 100) and deletes the issue when total is falsy or free is None, while readings already carry storage_used_percent.",
+          "idea": "frontend-cards-2 (and ha-conformance-1, used against correctness-1)",
+          "source_persona": "Ada Okonkwo / Mei Sato",
+          "round_first_asserted": 2,
+          "load_bearing": "This is the comparative premise used to reprice the rival correctness-1 (its warning never fires; nothing wrong is ever shown; the honest fix is deleting arithmetic, not renaming keys). Seeds concern C6: if storage_used_percent is never non-None against a real H500, the rival has zero user-visible effect. If the arithmetic or the delete-on-unknown branch is not as described, correctness-1 is a live threat to both finalists' ranking."
+        }
+      ],
+      "checks": [
+        {
+          "idea_id": "ha-conformance-1",
+          "overall": "overstated",
+          "verdicts": [
+            {
+              "claim": "__init__.py:196-202 catches bare Exception from connect() and raises ConfigEntryNotReady(\"Cannot reach the H500 at {host}: {err}\") \u2014 every connect failure, including a rejected password, becomes ConfigEntryNotReady.",
+              "verdict": "verified",
+              "evidence": "__init__.py:199-202: `except Exception as err:` ... `raise ConfigEntryNotReady(\\n f\"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}\") from err`. No discrimination of error type.",
+              "falsifier": "I grepped the whole integration and test suite for ConfigEntryAuthFailed and for any isinstance/str-match branch inside that handler; `grep -rn \"ConfigEntryAuthFailed\" custom_components/ tests/` returns zero hits. Any auth-shaped branch would have disproven it.",
+              "search_strategy": "grep -rn 'ConfigEntryAuthFailed' custom_components/ tests/ (0 hits); read __init__.py:192-220 verbatim."
+            },
+            {
+              "claim": "config_flow.py has no async_step_reauth; its steps are only user/init/faces/layout/sensitivity/settings (lines 45-301).",
+              "verdict": "verified",
+              "evidence": "grep -n 'async_step_' config_flow.py returns exactly: 45 user, 101 init, 116 faces, 209 layout, 265 sensitivity, 301 settings. No reauth, no reconfigure.",
+              "falsifier": "Searched for reauth/reconfigure by name across all of custom_components/ \u2014 the only hits in the repo are inside .improvement-loop/*.json (debate artifacts), not integration code.",
+              "search_strategy": "grep -n 'async_step_\\|reauth' custom_components/tapo_h500/config_flow.py; grep -rn 'reauth' --include=*.py custom_components/"
+            },
+            {
+              "claim": "Zero `reauth` translation keys in en.json and strings.json.",
+              "verdict": "verified",
+              "evidence": "grep -c reauth on translations/en.json and strings.json both return 0. translations/ contains only en.json.",
+              "falsifier": "A single reauth/reauth_confirm key in either file would have disproven it; also checked the translations directory listing for other locale files that might carry them.",
+              "search_strategy": "ls custom_components/tapo_h500/translations/; grep -c reauth custom_components/tapo_h500/translations/en.json custom_components/tapo_h500/strings.json"
+            },
+            {
+              "claim": "The codebase documents that the hub wedges under repeated authentications and recovers only on a timeout (comment near __init__.py:209-213).",
+              "verdict": "verified",
+              "evidence": "__init__.py:211-212: \"to a hub that wedges under repeated ones and recovers only on a timeout\"; __init__.py:251: \"hub that wedges under repeated authentication\"; tests/test_setup_cleanup.py:9-10 repeats it.",
+              "falsifier": "I checked whether the wedge behavior is anywhere tested or measured rather than merely asserted \u2014 it is not; no test exercises repeated-login wedging. Caveat: this is repo prose describing hardware, not verifiable code behavior, so it supports \"the repo says so\", not \"the hub does so\".",
+              "search_strategy": "grep -n 'wedges under repeated' custom_components/ tests/ ; read __init__.py:205-215, 245-252, tests/test_setup_cleanup.py:1-14"
+            },
+            {
+              "claim": "api.py:156-166 \u2014 connect() constructs a fresh Tapo(host, username, password, cloud_password, ...) and immediately calls basicInfo, i.e. a full login per attempt.",
+              "verdict": "verified",
+              "evidence": "api.py:156 `def connect(self):`, 157 `self._hub = Tapo(` with host/username/password/cloud_password, 166 `self.info = basic_info(self._hub.basicInfo)`. No cached-session reuse anywhere in connect().",
+              "falsifier": "Looked for a guard like `if self._hub is not None: return` or any session/token cache consulted before constructing Tapo \u2014 none exists; _super_secret_key/_client_id are only populated after the new Tapo is built.",
+              "search_strategy": "read api.py:127-183; grep -n 'self._hub' custom_components/tapo_h500/api.py"
+            },
+            {
+              "claim": "preview.py:42-46 defines H500PreviewView(HomeAssistantView) with no requires_auth override; preview.py:33-39 mints every URL through async_sign_path with an expiry.",
+              "verdict": "verified",
+              "evidence": "preview.py:42 `class H500PreviewView(HomeAssistantView):`, 45-46 only `url`/`name` set; preview.py:34-38 `return async_sign_path(hass, PREVIEW_PATH.format(...), URL_LIFETIME,)`.",
+              "falsifier": "grep -rn 'requires_auth' across custom_components/ returns nothing, so nothing sets it False. Note: HomeAssistantView's default (True) could not be re-verified locally \u2014 homeassistant is not installed in .venv, so that half rests on framework knowledge, not a file in this repo.",
+              "search_strategy": "grep -rn 'requires_auth\\|HomeAssistantView' custom_components/ tests/ ; read preview.py:25-55; searched .venv site-packages for homeassistant/components/http/view.py (absent)"
+            },
+            {
+              "claim": "api.py:106-123 is an unauthenticated TCP probe: socket.create_connection(...) returning \"unreachable\" on OSError, and \"healthy\" if data else \"wedged\".",
+              "verdict": "verified",
+              "evidence": "api.py:107 `sock = socket.create_connection((host, port), timeout=timeout)`, 108-109 `except OSError:` / `return \"unreachable\"`, 123 `return \"healthy\" if data else \"wedged\"`. Function is `check_media_port` (api.py:85).",
+              "falsifier": "Checked the docstring claim of being unauthenticated and the port it targets: it defaults to port=8800, the media port, not the control/login port \u2014 so as a discriminator for login failures it probes a different service than connect() uses. No caller passes a control port (only coordinator.py:770 via client.check_media).",
+              "search_strategy": "read api.py:85-125; grep -rn 'check_media_port\\|check_media' custom_components/ tests/"
+            },
+            {
+              "claim": "The probe's \"wedged\" and \"silent\" outcomes are distinct from \"unreachable\" \u2014 a hub that accepts TCP but fails the exchange is reported as not-unreachable.",
+              "verdict": "verified",
+              "evidence": "api.py:110-112 comment: \"From here the hub accepted the connection, so a failure is the wedge shape\"; returns \"silent\" on timeout (118), \"wedged\" on ConnectionError (120) and on zero-byte read (123).",
+              "falsifier": "Looked for any collapsing of wedged/silent into unreachable at the call site or in tests \u2014 tests/test_media_health.py:72-129 asserts all four strings separately, confirming they are distinct. This substantiates the C5 concern: a wedged hub returns wedged/silent, so a rule \"connect failed AND probe != unreachable \u21d2 auth failure\" misfires on the documented wedge mode unless wedged/silent are excluded.",
+              "search_strategy": "read api.py:100-124; read tests/test_media_health.py:60-130"
+            },
+            {
+              "claim": "config_flow.py:55-56 collapses all connect exceptions to errors[\"base\"] = \"cannot_connect\".",
+              "verdict": "verified",
+              "evidence": "config_flow.py:55-56: `except Exception:` / `errors[\"base\"] = \"cannot_connect\"` \u2014 wrapping both client.connect and client.cameras.",
+              "falsifier": "Checked for a second except clause or an invalid_auth branch in the same try; grep for 'invalid_auth' in config_flow.py returns nothing, so no existing auth-classification pattern exists to reuse.",
+              "search_strategy": "read config_flow.py:45-70; grep -n 'invalid_auth\\|cannot_connect' custom_components/tapo_h500/config_flow.py"
+            },
+            {
+              "claim": "Bundled pytapo raises Exception(\"Invalid authentication data\") at transport/pytapo/pytapo.py:693 for a rejected login \u2014 a stable string an unreachable host never produces.",
+              "verdict": "overstated",
+              "evidence": "Line 693 raises it for a non-root user_group ('encrypted control via 3rd party account'), not a rejected password. The same literal also appears at 606, 716 and 764 \u2014 764 being the generic 'Unexpected response ({error_code})' fallback.",
+              "falsifier": "I grepped every occurrence of the literal and read each site. Site 764 fires after MAX_LOGIN_RETRIES on any unexpected error_code, so the string is not unique to credential rejection; and pytapo/__init__.py:268-272 raises a different literal ('Error: {}, Response: {}') for rejected requests, so the marker is not uniform across the stack. True part: an unreachable host raises requests.RequestException, never this string.",
+              "search_strategy": "grep -n 'Invalid authentication data' .venv/.../pytapo/transport/pytapo/pytapo.py .venv/.../pytapo/__init__.py; read each site (598-612, 685-720, 752-766)"
+            },
+            {
+              "claim": "pytapo.py:702-716 emits the same \"Invalid authentication data\" string after MAX_LOGIN_RETRIES on error_code == -40413 (device_confirm mismatch) \u2014 the wedged-hub shape.",
+              "verdict": "verified",
+              "evidence": "pytapo.py:703-712 tests `responseData[\"error_code\"] == -40413` and `loginRetryCount < MAX_LOGIN_RETRIES`, retries via _refreshStok, else at 716 `raise Exception(\"Invalid authentication data\")`.",
+              "falsifier": "Read the full else-branch to confirm the raise is on the retry-exhausted path rather than a different error_code; it is. This confirms the self-inflicted counter-premise \u2014 a string classifier does misfire on the device_confirm/wedge shape.",
+              "search_strategy": "read .venv/.../pytapo/transport/pytapo/pytapo.py:685-720"
+            },
+            {
+              "claim": "An unreachable hub surfaces as requests.RequestException (only swallowed in the KLAP probe at __init__.py:144) while a rejected session is re-raised as plain Exception at __init__.py:268-272, so the modes are distinguishable by type.",
+              "verdict": "overstated",
+              "evidence": "The parenthetical is wrong: requests.RequestException is caught at transport/pytapo/pytapo.py:127, 396, 590 and 670 as well, not only at __init__.py:144.",
+              "falsifier": "I read each of those four handlers to see whether any converts the exception to a plain Exception \u2014 none do: 590 and 670 end in `raise err`, 396 retries transient resets then re-raises, and 127 routes to _retry_on_exception which ends in `raise err` (line 282-283). So the type separation survives and the conclusion holds; the 'only at 144' framing does not. Separate risk found: those same handlers catch ValueError alongside RequestException and re-raise it (`except (requests.RequestException, ValueError) as err: ... raise err`), and a ValueError from a garbage response is neither OSError nor RequestException \u2014 a type-only classifier would call it an auth failure.",
+              "search_strategy": "grep -rn 'except requests\\|RequestException' in pytapo/__init__.py, transport/pytapo/pytapo.py, media_stream/*.py; read 120-135, 281-290, 312-332, 390-406, 580-600, 662-684, 255-275"
+            },
+            {
+              "claim": "pytapo __init__.py:264 shows error_code -40401 already retries internally up to MAX_LOGIN_RETRIES, so HA's outer retry multiplies logins.",
+              "verdict": "verified",
+              "evidence": "pytapo/__init__.py:261 `responseJSON[\"error_code\"] == -40401`, 264 `) and loginRetryCount < MAX_LOGIN_RETRIES:`, 266-267 `self.close()` / `return self.performRequest(requestData, loginRetryCount + 1)`.",
+              "falsifier": "Checked that this retry is on the connect path (basicInfo goes through performRequest) and that MAX_LOGIN_RETRIES is a real constant, not 0/1. _refreshStok retries independently at 596-598 and 670-678, so the multiplication is real and larger than the claim states.",
+              "search_strategy": "read .venv/.../pytapo/__init__.py:255-275; grep -n 'MAX_LOGIN_RETRIES' in pytapo package"
+            },
+            {
+              "claim": "Reauth state lives in the config entry rather than coordinator memory, so the fix survives an HA restart.",
+              "verdict": "overstated",
+              "evidence": "Nothing named reauth exists in this repo, so there is no state to inspect: `grep -rn 'reauth' custom_components/ tests/` returns 0 hits outside .improvement-loop debate JSON.",
+              "falsifier": "I looked for any existing persistence the claim could be describing (a Store, an entry.data flag). Home Assistant holds an in-progress reauth flow in the flow manager, not in the persisted entry; what actually makes the fix restart-durable is that async_setup_entry re-raises ConfigEntryAuthFailed on every restart. The conclusion (no Store needed, unlike offline-2) stands, but the stated mechanism is not what the repo or the framework does.",
+              "search_strategy": "grep -rn 'reauth\\|Store(' custom_components/tapo_h500/ tests/"
+            },
+            {
+              "claim": "const.py:189-193 sets DEFAULT_AUTO_RESTART = False under a comment that automatic reboot is the owner's decision; coordinator.py:835-837 gates auto-restart on that option plus reason is not None.",
+              "verdict": "verified",
+              "evidence": "const.py:193 `DEFAULT_AUTO_RESTART = False`, comment at 188-189 \"Off by default -- an automatic reboot is the owner's decision\"; coordinator.py:835 `if self.entry.options.get(CONF_AUTO_RESTART, DEFAULT_AUTO_RESTART):`, 836-837 sets reason.",
+              "falsifier": "Checked whether the option is defaulted True anywhere else (config_flow defaults, options schema) \u2014 DEFAULT_AUTO_RESTART = False is the single definition. Minor drift: the `reason is not None` test is at coordinator.py:844, not 837; 836-837 only computes reason.",
+              "search_strategy": "grep -n 'DEFAULT_AUTO_RESTART\\|CONF_AUTO_RESTART' custom_components/tapo_h500/const.py custom_components/tapo_h500/coordinator.py custom_components/tapo_h500/config_flow.py; read const.py:185-195, coordinator.py:828-848"
+            }
+          ]
+        },
+        {
+          "idea_id": "frontend-cards-2",
+          "overall": "premise-holds",
+          "verdicts": [
+            {
+              "claim": "www/tapo-h500-card.js:441 sets this._timer = setInterval(() => this._load(), 60000).",
+              "verdict": "verified",
+              "evidence": "custom_components/tapo_h500/www/tapo-h500-card.js:441 (inside connectedCallback, H500Base): \"this._timer = setInterval(() => this._load(), 60000);\" \u2014 line number exact.",
+              "falsifier": "Grepped every setInterval/setTimeout in the file; the only other timer is the _pulseTimer one-shot at ~671. No longer cadence, no config override of the 60000 literal, and disconnectedCallback:444 clears it. Nothing disproved the claim.",
+              "search_strategy": "grep -n 'setInterval|setTimeout|_timer' on the card file; read lines 435-445."
+            },
+            {
+              "claim": "www/tapo-h500-card.js:499-501 shows _load() ends in `finally { this._busy = false; this._render(); }` \u2014 the re-render is unconditional.",
+              "verdict": "verified",
+              "evidence": "Lines 501-504: \"} finally {\" / \"this._busy = false;\" / \"this._render();\" \u2014 content exact, line numbers off by ~2 (501-504, not 499-501).",
+              "falsifier": "Looked for a dirty/changed check before _render, a payload-equality comparison, or an early return in the finally block. _load (481-505) assigns this._recordings unconditionally from the response and calls _render() with no condition; _render itself (651) only guards `if (!this._card) return;`.",
+              "search_strategy": "Read _load 481-505 and _render 651-680 in full; grep -n 'this._render();' shows 11 call sites, none conditional on data changing."
+            },
+            {
+              "claim": "www/tapo-h500-card.js:678 assigns this._card.innerHTML = `...` \u2014 a full DOM rebuild rather than a diff.",
+              "verdict": "verified",
+              "evidence": "Line 678: \"this._card.innerHTML = `\" followed by the head/picker/body template \u2014 line number exact.",
+              "falsifier": "Searched for any diffing, lit-html/uhtml import, template caching, appendChild/replaceChild reuse, or a preserved <video> node. Only two innerHTML assignments exist (414 for the shadow-root shell, 678 for the card body); no library imports at all \u2014 the file is dependency-free plain DOM.",
+              "search_strategy": "grep -n 'innerHTML|appendChild|replaceChild|import |render(' on the card file."
+            },
+            {
+              "claim": "www/tapo-h500-card.js:620-622 renders the open clip as `<video controls autoplay src=\"${esc(item.url)}\"></video>` when _isPlaying(item) and item.url are truthy.",
+              "verdict": "verified",
+              "evidence": "620-622: \"_player(item) {\" / \"return this._isPlaying(item) && item.url\" / \"? `<video controls autoplay src=\\\"${esc(item.url)}\\\"></video>` : \\\"\\\";\" \u2014 exact.",
+              "falsifier": "Checked whether autoplay is conditional, whether a currentTime/preload attribute or a resume hook exists, and whether any other <video> markup is emitted elsewhere. grep '<video' returns this single occurrence; no currentTime or play() call anywhere in the file.",
+              "search_strategy": "grep -n '<video|autoplay|currentTime|\\.play\\(' on the card file."
+            },
+            {
+              "claim": "www/tapo-h500-card.js:610 compares `this._playing === String(item.start_time)` \u2014 _playing is durable card state persisting across renders, keyed per clip start_time.",
+              "verdict": "verified",
+              "evidence": "Line 610: \"return this._playing === String(item.start_time);\" inside _isPlaying \u2014 exact line.",
+              "falsifier": "Looked for any reset of _playing inside _render or _load that would make it render-scoped. _playing is only mutated by click handlers (518, 526, 539: toggle/close) and at 576 when the played clip is deleted; _render (651-680) and _load (481-505) never touch it. So a poll-driven re-render preserves it.",
+              "search_strategy": "grep -n '_playing' on the card file (8 hits) and read each surrounding block."
+            },
+            {
+              "claim": "The _player helper at card.js:620-622 lives in a shared base class inherited by all five cards, so one guard covers every card.",
+              "verdict": "overstated",
+              "evidence": "Base at 384: \"class H500Base extends HTMLElement {\"; registrations at 1330-1344 register eight cards, e.g. \"register(\\\"tapo-h500-people-card\\\", TapoH500PeopleCard, ...)\".",
+              "falsifier": "Counted subclasses and _player call sites. There are eight `extends H500Base` classes (Card, Hero, Grid, Timeline, Summary, Faces, FaceSummary, People), not five; six of them call this._player (745, 825, 889, 955, 1148, 1315) \u2014 Summary and FaceSummary do not. The load-bearing part is intact: _player, _isPlaying, _load, _timer and _render all live only in H500Base, so a single guard there does cover every card. Only the count \"five\" is wrong, and it understates rather than inflates coverage.",
+              "search_strategy": "grep -n 'extends H500Base|^register\\(|_player\\(' on the card file."
+            },
+            {
+              "claim": "tests/test_cards.mjs:288-300 already sets card._playing = String(CLIPS[0].start_time), calls card.body(), and asserts html.includes(\"<video\") \u2014 an existing harness that drives _playing and asserts on markup.",
+              "verdict": "verified",
+              "evidence": "tests/test_cards.mjs:288-294 \"hero swaps the still for the player...\": \"card._playing = String(CLIPS[0].start_time);\" / \"const html = card.body();\" / \"assert.ok(html.includes(\\\"<video\\\"));\" \u2014 content exact, spans 288-294 plus a sibling grid test at 296-303.",
+              "falsifier": "Checked the harness is real and runnable rather than aspirational: `build()` instantiates the actual card classes and three tests (273, 290, 298) already assign _playing and assert on body() markup. Nothing suggests these are skipped or commented out.",
+              "search_strategy": "grep -n '_playing' tests/test_cards.mjs; read 265-310."
+            },
+            {
+              "claim": "preview.py:68-70 returns web.Response(status=404, text=\"No preview available\") when path is None, so out-of-range clip starts do not produce a 500 with a traceback.",
+              "verdict": "verified",
+              "evidence": "custom_components/tapo_h500/preview.py:68-71: \"path = await async_preview_clip(...)\" / \"if path is None:\" / comment / \"return web.Response(status=404, text=\\\"No preview available\\\")\" \u2014 content exact, return is line 71 not 70.",
+              "falsifier": "The stronger risk is async_preview_clip raising rather than returning None, which would escape the unguarded call at line 68 and become a 500. media.py:202-206 wraps the whole body in \"except Exception as err:\" logging and \"return None\", so an out-of-range start cannot propagate. Bad/negative inputs are rejected earlier as 400 (preview.py:53-56).",
+              "search_strategy": "Read preview.py 40-78 and media.py:151-210 (async_preview_clip) end to end; grep for other raise/status=500 paths in preview.py."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

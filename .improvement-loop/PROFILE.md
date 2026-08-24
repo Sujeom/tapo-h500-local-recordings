@@ -95,3 +95,19 @@ DeepeningBacklog:
   - docs/: an architecture map of the 31 modules and how coordinator/clips/media relate.
 
 StopChannels: ["touch .improvement-loop/STOP", "say 'stop' in chat"]
+
+---
+## Driver notes (written by the loop driver, NOT part of the owner's guardrails above)
+Added 2026-08-24 after iteration 1's audit. Kept separate on purpose: iteration 1's fix pass
+rightly objected that a loop editing the document that constrains it is not the loop's call, so
+these are annotations, not amendments. The guardrails above read exactly as the owner wrote them.
+
+- ENVIRONMENT FACT (not a permission the loop granted itself): this clone has an owner-installed
+  `.git/hooks/post-commit` that pushes every commit on the current branch to the `github` remote,
+  so each green iteration lands publicly on Sujeom/tapo-h500-local-recordings. The loop still never
+  runs `git push` itself. This was surfaced to the owner in conversation at bootstrap; it is
+  recorded here so a resumed context does not rediscover it as a surprise. Delete the hook to stop it.
+- PROCESS DEFECT, owned by the driver: iteration 1's `owner_glob` named code files only, so the
+  auditor correctly read the loop's own ledger writes as out-of-scope. That was the driver's
+  mis-specification. FUTURE ITERATIONS MUST name `.improvement-loop/**` explicitly in the glob they
+  pass to the implement Workflow, rather than the profile absolving it after the fact.

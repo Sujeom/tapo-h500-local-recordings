@@ -1,0 +1,512 @@
+[
+  {
+    "id": "correctness-1",
+    "dimension": "correctness",
+    "title": "The storage-nearly-full repair reads two keys hub_readings never emits, so it can never fire",
+    "rationale": "hub_readings produces storage_total_gb / storage_free_gb / storage_used_percent; _storage asks for storage_total and storage_free, gets None for both, and takes the \"unknown\" branch on every single poll. The only advance warning before loop recording starts silently discarding the oldest footage is therefore permanently dead, and diagnostics.py:30 documents this exact near-miss (`storage_total` for `storage_total_gb`) being fixed elsewhere while this copy was missed. Every _storage test asserts on the source text rather than calling the function, which is why 1134 passing tests say nothing about it.",
+    "impact": 4,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/repairs.py:114-118 \u2014\n    total = coordinator.readings.get(\"storage_total\")\n    free = coordinator.readings.get(\"storage_free\")\n    issue_id = _issue_id(entry_id, STORAGE_ISSUE)\n    # Unknown is not the same as fine. Say nothing rather than guessing.\n    if not total or free is None:\n\nagainst custom_components/tapo_h500/status.py:237-239 \u2014\n        \"storage_free_gb\": free,\n        \"storage_total_gb\": total,\n        \"storage_used_percent\": used_percent,\n\nThe existing tests are source-text only \u2014 tests/test_platforms.py:120-121:\n    def test_unknown_storage_is_not_treated_as_healthy(self):\n        self.assertIn(\"if not total or free is None:\", REPAIRS)\n\nand diagnostics.py:30-31 names the same bug class: \"Six of them were near misses -- `storage_total` for `storage_total_gb`\"."
+  },
+  {
+    "id": "correctness-2",
+    "dimension": "correctness",
+    "title": "Writing a hub setting refreshes the coordinator but not readings, so every control snaps back to its old value for up to a minute",
+    "rationale": "H500HubControl.apply promises \"one poll after the write ... so the new value is not guessed at\", but the poll it triggers only fetches hub_status when self._polls is a multiple of _status_every, which is round(60/2)=30 at the default 2s interval. So roughly 29 out of 30 writes leave self.readings holding the pre-write value, and the LED / loop-recording / auto-upgrade / face-detection switches, the siren volume and duration numbers, and the siren-tone select all revert in the frontend and stay reverted until the next scheduled status fetch. The siren entity has the same problem on its own async_request_refresh calls. A one-shot \"status is due next poll\" flag fixes all of them at once without adding hub round trips.",
+    "impact": 4,
+    "effort": 2,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/hub_control.py:38-40 \u2014\n        # One poll after the write, not one per call: this hub is easy to\n        # overload and the readings all arrive in a single round trip anyway.\n        await self.coordinator.async_request_refresh()\n\nbut coordinator.py:753-756 gates the fetch \u2014\n        if self._polls % self._status_every == 0:\n            try:\n                self.readings = hub_readings(\n                    await self.hass.async_add_executor_job(self.client.hub_status))\n\nand coordinator.py:112 sets the divisor \u2014\n        self._status_every = max(1, round(STATUS_MAX_AGE / interval))\n\nwith const.py:139 DEFAULT_POLL_INTERVAL = 2 and const.py:155 STATUS_MAX_AGE = 60, i.e. _status_every == 30. tests/test_coordinator.py:400 confirms: self.assertEqual(fast._status_every, round(const.STATUS_MAX_AGE / 2))"
+  },
+  {
+    "id": "correctness-3",
+    "dimension": "correctness",
+    "title": "The recordings card's day pager shows roughly two local days under the label of one",
+    "rationale": "dayWindow returns the two UTC dates a local day touches, then api.recordings expands each date to a whole UTC day, producing a 48-hour UTC window. Neither the card nor the service clips the result back to the local day, so paging back one day lists the previous evening and most of today as well, under a label naming a single date. The rolling window gets away with the same widening because its far end is the future and holds no clips; a paged day has real recordings on both sides. Filtering the response to the local day in the card's _load when _dayOffset > 0 is the smallest fix.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/www/tapo-h500-card.js:81-90 \u2014\nexport const dayWindow = (offset, now = new Date()) => {\n  const day = new Date(now);\n  day.setDate(day.getDate() - offset);\n  const start = new Date(day);\n  start.setHours(0, 0, 0, 0);\n  const end = new Date(start);\n  end.setDate(end.getDate() + 1);\n  end.setMilliseconds(-1);              // 23:59:59.999 local\n  return { start_date: utcDay(start), end_date: utcDay(end) };\n\nI ran this offline under TZ=America/Los_Angeles with now = 2026-08-13T20:00:00Z:\n  dayWindow(1) = {\"start_date\":\"20260812\",\"end_date\":\"20260813\"}\n\nwhich api.py:293-298 turns into a 48-hour UTC search \u2014\n        first = datetime.strptime(start_date, \"%Y%m%d\").replace(\n            tzinfo=timezone.utc)\n        last = datetime.strptime(end_date, \"%Y%m%d\").replace(\n            tzinfo=timezone.utc) + timedelta(days=1)\n        found = self._search_videos(\n            camera, first.timestamp(), last.timestamp() - 1)\n\nand nothing filters it back \u2014 tapo-h500-card.js:496 \u2014\n      this._recordings = response.recordings.slice().reverse();\n\nThe existing guard only checks non-overlap of the date strings, which passes while the expanded windows still overlap \u2014 tests/test_cards.mjs:795 \u2014\n  assert.ok(yesterday.end_date <= today.start_date,\n            \"one day back must not overlap today\");"
+  },
+  {
+    "id": "correctness-4",
+    "dimension": "correctness",
+    "title": "Every preview thumbnail re-fetches the whole paired-camera list from the hub instead of using the cached one",
+    "rationale": "The preview view already has the coordinator in hand, and the coordinator caches self.cameras precisely because the call is expensive; its own comment measures it at 58ms and refreshes it only every 300 seconds. But the view calls client.camera_at, which calls client.cameras() unconditionally, so opening a recordings card with N undownloaded clips issues N extra getGeneralDeviceList round trips on top of N media sessions, against hardware the whole codebase treats as easy to overload. Replacing camera_at with a bounds-checked coordinator.cameras[index] removes the round trip entirely.",
+    "impact": 3,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/preview.py:61-63 \u2014\n        try:\n            camera = await hass.async_add_executor_job(\n                coordinator.client.camera_at, index)\n\nwhich always hits the hub \u2014 api.py:248-250 \u2014\n    def camera_at(self, index):\n        cameras = self.cameras()\n        if index < 0 or index >= len(cameras):\n\nwhile the coordinator deliberately caches it \u2014 coordinator.py:701-707 \u2014\n        # The paired camera list changes only when a camera is added or\n        # removed, and costs 58ms -- more than the detection lookups it used to\n        # precede. Fetch it on the first poll and then rarely...\n        if not self.cameras or self._polls % self._cameras_every == 0:\n\nand one preview URL is emitted per undownloaded clip \u2014 __init__.py:412-416 \u2014\n                    **(describe(hass, on_disk[start]) if start in on_disk else {\n                        \"thumbnail\": preview_url("
+  },
+  {
+    "id": "correctness-5",
+    "dimension": "correctness",
+    "title": "The automatic-download path stats the media directory from inside the event loop",
+    "rationale": "existing_clip performs two Path.exists() calls, and _download invokes it twice directly rather than through an executor, so every automatic download does blocking filesystem I/O on the event loop. The codebase states its own convention plainly in both other callers, which wrap the identical call \u2014 this is the one place that does not. Cheap to fix and it removes a latency source from the loop that also runs the poller.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/coordinator.py:1091 and 1117, both inside `async def _download` \u2014\n        if existing_clip(self.hass, camera, start_time) is not None:\n            return\n...\n        stored = existing_clip(self.hass, camera, start_time)\n\nexisting_clip is filesystem work \u2014 media.py:83-88 \u2014\ndef existing_clip(hass: HomeAssistant, camera, start_time: int) -> Path | None:\n    for suffix in (\".mp4\", \".ts\"):\n        path = clip_path(hass, camera, start_time, suffix)\n        if path.exists():\n\nand the convention is stated by the other callers \u2014 __init__.py:603-604 \u2014\n        def _describe_matches():\n            \"\"\"Blocking: existing_clip stats the media directory per clip.\"\"\"\n\nwith media.py:105-106 \u2014\ndef scan_downloaded(hass: HomeAssistant, camera, starts) -> dict[int, Path]:\n    \"\"\"Which of these clip start times are already on disk. Blocking.\"\"\""
+  },
+  {
+    "id": "correctness-6",
+    "dimension": "correctness",
+    "title": "hub_health reports \"ok\" for a hub whose status calls have been failing, and its \"unreachable\" branch is unreachable",
+    "rationale": "self.readings is only ever assigned on a successful hub_status fetch and is never cleared, so `not r` is true only before the first successful status poll \u2014 the one moment nothing is wrong. The case that matters is the opposite: hub_status failures are swallowed so the poll keeps succeeding, the entity stays available (CoordinatorEntity availability follows last_update_success, which the activity fetch keeps true), and the sensor confidently reports \"ok\" from readings that may be arbitrarily stale. Deriving the state from last_update_success plus the age of the last successful status read would make it honest.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/sensor.py:161-167 \u2014\n        key=\"hub_health\", translation_key=\"hub_health\",\n        value=lambda r: (\n            \"unreachable\" if not r else\n            \"storage full\" if (r.get(\"storage_used_percent\") or 0) >= 99 else\n            \"storage failing\" if r.get(\"storage_healthy\") is False else\n            \"clock drifted\" if abs(r.get(\"clock_offset\") or 0) > 60 else\n            \"ok\"),\n\nreadings is assigned only on success and never reset \u2014 coordinator.py:755-766 \u2014\n                self.readings = hub_readings(\n                    await self.hass.async_add_executor_job(self.client.hub_status))\n...\n            except Exception as err:\n                # Status is a bonus; never fail the whole poll over it.\n                _LOGGER.debug(\"Hub status unavailable: %s\", err)\n\nand it starts empty exactly once \u2014 coordinator.py:83 \u2014\n        self.readings: dict = {}"
+  },
+  {
+    "id": "tests-1",
+    "dimension": "tests",
+    "title": "SAFE_CAMERA has no key-existence test, and two of its six keys are dead \u2014 `ai_enhance_enabled` (wrong case) and `battery_percent` (proven not to exist)",
+    "rationale": "The author already wrote exactly this guard for SAFE_READINGS after six of sixteen keys turned out wrong, but never extended it to SAFE_CAMERA \u2014 the existing test only asserts the constant is *mentioned*. The gap is currently hiding two dead keys, so every diagnostics download emits `\"ai_enhance_enabled\": null` and `\"battery_percent\": null`. The repo already contains the ground-truth field list to test against.",
+    "impact": 3,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/diagnostics.py:53-56 allow-lists keys read straight off the raw hub record:\n```\nSAFE_CAMERA = (\n    \"device_model\", \"hub_storage_enabled\", \"plan_24h_record\",\n    \"ai_enhance_enabled\", \"wifi_backup_enabled\", \"battery_percent\",\n)\n```\nThe real record is documented verbatim at docs/protocol-notes.md:158-164:\n```\nThe per-camera record has 16 fields and not one is battery, power, charge,\nvoltage or percentage:\n\n    AI_enhance_enabled  ai_camera_support  ai_enhance     ai_hub_support\n    ...\n    device_model        device_type        hub_storage_enabled  mac\n    network_mode        parent_device_id   plan_24h_record      wifi_backup_enabled\n```\nThe field is `AI_enhance_enabled`, capitalised \u2014 which binary_sensor.py:81 gets right: `value=lambda cam: cam.get(\"AI_enhance_enabled\"),`. And const.py:384 states the contradiction outright: `# record carry no online flag, no signal strength and no battery -- measured,`. The dict is returned unnormalised from the hub at api.py:244-246 (`return result.get(\"general_camera_manage\", {}).get(\"paired_general_device_list\", [])`), so neither key can ever appear.\n\nThe missing test: tests/test_platforms.py:47 checks only `self.assertIn(\"SAFE_CAMERA\", DIAG)`, while tests/test_platforms.py:50-71 (`test_every_allow_listed_reading_actually_exists`) validates SAFE_READINGS properly against `set(status.hub_readings({}))` and documents the exact failure mode: \"An allow-list of names nothing produces is a file full of nulls.\""
+  },
+  {
+    "id": "tests-2",
+    "dimension": "tests",
+    "title": "168 tests in 16 files sit after a mid-file `if __name__ == \"__main__\": unittest.main()`, so running a file directly silently skips them",
+    "rationale": "New test classes have been appended below the main-guard as files grew; discovery still finds them, so verify.sh is honest, but a developer iterating with `python tests/test_reboot.py` gets a green \"OK\" that never ran the no-internet regression test. That is a false-confidence trap on the codebase's single hardest constraint.",
+    "impact": 2,
+    "effort": 2,
+    "risk": 1,
+    "evidence": "Measured directly: `python -B tests/test_reboot.py` prints `Ran 13 tests in 0.001s / OK`, while `python -B -m unittest tests.test_reboot` prints `Ran 24 tests in 0.011s / OK`.\n\ntests/test_reboot.py:119-122 is the boundary:\n```\nif __name__ == \"__main__\":\n    unittest.main()\n\n\nclass FirmwareUpgradeInfo(unittest.TestCase):\n```\nEverything below it is skipped on a direct run, including tests/test_reboot.py:180-186, the mission's own regression test: `class NothingPhonesHome(unittest.TestCase):` with `def test_the_firmware_read_commands_no_cloud_contact(self):` and `self.assertNotIn(\"checkFirmwareVersionByCloud\", flat)` \u2014 the guard added by commit aa3612b.\n\nSame pattern in 16 files, stranded-test counts measured by scanning for `def test_` below the first `unittest.main()`: test_blueprint.py (main@170 of 458, 29 stranded), test_media_health.py (main@215 of 443, 23), test_media_session.py (main@208 of 471, 19), test_download_watch.py (main@143 of 265, 15), test_media_source.py (main@230 of 405, 12), test_reboot.py (11), test_auto_restart.py (9), test_silent.py (9), test_smart.py (9), test_activity.py (8), test_backup.py (6), test_platforms.py (main@200 of 264, 6 \u2014 tests/test_platforms.py:200 sits above `class NamePromptFix` at :203 and `class DevicePageTidiness` at :237), test_faces.py (4), test_latest_frame.py (4), test_snooze.py (3), test_coordinator.py (1). Total 168 of 1134."
+  },
+  {
+    "id": "tests-3",
+    "dimension": "tests",
+    "title": "The hub write paths (hub_control.apply, siren turn-on/off) have zero behavioural tests \u2014 neither the error wrapping nor the deliberate one-poll-per-write budget is pinned",
+    "rationale": "hub_control.apply is the shared write path for switch, select and number; siren.py deliberately bypasses it with its own no-refresh `_call` so a two-call turn-on costs one poll, not two. Both behaviours exist specifically because the hardware is easy to overload, and neither has a test \u2014 a refactor that routes the siren through H500HubControl would double the polls and nothing would fail.",
+    "impact": 3,
+    "effort": 3,
+    "risk": 1,
+    "evidence": "No test file references `H500HubControl`, `H500Siren`, `H500SirenTone` or `H500HubNumber` (grep across tests/ returns only tests/test_faces.py:324 for an unrelated `preview_url` string). hub_control.py and siren.py are reached by nothing but the AST name-resolution sweep in tests/test_imports.py:48.\n\nThe untested error wrapping, custom_components/tapo_h500/hub_control.py:32-39:\n```\n    async def apply(self, action) -> None:\n        try:\n            await self.hass.async_add_executor_job(action)\n        except Exception as err:\n            raise HomeAssistantError(f\"The H500 refused the change: {err}\") from err\n        # One poll after the write, not one per call: this hub is easy to\n        # overload and the readings all arrive in a single round trip anyway.\n        await self.coordinator.async_request_refresh()\n```\nThe untested poll budget and ordering, custom_components/tapo_h500/siren.py:76-84 and :90-92:\n```\n        # Config is a separate call, so apply it before sounding rather than\n        # after, or the first seconds play with the previous settings.\n        if tone is not None or level is not None or duration is not None:\n            await self._call(partial(\n                self.coordinator.client.set_siren_config, ...))\n        await self._call(partial(self.coordinator.client.set_siren, True))\n        await self.coordinator.async_request_refresh()\n```\n```\n    async def _call(self, action) -> None:\n        # Deliberately does not refresh: turning on can be two calls, and this\n        # hub is easy to overload, so the caller polls once at the end instead.\n```\nAlso unpinned: siren.py:34-39 and select.py:28-36 diverge on the same failure (`tones = []` keeps the siren usable; select `return`s and adds no entity), and select.py:49-51 `return tone if tone in self.options else None` guards an HA warning."
+  },
+  {
+    "id": "tests-4",
+    "dimension": "tests",
+    "title": "preview.py's H500PreviewView.get \u2014 a registered HTTP endpoint with five error branches \u2014 has no test at all",
+    "rationale": "This is the view every recordings-card thumbnail hits. `async_preview_clip` behind it is thoroughly tested in test_media_session.py, but the request handler wrapping it is not, so the 404-on-no-preview branch (the routine case for a clip the hub will not preview) and the parameter validation are entirely unverified. The HTTP stub needed already exists in the suite, so this is cheap.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 1,
+    "evidence": "No test references `H500PreviewView` or `PREVIEW_PATH`; the only tests/ hit for `preview_url` is a string assertion at tests/test_faces.py:324 (`self.assertIn(\"preview_url\", self.BODY)`).\n\nThe five uncovered branches, custom_components/tapo_h500/preview.py:51-71:\n```\n        try:\n            index, start = int(camera_index), int(start_time)\n        except ValueError:\n            return web.Response(status=400, text=\"Bad preview request\")\n        if start < 0 or index < 0:\n            return web.Response(status=400, text=\"Bad preview request\")\n\n        coordinator = hass.data.get(DOMAIN, {}).get(DATA_HUBS, {}).get(entry_id)\n        if coordinator is None:\n            return web.Response(status=404, text=\"Unknown config entry\")\n        try:\n            camera = await hass.async_add_executor_job(\n                coordinator.client.camera_at, index)\n        except Exception:\n            return web.Response(status=404, text=\"Unknown camera\")\n\n        path = await async_preview_clip(hass, coordinator.client, camera, start)\n        if path is None:\n            ...\n            return web.Response(status=404, text=\"No preview available\")\n```\nAlso untested: the `Cache-Control` header at preview.py:77 (`headers={\"Cache-Control\": \"private, max-age=3600\"}`) and the KEY_HASS import fallback at preview.py:21-24.\n\nThe stubs to build on already exist at tests/test_media_session.py:41-46:\n```\n    auth = types.ModuleType(\"homeassistant.components.http.auth\")\n    auth.async_sign_path = lambda hass, path, lifetime: path\n    http = types.ModuleType(\"homeassistant.components.http\")\n```\nThey would need `HomeAssistantView` and `KEY_HASS` added, plus a fake `web.Response`."
+  },
+  {
+    "id": "tests-5",
+    "dimension": "tests",
+    "title": "The Lovelace card's error state is never exercised \u2014 `_load()`'s catch and the `<div class=\"error\">` render in H500Base are untested for all eight cards",
+    "rationale": "Every card inherits this path, and it is what a user sees whenever the WebSocket call or the list_recordings service fails. No test in the 78-test card suite makes a call reject, so nothing verifies the card shows the message rather than a blank or stale body \u2014 and nothing verifies the escaping on that path, even though a hub-supplied error string is the least trustworthy text the card renders.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/www/tapo-h500-card.js:499-500 sets the state:\n```\n    } catch (err) {\n      this._error = err.message || String(err);\n```\n(the same assignment appears again at :580), and H500Base renders it at :654-655:\n```\n    const body = this._error\n      ? `<div class=\"error\">${esc(this._error)}</div>`\n```\nGrepping tests/test_cards.mjs for `_error` yields only two lines, both from one unrelated cancel test \u2014 tests/test_cards.mjs:640 `card._error = null;` and :660 `assert.equal(card._error, null, \\`cancel raised: ${card._error}\\`);` \u2014 i.e. the suite only ever asserts the error is *absent*, never that it renders when present.\n\nAlso uncovered: the throw at tapo-h500-card.js:476, `if (!entries || !entries.length) throw new Error(\"No Tapo H500 entry found\");` \u2014 the first-run case where a card is added before the integration is configured. The escaping helper itself is tested in isolation at tests/test_cards.mjs:67 (`test(\"escaping closes the innerHTML hole\"`), but never through this render path."
+  },
+  {
+    "id": "ha-conformance-1",
+    "dimension": "ha-conformance",
+    "title": "Bad credentials retry the hub login forever: no ConfigEntryAuthFailed, no reauth flow",
+    "rationale": "async_setup_entry turns every connect() failure into ConfigEntryNotReady, so a permanent auth failure (changed camera-account or cloud password) makes Home Assistant retry setup on a backoff indefinitely, buying a fresh hub login every retry \u2014 on hardware the repo's own test docstring says \"is known to wedge under repeated logins and to recover only on a timeout\". Raising ConfigEntryAuthFailed for the auth case stops the retry loop and opens the standard reauth prompt instead; it removes logins rather than adding any. The config flow has the same blind spot: a wrong password is reported as cannot_connect, so the owner is told the hub is unreachable when it is not. Needs async_step_reauth/async_step_reauth_confirm plus an invalid_auth string in both translation files.",
+    "impact": 4,
+    "effort": 3,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/__init__.py:197-202 \u2014 `try:` / `await hass.async_add_executor_job(client.connect)` / `except Exception as err:` / `await hass.async_add_executor_job(client.close)` / `raise ConfigEntryNotReady(` / `f\"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}\") from err`. custom_components/tapo_h500/config_flow.py:55-56 \u2014 `except Exception:` / `errors[\"base\"] = \"cannot_connect\"`. `grep -rn \"reauth\\|ConfigEntryAuthFailed\" custom_components/ tests/` returns nothing. tests/test_setup_cleanup.py:5-11 already states the hazard: \"Home Assistant then retries the whole of setup on a backoff -- so a hub that is briefly unhappy gets a fresh login per retry\" ... \"This hub is known to wedge under repeated logins and to recover only on a timeout\"."
+  },
+  {
+    "id": "ha-conformance-2",
+    "dimension": "ha-conformance",
+    "title": "strings.json has rotted 102 keys behind translations/en.json, and verify.sh only checks entity keys",
+    "rationale": "strings.json holds 69 flattened keys against en.json's 165: it is missing every `issues.*` entry (all nine repair issues plus the unnamed_face fix_flow), every `device_automation.trigger_type.*`, ~20 entity names, and the three `options.abort.*` reasons, while still carrying six dead `options.step.init.data.*` keys for an options step that was replaced by the settings/faces/layout/sensitivity menu. Runtime reads en.json so nothing is visibly broken today, but the file a developer edits first is now a decoy that silently swallows the next string. Neither file defines `config.abort.already_configured`, which is reachable, so adding the same hub IP twice ends in an abort dialog with no message. Extending the verify.sh check to diff the two files key-for-key is what keeps it fixed.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 1,
+    "evidence": "tools/verify.sh:46-51 \u2014 \"# Every entity translation key an entity declares must exist, or the frontend / # shows the raw key as the name.\" then `known = {platform: set(keys) for platform, keys in strings.get(\"entity\", {}).items()}` \u2014 only the `entity` section of en.json is ever consulted. Flattened key diff: strings.json=69 keys, translations/en.json=165; in en.json only (102) including `issues.camera_tampered.title`, `issues.unnamed_face.fix_flow.step.init.title`, `device_automation.trigger_type.person`, `entity.button.restart.name`, `options.abort.no_faces`; in strings.json only (6): `options.step.init.data.poll_interval`, `options.step.init.data.auto_download`, ...; `options.step.init.title` differs ('Tapo H500 options' vs 'Tapo H500'). Both files' `config` sections contain only `['step','error']`, yet custom_components/tapo_h500/config_flow.py:64 calls `self._abort_if_unique_id_configured(`."
+  },
+  {
+    "id": "ha-conformance-3",
+    "dimension": "ha-conformance",
+    "title": "No async_remove_config_entry_device: an unpaired camera's device and its ~20 entities can never be deleted",
+    "rationale": "Camera devices are keyed on the hub's `device_id`, and entities are created once at setup from `coordinator.cameras`. Unpair a camera in the Tapo app and its device stays in the registry forever with every sensor, binary sensor, event, image, camera and calendar entity attached; Home Assistant's delete button refuses to act because the integration does not implement the hook. The implementation is small: return True when the device's identifier is not in the current `coordinator.cameras` (and never for the hub's own `(DOMAIN, entry.entry_id)` device).",
+    "impact": 3,
+    "effort": 2,
+    "risk": 2,
+    "evidence": "`grep -rn \"async_remove_config_entry_device\" custom_components/tapo_h500/` returns nothing. custom_components/tapo_h500/entity.py:25 \u2014 `identifiers={(DOMAIN, camera[\"device_id\"])},`. custom_components/tapo_h500/camera.py:90-93 \u2014 `async_add_entities(` / `H500Camera(coordinator, index, camera)` / `for index, camera in enumerate(coordinator.cameras)` \u2014 entities are enumerated once, at setup, and never reconciled against later refreshes of `coordinator.cameras`."
+  },
+  {
+    "id": "ha-conformance-4",
+    "dimension": "ha-conformance",
+    "title": "No reconfigure step: changing the hub's IP means deleting the entry and losing face names, options and entity history",
+    "rationale": "The config entry's unique_id is the host, and host lives in entry.data with no flow that can edit it, so a DHCP lease change or a re-addressed hub can only be fixed by removing and re-adding the integration \u2014 which discards every named face, every option, and re-creates the hub device under a new entry_id, orphaning all hub-scoped entity ids (they are keyed `f\"{entry.entry_id}_{key}\"`). async_step_reconfigure with async_update_reload_and_abort is the standard 2024.11 answer and is roughly one screen plus two strings.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/config_flow.py:63-65 \u2014 `await self.async_set_unique_id(user_input[CONF_HOST])` / `self._abort_if_unique_id_configured(` / `updates={CONF_HOST: user_input[CONF_HOST]})`. `grep -rn \"reconfigure\\|async_update_reload_and_abort\" custom_components/tapo_h500/` returns nothing. custom_components/tapo_h500/hub_control.py:25 \u2014 `self._attr_unique_id = f\"{entry.entry_id}_{key}\"` (so a new entry means new entity ids for every hub control)."
+  },
+  {
+    "id": "ha-conformance-5",
+    "dimension": "ha-conformance",
+    "title": "Camera devices carry no via_device, so they appear as standalone devices unrelated to the hub",
+    "rationale": "The hub is registered as `(DOMAIN, entry.entry_id)` and each paired camera as `(DOMAIN, camera[\"device_id\"])`, but nothing links them: the device pages show no \"Connected via\", the hub's page lists no child devices, and the integration page shows N+1 unrelated devices for what is physically one hub with cameras hanging off it. One `via_device=(DOMAIN, entry.entry_id)` line in H500Entity fixes it \u2014 it needs the entry_id, which H500Entity does not currently receive, so the constructors gain one argument (or read `coordinator.entry.entry_id`, which is already held).",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/entity.py:24-29 \u2014 `self._attr_device_info = DeviceInfo(` / `identifiers={(DOMAIN, camera[\"device_id\"])},` / `name=camera_name(camera, index),` / `manufacturer=\"TP-Link\",` / `model=camera.get(\"device_model\"),` / `)` \u2014 no via_device. custom_components/tapo_h500/sensor.py:446-447 \u2014 `return DeviceInfo(` / `identifiers={(DOMAIN, entry.entry_id)},` is the hub device that should be the parent. `grep -rn \"via_device\" custom_components/tapo_h500/` returns nothing."
+  },
+  {
+    "id": "ha-conformance-6",
+    "dimension": "ha-conformance",
+    "title": "Camera sensors read the setup-time device record, so ai_enhance/network_mode/model freeze until reload",
+    "rationale": "H500CameraFlag deliberately re-reads the refreshed paired-device record from the coordinator on every state read, with a comment saying so; H500CameraSensor a hundred lines away passes `self.camera`, the dict captured when the entity was constructed. The coordinator re-fetches `self.cameras` every CAMERAS_MAX_AGE, so the three sensors whose value comes straight off that record report whatever was true at setup for the life of the entry. The lazy fix is one `current` property on H500Entity that both platforms use, deleting the duplicated bounds check.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/binary_sensor.py:174-176 \u2014 `# The paired-device record is refreshed on every poll.` / `current = self.coordinator.cameras[self.index] \\\\` / `if self.index < len(self.coordinator.cameras) else self.camera`. custom_components/tapo_h500/sensor.py:337-339 \u2014 `def native_value(self):` / `return self.entity_description.value(` / `self.coordinator, self.index, self.camera)`. The affected descriptions are sensor.py:224 `value=lambda c, i, cam: cam.get(\"ai_enhance\"),`, sensor.py:229 `value=lambda c, i, cam: cam.get(\"network_mode\"),` and sensor.py:234 `value=lambda c, i, cam: cam.get(\"device_model\"),`."
+  },
+  {
+    "id": "offline-1",
+    "dimension": "offline-resilience",
+    "title": "The hub_unreachable repair issue can only fire while the hub IS reachable \u2014 it is raised from inside the success path",
+    "rationale": "repairs.async_check has exactly one call site, at the end of _poll(), so it runs only when the poll completed. When the hub is actually down _poll() raises at the activity fetch and async_check never runs, so the issue is never created. Because HA only flips last_update_success after _async_update_data returns, the one moment _reachable() sees False is the first SUCCESSFUL poll after an outage \u2014 so the notice flashes for one poll interval (2 s by default) at the moment of recovery and is then deleted, which is the exact inverse of the intent. The module docstring names this case as its reason for existing.",
+    "impact": 4,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/coordinator.py:896-898 (the only call site, at the end of _poll):\n        try:\n            from .repairs import async_check\n            async_check(self.hass, self.entry.entry_id, self)\n\ncustom_components/tapo_h500/coordinator.py:735-736 \u2014 _poll aborts long before that on an outage:\n            except Exception as err:\n                raise UpdateFailed(f\"Could not poll H500 activity: {err}\") from err\n\ncustom_components/tapo_h500/repairs.py:134-138:\ndef _reachable(hass: HomeAssistant, entry_id: str, coordinator) -> None:\n    issue_id = _issue_id(entry_id, UNREACHABLE_ISSUE)\n    if coordinator.last_update_success:\n        ir.async_delete_issue(hass, DOMAIN, issue_id)\n        return\n\ncustom_components/tapo_h500/repairs.py:5-6 (stated purpose):\n\"a hub that stopped answering is recording\nnothing while every entity keeps showing its last known value\"\n\nThe test cannot catch it \u2014 tests/test_platforms.py:114-118 only asserts on source text:\n        for func in (\"_storage\", \"_reachable\", \"_unnamed_faces\"):\n            body = REPAIRS.split(f\"def {func}\", 1)[1].split(\"\\ndef \", 1)[0]\n            self.assertIn(\"async_create_issue\", body, func)"
+  },
+  {
+    "id": "offline-2",
+    "dimension": "offline-resilience",
+    "title": "Auto-restart cooldown and circuit breaker live only in coordinator memory, so every Home Assistant restart re-arms an immediate hub reboot",
+    "rationale": "_auto_restarted starts at 0.0 and _auto_restart_broken at False in __init__, and there is no Store or hass.data persistence anywhere in the integration. The media handshake runs on poll 0 (0 % _media_every == 0), so on a wedged hub the very first poll after any HA start sets media_status=\"wedged\" and elapsed = now - 0.0 (epoch seconds) clears the 6-hour cooldown, rebooting the hub immediately. A tripped breaker \u2014 the state that exists precisely because rebooting is NOT curing the failure \u2014 is also wiped, so the pattern is one hub reboot per HA restart on hardware documented as fragile.",
+    "impact": 4,
+    "effort": 2,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/coordinator.py:141-142:\n        self._auto_restarted = 0.0\n        self._auto_restart_broken = False\n\ncustom_components/tapo_h500/coordinator.py:839, 852-855:\n            elapsed = now - self._auto_restarted\n...\n            if (reason is not None and reboot is not None\n                    and not self._auto_restart_broken\n                    and elapsed >= AUTO_RESTART_COOLDOWN):\n                self._auto_restarted = now\n\nThe claim this breaks, custom_components/tapo_h500/const.py:190-191:\n# decision -- and never more often than the cooldown, which makes a reboot\n# loop impossible however long the failure persists.\n\nThe test only exercises one coordinator lifetime \u2014 tests/test_auto_restart.py:70-77:\n    def test_the_cooldown_makes_a_reboot_loop_impossible(self):\n...\n        _poll(coord, 6)\n        self.assertEqual(client.reboots, 1)\n\nNo persistence exists: grep for Store/async_save across custom_components/tapo_h500/*.py returns no storage helper use."
+  },
+  {
+    "id": "offline-3",
+    "dimension": "offline-resilience",
+    "title": "Media-session credentials are snapshotted once at connect() and never refreshed, while the control channel is documented to silently re-login across hub reboots",
+    "rationale": "connect() copies superSecretKey and the encryption method off the pytapo object, and connect() is called exactly once per config-entry lifetime (only __init__.py:198). The integration explicitly relies on pytapo re-establishing the control session underneath it across a reboot \u2014 including the reboot the integration itself triggers. If pytapo 3.4.18's refreshStok rotates either value, every media session after that reboot opens cleanly and decrypts to nothing, which is precisely the documented 'clean sessions, no video' failure. Reading both off self._hub at session-open time is a one-line change that is a no-op if the values never rotate, so the fix is nearly free either way; an implementer should confirm against the installed pytapo first.",
+    "impact": 4,
+    "effort": 1,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/api.py:180-181 (captured once, uncommented, unlike the rest of this file):\n        self._super_secret_key = self._hub.superSecretKey\n        self._encryption_method = self._hub.getEncryptionMethod()\n\ncustom_components/tapo_h500/api.py:529-531 (used for every session, forever):\n                    super_secret_key=self._super_secret_key,\n                    encryptionMethod=self._encryption_method, port=8800,\n\nOnly caller of connect(), custom_components/tapo_h500/__init__.py:198:\n        await hass.async_add_executor_job(client.connect)\n\nThe reboot-survives-underneath assumption, custom_components/tapo_h500/button.py:57-60:\n        device carrying the answer -- the poll will fail for a couple of\n        minutes and recover on its own backoff, exactly as it does through\n        the hub's own nightly reboot.\n\nThe symptom it would produce, custom_components/tapo_h500/coordinator.py:132-135:\n        # Consecutive downloads that completed cleanly with zero video --\n        # the hub's second media failure (2026-08-18): every session works\n        # and carries nothing, for every clip, until a reboot."
+  },
+  {
+    "id": "offline-4",
+    "dimension": "offline-resilience",
+    "title": "Automatic downloads keep opening a full media session per clip while the media service is already known to be wedged or serving empty",
+    "rationale": "_download_new spawns a background download for every fresh clip with no reference to media_status or media_serving_empty, both of which the coordinator already maintains. On a busy camera with auto-download on, a wedged or hollow hub gets one complete media session (TCP, digest, AES key exchange) per recorded clip, indefinitely \u2014 each failure only increments a counter. The protocol notes record that repeated failed media-session auth left port 8800 refusing TCP for minutes, so the download loop actively deepens the state it is failing on. The deep health check and the handshake sentinel are both carefully gated on the session lock; the downloads, which are far more numerous, are not gated at all.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/coordinator.py:967-979 \u2014 no media-state guard anywhere in the loop:\n        for clip in self._fresh(index, clips, self._seen_clips, window):\n            if not self._primed or mode not in (AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS):\n                continue\n...\n            self.entry.async_create_background_task(\n                self.hass, self._download(index, camera, clip),\n                f\"{DOMAIN} download {start_of(clip)}\",\n            )\n\ncustom_components/tapo_h500/coordinator.py:1100-1106 \u2014 each failure only counts, never throttles:\n        except EmptyRecordingError as err:\n            _LOGGER.warning(\"Automatic download of clip %s failed: %s\",\n                            start_time, err)\n            self._download_failures[index] = (\n                self._download_failures.get(index, 0) + 1)\n            self.note_empty_download()\n\nCompare the gating the health check does get, coordinator.py:809-811:\n        if (fetchable is not None and spawn is not None\n                and now - self._media_evidence >= MEDIA_EVIDENCE_MAX_AGE\n                and not (lock is not None and lock.locked())):\n\ndocs/protocol-notes.md:824-825:\n- Repeated failed media-session auth left port 8800 **refusing TCP** for\n  several minutes."
+  },
+  {
+    "id": "offline-5",
+    "dimension": "offline-resilience",
+    "title": "The poll window allows only 60 seconds of hub clock drift forward, the same threshold at which the health sensor already calls the hub 'clock drifted'",
+    "rationale": "The activity search asks the hub for clips up to now + 60, where now is Home Assistant's clock, but the hub stamps clips with its own. A WAN-blocked hub has no NTP, so forward drift is the expected steady state rather than an edge case. Once the hub runs more than 60 seconds ahead, brand-new clips fall outside the requested window and are invisible until HA's clock catches up \u2014 a doorbell notification arriving late by exactly the drift. The integration already measures the drift every status refresh and already treats >60 s as a fault, so the compensation term is sitting in self.readings unused.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/coordinator.py:716-717 and 726-727 \u2014 HA's clock, 60-second forward margin:\n        now = int(dt_util.utcnow().timestamp())\n        window = now - LOOKBACK_SECONDS\n...\n                    clips, detections = await self.hass.async_add_executor_job(\n                        fetch, camera, window, now + 60)\n\nThe drift is already measured, custom_components/tapo_h500/status.py:118-127:\ndef clock_offset(hub_epoch, now: float | None = None) -> int | None:\n    \"\"\"Seconds the hub's clock is ahead of ours, or None if it did not say.\n...\n    return int(round(seconds - (time.time() if now is None else now)))\n\nand already judged at exactly the same threshold, custom_components/tapo_h500/sensor.py:166:\n            \"clock drifted\" if abs(r.get(\"clock_offset\") or 0) > 60 else\n\nand its consequences are already documented, custom_components/tapo_h500/sensor.py:110-112:\n    # Clip filenames and the media browser's date folders come from hub\n    # timestamps, so drift here files recordings under the wrong day. Signed:\n    # ahead and behind are different faults.\n\nNothing consumes clock_offset beyond the sensor and diagnostics: grep for clock_offset across custom_components/ hits only status.py, sensor.py:114-118, diagnostics.py:40, and the translation files."
+  },
+  {
+    "id": "security-1",
+    "dimension": "security",
+    "title": "A rejected login is retried forever as ConfigEntryNotReady instead of raising ConfigEntryAuthFailed",
+    "rationale": "async_setup_entry funnels every connect() failure into ConfigEntryNotReady, which Home Assistant retries on a backoff for as long as it runs, and each retry is another client.connect() login. On a hub the project documents as wedging under repeated authentication, a wrong or rotated password becomes an endless authentication loop rather than a one-time reauth prompt \u2014 and the README already warns that the hub's rejection of a wrong username is 'indistinguishable from a lockout'. pytapo raises a stable marker for this case, so classification needs no live hub and no new network call. There is also no async_step_reauth or async_step_reconfigure anywhere in config_flow.py, so the only way to change a credential today is to delete the entry (taking the face-name map with it); re-running the user flow aborts via _abort_if_unique_id_configured and silently discards the newly typed password after already paying for a login.",
+    "impact": 4,
+    "effort": 3,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/__init__.py:196-201:\n    try:\n        await hass.async_add_executor_job(client.connect)\n    except Exception as err:\n        await hass.async_add_executor_job(client.close)\n        raise ConfigEntryNotReady(\n            f\"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}\") from err\n\nThe distinguishable auth failure, from the pinned pytapo==3.4.18 in the venv, .venv/lib/python3.14/site-packages/pytapo/transport/pytapo/pytapo.py:606 (and again at 693, 716, 764):\n                    raise Exception(\"Invalid authentication data\")\n\nNo reauth/reconfigure step exists \u2014 `grep -n \"reauth\\|reconfigure\\|async_step_\" custom_components/tapo_h500/config_flow.py` returns only async_step_user, async_step_init, async_step_faces, async_step_layout, async_step_sensitivity, async_step_settings. And re-running the user flow throws the new password away, custom_components/tapo_h500/config_flow.py:63-65:\n                    await self.async_set_unique_id(user_input[CONF_HOST])\n                    self._abort_if_unique_id_configured(\n                        updates={CONF_HOST: user_input[CONF_HOST]})"
+  },
+  {
+    "id": "security-2",
+    "dimension": "security",
+    "title": "The preview view accepts any start_time, opening an unbounded media session per request and 500ing with a traceback on out-of-range values",
+    "rationale": "H500PreviewView is the integration's only HTTP endpoint and its only input validation is a sign check. Any authenticated Home Assistant user \u2014 or anyone holding one of the 12-hour signed URLs, with no Home Assistant credentials at all \u2014 can request an arbitrary timestamp, and every cache miss opens a fresh TCP + digest + AES media session against hardware the project says wedges after enough of them. Nothing checks that the timestamp corresponds to a real indexed clip, and there is no negative cache, so a clip the hub refuses re-opens a session on every subsequent request. Absurd values fail earlier and worse: clip_path runs before async_preview_clip's try block, so the OverflowError escapes the view and aiohttp answers 500 with a stack trace. The lazy fix is one range check in the view (reject anything outside, say, now-400d..now+60s) rather than exact membership in coordinator.clips_for(), which would break previews for clips older than the poll window.",
+    "impact": 4,
+    "effort": 2,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/preview.py:51-56 \u2014 the entire validation:\n        try:\n            index, start = int(camera_index), int(start_time)\n        except ValueError:\n            return web.Response(status=400, text=\"Bad preview request\")\n        if start < 0 or index < 0:\n            return web.Response(status=400, text=\"Bad preview request\")\n\ncustom_components/tapo_h500/preview.py:67 \u2014 then straight to a hub media session, unguarded:\n        path = await async_preview_clip(hass, coordinator.client, camera, start)\n\ncustom_components/tapo_h500/media.py:172 sits OUTSIDE the try at line 179:\n    thumbnail = clip_path(hass, camera, start_time, \".jpg\")\n\nand custom_components/tapo_h500/media.py:58 is what raises:\n    moment = dt_util.as_local(dt_util.utc_from_timestamp(int(start_time)))\n\nVerified offline in the project venv: datetime.fromtimestamp(2**63, timezone.utc) -> OverflowError: timestamp out of range for platform time_t; datetime.fromtimestamp(10**12, timezone.utc) -> ValueError: year must be in 1..9999, not 33658. Neither is caught anywhere between clip_path and aiohttp.\n\nNo test constructs the view: `grep -rn \"H500PreviewView\" tests/` returns nothing, and the only reference is a source-string assertion, tests/test_multi_hub.py:188-189:\n    def test_the_preview_view_is_registered_once(self):\n        self.assertIn(\"if not hass.data[DOMAIN].get(DATA_PREVIEW):\", INIT)"
+  },
+  {
+    "id": "security-3",
+    "dimension": "security",
+    "title": "The diagnostics redaction boundary is only tested by string-matching the module source, never by running it",
+    "rationale": "diagnostics.py is explicitly written for pasting into public bug reports and its docstring argues carefully for allow-listing over deny-listing. Yet async_get_config_entry_diagnostics is never imported or called by any of the 1134 tests \u2014 all five test files that touch it read the module as text and assert on its source. That means the guarantee 'no mac, dev_id, alias or oem_id in the file' is enforced by checking whether those words appear in diagnostics.py, which passes trivially for any leak that arrives through a value rather than a literal key name. The module's own docstring records that this exact class of test already missed a real defect for a long time ('all three storage figures, the LED, face detection and the audio slots came out null in every diagnostics download ever taken. Nothing failed and nothing warned'). One behavioural test \u2014 stub coordinator whose readings/info/cameras are poisoned with a MAC, a dev_id and an alias, then assert none of those strings appear in json.dumps(result) \u2014 closes the whole class permanently.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 1,
+    "evidence": "The function is never executed. Every test file loads it as a string instead:\n  tests/test_platforms.py:18:  DIAG = (COMPONENT / \"diagnostics.py\").read_text()\n  tests/test_reboot.py:22:     DIAG = (COMPONENT / \"diagnostics.py\").read_text()\n  tests/test_device_info.py:22: DIAG = (COMPONENT / \"diagnostics.py\").read_text()\n  tests/test_media_health.py:238: DIAGNOSTICS = (COMPONENT / \"diagnostics.py\").read_text()\n`grep -rn \"async_get_config_entry_diagnostics\" tests/` returns nothing.\n\nThe redaction assertions themselves, tests/test_device_info.py:117-121:\n    def test_nothing_identifying_goes_with_them(self):\n        \"\"\"The record also carries a MAC, a device id and the owner's own name\n        for the hub.\"\"\"\n        for private in (\"mac\", \"dev_id\", \"device_alias\", \"oem_id\", \"hw_id\"):\n            self.assertNotIn(f'\"{private}\"', DIAG, private)\n\nand tests/test_platforms.py:65-68:\n    def test_camera_aliases_are_not_included(self):\n        \"\"\"An alias is the owner's own words and can name a room or a person.\"\"\"\n        self.assertNotIn('\"alias\"', DIAG)\n        self.assertIn('\"index\": index', DIAG)\n\nThe values these tests never see, custom_components/tapo_h500/diagnostics.py:113-120, read straight off the coordinator with no allow-list at all:\n            \"media_status\": getattr(coordinator, \"media_status\", None),\n            \"media_sessions\": getattr(\n                coordinator.client, \"_sessions\", None),\n            \"download_failures\": dict(getattr(\n                coordinator, \"_download_failures\", {}) or {}),"
+  },
+  {
+    "id": "security-4",
+    "dimension": "security",
+    "title": "Both password fields in the config flow are plain `str`, so the frontend renders them unmasked",
+    "rationale": "The setup form asks for the camera account password and the TP-Link cloud password as bare `str`, which Home Assistant's frontend renders as a normal visible text input. The cloud password is the highest-value secret in the system \u2014 it is the input to the local media-encryption key derivation (md5(nonce + b\":\" + hashed_password) per api.py:32) \u2014 and setup screenshots are exactly what people paste into the bug reports this project's diagnostics module is otherwise so careful about. config_flow.py already imports `selector` and already uses `selector.SelectSelector` elsewhere, so this is a four-line change to `selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD))` with no new dependency and no behaviour change.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/config_flow.py:86-87:\n            vol.Required(CONF_PASSWORD): str,\n            vol.Required(CONF_CLOUD_PASSWORD): str,\n\nThe selector helper is already imported and in use, custom_components/tapo_h500/config_flow.py:8:\nfrom homeassistant.helpers import selector\nand custom_components/tapo_h500/config_flow.py:292-296:\n                selector.SelectSelector(selector.SelectSelectorConfig(\n                    options=list(SENSITIVITY_LEVELS),\n                    translation_key=CONF_SENSITIVITY,\n                ))\n\nWhat the cloud password actually is, custom_components/tapo_h500/api.py:31-33:\n    nonce=\"\". pytapo rejects any falsy nonce outright, yet an empty one is not\n    fatal: the key is md5(nonce + b\":\" + hashed_password) and the IV is\n    md5(username + b\":\" + nonce), both of which are defined for b\"\".\n\nNo test constrains the schema type \u2014 `grep -n \"password\" tests/test_config_flow.py` returns only line 30, a constant stub."
+  },
+  {
+    "id": "security-5",
+    "dimension": "security",
+    "title": "Every doorbell event publishes a 12-hour, credential-free signed media URL into its state attributes",
+    "rationale": "The event entity writes a signed /media/local/... URL into the `image` attribute on every trigger. Because _own_frame runs in a coordinator callback with no request or websocket context, async_sign_path falls back to the content-user refresh token, so the resulting URL needs no Home Assistant login at all \u2014 anyone holding the string can fetch the frame for 12 hours. Entity attributes are readable by every authenticated user regardless of entity permissions, are persisted by the recorder for the purge window (default 10 days, well past the signature's own expiry), and ride along in automation traces. This is plainly a deliberate trade \u2014 mobile notification images cannot send an auth header, and the code comments say so \u2014 but 12 hours is far longer than that use case needs, and nothing documents that the attribute is a bearer credential. Worth weighing rather than assuming: shortening URL_LIFETIME would break 'open the notification the next morning', so the honest options are a shorter lifetime for the attribute specifically, or a note in the docs.",
+    "impact": 2,
+    "effort": 2,
+    "risk": 3,
+    "evidence": "custom_components/tapo_h500/event.py:71-75:\n    def _own_frame(self, start_time: int | None) -> str | None:\n        \"\"\"Signed URL for the thumbnail of the clip this event refers to.\"\"\"\n        if start_time is None:\n            return None\n        try:\n            return signed_url(\n                self.hass, clip_path(self.hass, self.camera, start_time, \".jpg\"))\n\ncustom_components/tapo_h500/event.py:122-125 \u2014 the code already knows the property it is granting:\n            # The file does not exist yet -- the hub is still recording -- so\n            # this 404s until the download lands. Signing does not check for\n            # the file, and the URL is good for 12 hours.\n            \"image\": self._own_frame(start_time),\n\ncustom_components/tapo_h500/media.py:41:\nURL_LIFETIME = timedelta(hours=12)\n\ncustom_components/tapo_h500/media.py:77-80 \u2014 no refresh_token_id is passed, so it signs as the content user:\ndef signed_url(hass: HomeAssistant, path: Path) -> str:\n    \"\"\"A URL the dashboard can put straight into <img> or <video>.\"\"\"\n    return async_sign_path(\n        hass, f\"/media/local/{relative(hass, path)}\", URL_LIFETIME)"
+  },
+  {
+    "id": "perf-1",
+    "dimension": "performance",
+    "title": "faces_seen()/people() rescan every clip on every camera 20+ times per 2-second poll",
+    "rationale": "faces_seen() is a full pass over every clip of every camera (face_ids parse, trail build, per-face sort, direction+prowling), and nothing caches it. Per poll it runs 6x per named person (H500FaceSensor reads _face in native_value, entity_picture and extra_state_attributes; H500FaceLocationSensor twice; H500FaceSeenRecently once) plus 2 for the household sensor, 4 for prowling, 1 for repairs and 1 for _note_arrivals \u2014 all on the event loop. Measured with a faithful re-implementation of the loop against clips.py's real helpers: 0.76 ms per pass at 1000 clips x 2 cameras, so ~20 ms per poll on a desktop with 3 named people, several times that on a Pi, growing linearly with the number of people named. Fix: compute once per poll and memoise on the coordinator (cleared at the top of _poll and in _async_options_changed, which is the path a name change already takes), leaving the clips= override uncached.",
+    "impact": 4,
+    "effort": 3,
+    "risk": 3,
+    "evidence": "coordinator.py:296 `for face_id, face in self.faces_seen(clips=clips).items():` (inside people()); coordinator.py:347-348 `return list(self.people().values()) + [\\n            face for face in self.faces_seen().values() if not face.get(\"name\")]`; coordinator.py:402-403 `return self.people().get(name) or {}` / `return self.faces_seen().get(key) or {}`; sensor.py:582-583 `# The whole person, merged across every cluster the hub gave them.` / `return self.coordinator.person_for(self.face_id)` \u2014 read from native_value (586-588), entity_picture (601) and extra_state_attributes (616); sensor.py:666 same property on H500FaceLocationSensor; sensor.py:536-542 `return len(self.coordinator.household(FACE_PRESENCE_WINDOW)[\"seen_recently\"])` and `**self.coordinator.household(FACE_PRESENCE_WINDOW),`; binary_sensor.py:464 `return [face for face in self.coordinator.everyone()`; repairs.py:226 `(face for face_id, face in coordinator.faces_seen().items()`. That these properties really run every poll is stated in-repo at sensor.py:597-599: `a fresh signature per poll would make the frontend refetch the same photograph every two seconds.`"
+  },
+  {
+    "id": "perf-2",
+    "dimension": "performance",
+    "title": "attach_detections falls back to an O(clips x detections) scan on every poll",
+    "rationale": "When a clip's start second is not an exact key in by_time, the code scans the whole detections dict to find one within MATCH_SECONDS. One clip off by a second costs a full scan; a systematic one-second index drift makes the whole call quadratic, and it runs per camera on every 2-second poll over a 24-hour window (LOOKBACK_SECONDS = 86400, hub capped at end_index 999). Measured against the real function: n=1000 costs 0.31 ms when every timestamp matches exactly and 23.46 ms when they are all shifted by one second (n=500: 0.16 vs 5.83 ms) \u2014 textbook n^2. The fix is three lines with no behaviour change worth arguing about: probe by_time.get(moment + delta) for delta in (-2, -1, 1, 2) instead of iterating, which is O(1) and picks the nearest match rather than the first in insertion order.",
+    "impact": 3,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "clips.py:223-225 `match = by_time.get(moment) or next(\\n            (found for when, found in by_time.items()\\n             if abs(when - moment) <= MATCH_SECONDS), None)`; called per camera per poll at coordinator.py:739 `attach_detections(clips, detections)`, over the window built at coordinator.py:717 `window = now - LOOKBACK_SECONDS` with const.py:169 `LOOKBACK_SECONDS = 86400`."
+  },
+  {
+    "id": "perf-3",
+    "dimension": "performance",
+    "title": "_newest_thumbnail globs and sorts the entire camera archive to read one file",
+    "rationale": "Every camera image request walks *every* day folder and *every* thumbnail under the camera, sorts the whole list, and reads the last one. The archive is unbounded by default (DEFAULT_KEEP_DOWNLOADS = 0 means no pruning), so this scan grows for the life of the install, and it runs on each async_camera_image and each image-entity fetch. The same codebase already solved exactly this in media_source._poster, which walks day folders newest-first and stops at the first hit, with a docstring explaining why. Port that shape: sort the day directories, iterate in reverse, take the last .jpg from the first day that has one.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 2,
+    "evidence": "media.py:520-523 `def _newest_thumbnail(directory: Path) -> bytes | None:` / `    # Names sort chronologically, so the last path is the newest clip.` / `    thumbnails = sorted(directory.glob(\"*/*.jpg\"))` / `    return thumbnails[-1].read_bytes() if thumbnails else None`; reached from camera.py:53 `return await self.coordinator.async_latest_frame(self.index, self.camera)` and image.py:88 (same call). Contrast media_source.py:120-123 `That means one iterdir per level rather than walking the whole tree -- a camera with a month of recordings holds thousands of files, and this runs on every browse.` and media_source.py:130-131 `days = sorted(item for item in directory.iterdir() if item.is_dir())` / `for day in reversed(days):`. Unbounded by default: const.py:164 `DEFAULT_KEEP_DOWNLOADS = 0` with media.py:371-372 `if keep <= 0:` / `return []`."
+  },
+  {
+    "id": "perf-4",
+    "dimension": "performance",
+    "title": "One executor round trip per media packet while downloading a clip",
+    "rationale": "Both the download and preview loops await a separate hass.async_add_executor_job for every chunk the media session yields, so the consumer stalls on a thread hop per packet instead of per file. A documented full clip is 3,398,852 bytes and pytapo yields one response per multipart part (Content-Length framed, TS-packet aligned \u2014 the documented 232,368-byte preview is exactly 1236 x 188 B), so a clip is hundreds to thousands of hops. Measured executor round trip on this machine: 132.7 us, i.e. 55 ms at 8 KB parts and ~2.4 s at one TS packet per part, per clip, plus an occupied executor thread the rest of Home Assistant is waiting for. Fix: accumulate into a bytearray and flush every ~1 MB, keeping the drain-to-the-hub's-finished semantics and the PREVIEW_MAX_BYTES cap exactly as they are.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 3,
+    "evidence": "media.py:233-235 `async for chunk in client.iter_recording(camera, start_time, end_time):` / `            received += len(chunk)` / `            await hass.async_add_executor_job(stream.write, chunk)`; media.py:186-188 same in the preview path `if received < PREVIEW_MAX_BYTES:` / `received += len(chunk)` / `await hass.async_add_executor_job(stream.write, chunk)`. Sizes from docs/protocol-notes.md:811-812 `a full 15-second clip is 3,398,852 bytes` and the 232,368 B preview measurement above it; pytapo yields one response per part at .venv/lib/python3.14/site-packages/pytapo/media_stream/session.py:264 `data = await self._reader.readexactly(length)`."
+  },
+  {
+    "id": "perf-5",
+    "dimension": "performance",
+    "title": "Four entities compute the same expensive value twice inside one state write",
+    "rationale": "A state write reads native_value/is_on and extra_state_attributes back to back, and in four places each half recomputes the same thing from scratch \u2014 a full clip scan, an hourly histogram, or two coordinator-wide face merges. The last_activity sensor even calls the scan twice within one expression. All of it is per poll, per camera, on the event loop, and all four fixes are a local variable or a helper that computes once. Lowest-risk item on the list: pure de-duplication with no semantic change.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "sensor.py:180-182 `value=lambda c, i, cam: (\\n            dt_util.utc_from_timestamp(c.last_activity(i))\\n            if c.last_activity(i) is not None else None),` \u2014 two full scans of the camera's clips per read; binary_sensor.py:386-387 `return (seconds >= silent_threshold(self.coordinator)\\n                or self._expected() >= SILENT_EXPECTED)` and binary_sensor.py:397 `\"expected_events\": round(self._expected(), 1),` \u2014 _expected() runs expected_since, which builds a 24-slot local-hour histogram over every clip; binary_sensor.py:470 `return bool(self._circling())` and binary_sensor.py:476-478 `\"faces\": [ ... for face in self._circling()` \u2014 each _circling() is coordinator.everyone(), i.e. people() plus faces_seen(); sensor.py:493 `return self.coordinator.days_until_full()` and sensor.py:498 `rate = fill_rate(self.coordinator.storage_trend)` \u2014 two least-squares fits over up to STORAGE_SAMPLES = 1440 points that only change once a minute."
+  },
+  {
+    "id": "perf-6",
+    "dimension": "performance",
+    "title": "local_hour()/local_date() build a fresh timezone conversion per clip, per poll, forever",
+    "rationale": "_local does an import plus a UTC-to-local conversion on every call, and hourly_counts calls it once per clip. Per camera per poll that histogram is built three times (H500Visits attributes, and expected_since from both halves of H500CameraSilent), and the same clip timestamps are re-converted every 2 seconds for the 24 hours they stay in the window \u2014 the answers never change. Measured proxy with stdlib zoneinfo at 1000 clips: 1.54 ms for three histograms cold versus 0.31 ms with a warm lru_cache, and dt_util.as_local costs more than the proxy. A functools.lru_cache keyed on (moment, dt_util.DEFAULT_TIME_ZONE) is a one-line change and the timezone in the key keeps it correct if the zone is ever reconfigured.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 2,
+    "evidence": "clips.py:818-820 `def _local(moment: int):` / `    from homeassistant.util import dt as dt_util` / `    return dt_util.as_local(dt_util.utc_from_timestamp(moment))`; clips.py:900-901 `def local_hour(moment: int) -> int:` / `    return _local(moment).hour`; per-clip caller clips.py:788-791 `for clip in clips:` ... `hours[local_hour(moment)] += 1`; three times per camera per poll via sensor.py:378 `\"hourly\": hourly_counts(self._clips),`, clips.py:890 `counts = hourly_counts(clips)` inside expected_since, and binary_sensor.py:386-387/397 calling _expected() twice."
+  },
+  {
+    "id": "frontend-cards-1",
+    "dimension": "frontend-cards",
+    "title": "The \"Recording\u2026\" pulse mostly never appears, and when it does it lingers up to 45s after the event ended",
+    "rationale": "`set hass` stores the new state map but only renders on the very first call, so the only periodic render is the 60s poll. `live` is computed at render time against a 45s window, so a detection is only ever shown if a render happens to land inside those 45 seconds \u2014 roughly 3 renders in 4, and up to 45s late. Worse, `_pulseTimer` is armed for 45s *from the render*, not from the event, so a dot lit at t=40s stays lit until t=85s: the card claims something is recording when nothing is. The feature commit eb77761 shipped for is substantially non-functional in a browser; the only test (tests/test_cards.mjs:860) assigns `card._hass` directly and calls `_render()` by hand, so it verifies the markup and never the path that would trigger it.",
+    "impact": 4,
+    "effort": 2,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/www/tapo-h500-card.js:432-438 \u2014 `set hass(hass) {\\n    this._hass = hass;\\n    if (!this._started) {\\n      this._started = true;\\n      this._load();\\n    }\\n  }` (no render on subsequent updates). :441 \u2014 `this._timer = setInterval(() => this._load(), 60000);` is the only recurring render. :667-676 \u2014 `const live = this._hass\\n      && recordingNow(this._hass.states, this._index) ? ...` then `this._pulseTimer = setTimeout(() => {...this._render();}, RECORDING_NOW_SECONDS * 1000);`. :93 \u2014 `export const RECORDING_NOW_SECONDS = 45;`. tests/test_cards.mjs:861-867 \u2014 `const card = build(TapoH500Card);\\n  card._hass = { states: {...} };\\n  card._render();` bypasses the setter entirely."
+  },
+  {
+    "id": "frontend-cards-2",
+    "dimension": "frontend-cards",
+    "title": "The 60-second poll rebuilds innerHTML wholesale, restarting any open <video> from zero with autoplay",
+    "rationale": "`_load()` always calls `_render()` in its finally, and `_render()` assigns `this._card.innerHTML`, destroying and recreating every child. `this._playing` survives a reload, so the player is re-emitted as a brand-new `<video controls autoplay>` \u2014 a user watching or paused mid-clip gets yanked back to 0:00 and force-played once a minute. The cheap root-cause fix is to keep the last rendered HTML string in a field and skip the assignment when it is unchanged (do not read `innerHTML` back \u2014 the browser reserializes it); that preserves the video element and the scroll position on every no-op poll, and pairs with candidate 3.",
+    "impact": 4,
+    "effort": 1,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/www/tapo-h500-card.js:441 \u2014 `this._timer = setInterval(() => this._load(), 60000);`. :503 \u2014 `} finally {\\n      this._busy = false;\\n      this._render();\\n    }`. :678 \u2014 `this._card.innerHTML = ` (full replacement, every render). :620-622 \u2014 `_player(item) {\\n    return this._isPlaying(item) && item.url\\n      ? `<video controls autoplay src=\"${esc(item.url)}\"></video>` : \"\";`"
+  },
+  {
+    "id": "frontend-cards-3",
+    "dimension": "frontend-cards",
+    "title": "A clicked button is disabled and only a re-render re-enables it \u2014 cancelling the name prompt leaves it dead for up to 60 seconds",
+    "rationale": "`_onClick` disables the button up front and relies on the subsequent `_render()` to replace it with a fresh enabled one. The Cancel branch `return`s before any render, so the \"Name this face\" / \"Rename\" button stays disabled until the next poll \u2014 press Escape on the prompt and you cannot retry naming for up to a minute. The same hole hits Refresh: `_load()` early-returns when `_busy`, rendering nothing. One `finally { button.disabled = false; }` on the try fixes every present and future branch at the single point they all route through; setting `.disabled` on a now-detached node on the paths that do re-render is harmless. The existing cancel test builds `{ dataset: {...}, disabled: false }` and never asserts on `disabled` afterwards.",
+    "impact": 3,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/www/tapo-h500-card.js:507-512 \u2014 `const button = event.target.closest(\"button[data-action]\");\\n    if (!button) return;\\n    const { action, start, end } = button.dataset;\\n    button.disabled = true;\\n    try {` (no `finally` re-enables it). :560-561 \u2014 `// null is Cancel, which must not be read as \"clear it\".\\n        if (answer === null) return;`. :481-482 \u2014 `async _load() {\\n    if (!this._hass || this._busy) return;`. tests/test_cards.mjs:645-646 \u2014 `const button = { dataset: { action: \"name\", face, name: current },\\n                   disabled: false };`"
+  },
+  {
+    "id": "frontend-cards-4",
+    "dimension": "frontend-cards",
+    "title": "Every render throws keyboard focus back to the document, so the list is not navigable by keyboard or screen reader",
+    "rationale": "Because `_render()` replaces the entire subtree, any focused control inside the card is destroyed. A keyboard user who tabs down to the Download button on row 20 loses focus to the body when the 60-second poll fires, and loses it again the instant they activate Download (which reloads). There is no way to hold a position in a long list. Fix: capture the focused element's identifying dataset (`data-action` + `data-start`/`data-face`) from `shadowRoot.activeElement` before the assignment and refocus the matching node after. The unchanged-HTML skip from candidate 2 removes most of the occurrences on its own, so land that first and this becomes a small addition.",
+    "impact": 3,
+    "effort": 3,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/www/tapo-h500-card.js:678-684 \u2014 `this._card.innerHTML = `\\n      <div class=\"head\">\\n        <h2>${esc(title)}</h2>${live}\\n        <button data-action=\"refresh\">Refresh</button>\\n      </div>\\n      ${picker}\\n      ${body}`;`"
+  },
+  {
+    "id": "frontend-cards-5",
+    "dimension": "frontend-cards",
+    "title": "The role=\"status\" live region is inserted already populated, so assistive tech never announces the recording pulse",
+    "rationale": "An ARIA live region only fires when its content changes while it is already in the accessibility tree; a region added to the DOM together with its text is not announced by NVDA, JAWS or VoiceOver. Here the span is created by the same innerHTML assignment that carries its text, so the `role=\"status\"` does nothing and the pulse is purely visual \u2014 exactly the users who cannot see a CSS-animated dot get nothing. Fix: always emit `<span class=\"recording-now\" role=\"status\">` in the header and vary only its inner text (empty when not recording), which is a text substitution in `_render()`. Worth doing in the same sitting as candidate 1, since that one is what makes the region update at the right moment at all.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/www/tapo-h500-card.js:667-670 \u2014 `const live = this._hass\\n      && recordingNow(this._hass.states, this._index) ? `\\n        <span class=\"recording-now\" role=\"status\">&#9679; Recording\u2026</span>`\\n      : \"\";` \u2014 the empty branch removes the region entirely rather than emptying it. :678 \u2014 `this._card.innerHTML = ` inserts region and content in one mutation."
+  },
+  {
+    "id": "frontend-cards-6",
+    "dimension": "frontend-cards",
+    "title": "setConfig after startup neither reloads nor re-renders, so the visual editor's live preview keeps showing the previous camera and day count",
+    "rationale": "`setConfig` recomputes `_index`, `_config` and `_dayOffset` and nulls `_recordings`, but ends without calling `_render()` or `_load()`, and the `_started` guard in `set hass` means the setter will not restart a load either. Home Assistant's `hui-card` calls `setConfig` on the existing element when only the config changes \u2014 which is exactly what the card editor preview does on every keystroke \u2014 so changing `camera_index` or `days` in the editor appears to do nothing for up to 60 seconds. Note the hardware constraint: reloading unconditionally on every `setConfig` would fire a `list_recordings` per card on every dashboard save, so gate it on the query-relevant fields (`camera_index`, `days`, `entry_id`) actually changing and fall back to a bare `_render()` otherwise. All current tests call `setConfig` before `_started` is set, so a `if (this._started)` guard keeps them green.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 3,
+    "evidence": "custom_components/tapo_h500/www/tapo-h500-card.js:405-430 \u2014 `setConfig(config) { ... this._recordings = null;\\n    this._sharedNames = {};\\n    this._cameras = null;\\n    this._error = null;\\n    ... this._index = config.camera_index ?? 0;\\n  }` \u2014 the method ends there, with no `_render()` and no `_load()`. :434-437 \u2014 `if (!this._started) {\\n      this._started = true;\\n      this._load();\\n    }` blocks a reload once started. tests/test_cards.mjs:213-219 \u2014 `const card = new Cls();\\n  card.setConfig({ ...config });` always runs with `_started` unset."
+  },
+  {
+    "id": "docs-1",
+    "dimension": "docs",
+    "title": "reference.md and protocol-notes.md still say doorbell presses are unidentified and RING_ALARM_TYPES is empty",
+    "rationale": "Two of the three docs files declare the ring code unsolved and tell the reader to go edit const.py themselves, while const.py has shipped `RING_ALARM_TYPES: set[int] = {17}` and limitations.md/README document presses as confirmed. A user who reads reference.md concludes the 'Doorbell presses only' download mode is a no-op and never turns it on. Fix is deleting/rewriting four stale paragraphs.",
+    "impact": 4,
+    "effort": 2,
+    "risk": 1,
+    "evidence": "docs/reference.md:86-88 `**Doorbell presses are not distinguishable yet, but finding the code is now a` / `one-minute job.** Nothing classifies as a \\`ring\\`, so the presses-only download` / `mode still matches nothing.`; docs/reference.md:124-125 `\\`RING_ALARM_TYPES\\` in \\`const.py\\`. The event entity, the presses-only download` / `filter and all four cards read the same list...`; docs/reference.md:216-217 `Once a doorbell press has been identified and its code added to` / `\\`RING_ALARM_TYPES\\`, presses classify as \\`ring\\`...`; docs/protocol-notes.md:577-578 `**Which code means a doorbell press is still unknown.** \\`RING_ALARM_TYPES\\` in` / `\\`const.py\\` is deliberately empty; add the code there once a real press has been`. Contradicted by custom_components/tapo_h500/const.py:302 `RING_ALARM_TYPES: set[int] = {17}` and docs/limitations.md:99 `**Doorbell presses are identified.** \\`alarm_type\\` 17 is a press, confirmed`."
+  },
+  {
+    "id": "docs-2",
+    "dimension": "docs",
+    "title": "README and reference.md quote translation keys as entity IDs for four entities that actually get name-derived IDs",
+    "rationale": "Entities set `_attr_has_entity_name = True`, so Home Assistant slugifies the *display name*, not the translation key, into the entity_id. Four documented IDs therefore do not exist. The worst is the README's no-internet setup step, which is load-bearing for the project's core mission and names a switch the user cannot find. reference.md already gets the sibling switches right (`switch.*_status_led`), so this is inconsistency, not a convention.",
+    "impact": 4,
+    "effort": 2,
+    "risk": 1,
+    "evidence": "README.md:29 `- **Turn the auto-upgrade switch off** (\\`switch.<hub>_auto_upgrade\\`) \u2014 it` but translations/en.json has switch key `auto_upgrade` with `\"name\": \"Automatic firmware updates\"` \u2192 real id `switch.<hub>_automatic_firmware_updates` (which docs/reference.md:36 itself uses). README.md:117 `- **In one word:** \\`sensor.<camera>_activity_level\\` \u2014 quiet, active, busy or` and docs/reference.md:68 `| \\`sensor.<name>_activity_level\\` | The last hour in one word...` but sensor key `activity_level` has `\"name\": \"Activity\"` \u2192 real id `sensor.<camera>_activity`. docs/reference.md:25 `| \\`sensor.*_auto_upgrade_time\\` | The hour the hub installs firmware...` but sensor key `auto_upgrade_time` has `\"name\": \"Automatic update time\"` \u2192 real id `sensor.*_automatic_update_time`. custom_components/tapo_h500/entity.py:19 `_attr_has_entity_name = True`."
+  },
+  {
+    "id": "docs-3",
+    "dimension": "docs",
+    "title": "reference.md documents 7 of 8 cards, miscounts them twice, and covers 5 of 13 actions while claiming \"All four\"",
+    "rationale": "reference.md bills itself as \"Every entity, card option and action\". `tapo-h500-people-card` is registered and tested but appears nowhere in reference.md or README's card table, and eight of the thirteen registered services have no reference entry. The three hardcoded counts are all wrong, which is the tell that the file was not updated as cards and services were added.",
+    "impact": 3,
+    "effort": 3,
+    "risk": 1,
+    "evidence": "docs/reference.md:247 `Four cards ship in that one resource, so registering it makes all of them` \u2014 the table below it lists seven rows (reference.md:252-258), and www/tapo-h500-card.js:1330-1344 registers eight, including `register(\"tapo-h500-people-card\", TapoH500PeopleCard, \"Tapo H500 People\",` at line 1342. docs/reference.md:337 `All six take the same options.` docs/reference.md:401 `All four actions return a response and appear under **Developer tools \u2192 Actions**.` \u2014 services.yaml declares 13 top-level services (list_recordings, download_recording, classify_downloads, delete_recording, format_hub_storage, name_face, describe_recording, daily_summary, find_face, export_recording, snooze, backup_names, restore_names) and __init__.py:730-748 registers all 13 with `supports_response=SupportsResponse.ONLY`; reference.md's `## Actions` section has only 5 `###` entries."
+  },
+  {
+    "id": "docs-4",
+    "dimension": "docs",
+    "title": "limitations.md quotes test counts that are ~10x stale and a node invocation that reports \"tests 1\"",
+    "rationale": "The \"Verification performed\" section is the file whose entire purpose is being accurate about what was checked, and its two headline numbers are both wrong by an order of magnitude. The node command it prints also misreports: test_cards.mjs rolls its own `test()` helper rather than node:test, so `node --test` prints `tests 1` instead of the per-check list, which is not what the file promises.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "docs/limitations.md:165 `Verified by unit test (\\`python3 -m unittest discover -s tests\\`, 99 tests, no` \u2014 I ran it: `Ran 1134 tests in 3.191s` / `OK`. docs/limitations.md:160 `Home Assistant (\\`node --test tests/test_cards.mjs\\`, 43 checks): escaping,` \u2014 `node tests/test_cards.mjs` prints 84 `ok` lines; under `node --test` the summary reads `\u2139 tests 1`. tests/test_cards.mjs:46 `const test = (name, fn) => {` is the file's own harness, and its own header (tests/test_cards.mjs:4) says `node tests/test_cards.mjs`, which is also what tools/verify.sh runs."
+  },
+  {
+    "id": "docs-5",
+    "dimension": "docs",
+    "title": "limitations.md contradicts itself on how many detection codes are named, and its table still calls code 10 unknown",
+    "rationale": "Within 20 lines the file says all nine codes are named and then that eight of nine are, and the table row for 10 says 'unknown' while const.py has named it 'missed doorbell' with a matching binary sensor and device trigger. A reader trying to work out whether a code needs identifying gets three different answers from one page.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "docs/limitations.md:96-97 `Nine codes have been seen` / `(2, 6, 8, 9, 10, 17, 19, 20, 22) and all nine are named, each against something` versus docs/limitations.md:104 `What each code means. Eight of the nine are named, each against something` and docs/limitations.md:116 `| 10 | unknown | only ever appears beside 17, so part of the doorbell signal |`. custom_components/tapo_h500/const.py:292 `    10: \"missed doorbell\",`, and translations/en.json carries `binary_sensor.detected_missed_doorbell` and `device_automation.trigger_type.missed_doorbell`."
+  },
+  {
+    "id": "docs-6",
+    "dimension": "docs",
+    "title": "strings.json has drifted 102 keys behind translations/en.json and still describes a removed options form",
+    "rationale": "strings.json is the conventional source-of-truth that en.json is generated from, and it is missing every `issues` and `device_automation` string, 16 entity names, and the setup step's poll_interval \u2014 while still declaring `options.step.init.data.*` fields for a step that is now `async_show_menu`. Nothing breaks today (custom integrations load translations/en.json at runtime) but verify.sh's translation check only reads en.json, so regenerating from strings.json would silently drop 102 strings. The lazy fix is either deleting strings.json or making verify.sh assert the two key sets match.",
+    "impact": 2,
+    "effort": 2,
+    "risk": 1,
+    "evidence": "Diffing the two files: 102 flattened keys exist only in translations/en.json (all 14 `device_automation.trigger_type.*`, all `issues.*` titles/descriptions, `config.step.user.data.poll_interval`, 16 `entity.*.name` keys including `entity.button.restart.name` and `entity.update.firmware.name`), and 6 exist only in strings.json: `options.step.init.data.auto_download`, `.convert_mp4`, `.keep_downloads`, `.poll_interval` plus two data_descriptions. custom_components/tapo_h500/config_flow.py:101-103 `async def async_step_init(self, user_input=None):` / `return self.async_show_menu(` / `step_id=\"init\",` \u2014 init is a menu, and those fields now live in `async_step_settings` (config_flow.py:301). tools/verify.sh only loads `custom_components/tapo_h500/translations/en.json` for its key check, never strings.json."
+  },
+  {
+    "id": "dx-1",
+    "dimension": "dx",
+    "title": "18 of 31 component modules (~4,000 LOC) are never imported by any test \u2014 ast.parse is their only automated check",
+    "rationale": "verify.sh's only check for these modules is a syntax parse, and their tests assert on file text rather than behaviour. A NameError, a stale `from .const import X`, or a wrong decorator argument passes the whole 1134-test gate and only fails on a real Home Assistant install at platform setup. The blocker is real (the stub harness only covers what coordinator.py imports), but it is a fixable one: `homeassistant` is stubbed as a flat module, so `homeassistant.components.*` cannot resolve.",
+    "impact": 4,
+    "effort": 4,
+    "risk": 2,
+    "evidence": "tools/verify.sh:33-34 is the entire check for these files: `    ast.parse(path.read_text(), str(path))` / `print(f\"{len(modules)} modules parse\")`. tests/test_binary_sensor.py:3 states the reason: \"Static, since binary_sensor.py imports the Home Assistant entity platform.\" and tests/test_binary_sensor.py:15 is how it substitutes: `SOURCE = (COMPONENT / \"binary_sensor.py\").read_text()`. I ran the existing harness (`sys.path.insert(0,\"tests\"); import test_coordinator`) and then tried importing each platform module; the observed results were `sensor: ModuleNotFoundError: No module named 'homeassistant.components'; 'homeassistant' is not a package`, identical for binary_sensor, event, switch, select, number, siren, image, camera, update; `repairs: ImportError: cannot import name 'issue_registry' from 'homeassistant.helpers'`; `entity: ModuleNotFoundError: No module named 'homeassistant.helpers.device_registry'`; `config_flow`/`device_trigger: ModuleNotFoundError: No module named 'voluptuous'`; only `diagnostics: OK`. Never-imported set (18): __init__(748), sensor(692), binary_sensor(560), repairs(376), config_flow(366), device_trigger(202), switch(159), image(143), event(141), diagnostics(124), siren(96), preview(78), number(72), update(63), select(55), camera(53), hub_control(39), entity(29) \u2014 3,996 of 9,122 LOC. Split suggestion: `diagnostics` already imports, and the 9 platform modules need only a `homeassistant.components.<platform>` stub package; do those first."
+  },
+  {
+    "id": "dx-2",
+    "dimension": "dx",
+    "title": "verify.sh pipes the unittest run through `tail -3`, discarding the name and traceback of whatever failed",
+    "rationale": "The project's own gate reports that something broke but not what, so every failure costs a second full 14-second run with the pipe removed before debugging can even start. The comment above it says the script exists so it \"can gate a commit with && rather than being read by eye\" \u2014 but the three lines it keeps are exactly the three that carry no diagnostic information.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "tools/verify.sh:12: `python -B -m unittest discover -s tests -p 'test_*.py' 2>&1 | tail -3`. I confirmed the truncation by running a deliberately failing one-test unittest through the same pipe; the complete output was `Ran 1 test in 0.000s` / (blank) / `FAILED (failures=1)` \u2014 the test name, file, line and the assertion message `'this detail is what a developer needs'` were all discarded. Fix is a few lines: capture to a variable and echo it in full when the exit status is non-zero, keeping the `tail -3` summary only on success."
+  },
+  {
+    "id": "dx-3",
+    "dimension": "dx",
+    "title": "No CI at all \u2014 the only gate is a local script a human must remember to run, on a repo HACS installs from",
+    "rationale": "`tools/verify.sh` is a good gate that nothing enforces. The GitHub remote is the one HACS users install from, so a push that skips the script ships to real installs unchecked. A workflow running the existing script costs one file and adds no runtime behaviour to the integration (it never touches the hub), and the standard hassfest/HACS validation actions would have caught the strings.json drift in dx-4.",
+    "impact": 3,
+    "effort": 2,
+    "risk": 1,
+    "evidence": "`find . -name .github -not -path './.venv/*'` returns nothing \u2014 no workflow exists. The publishable remote is real: `git remote -v` gives `github  git@github.com:Sujeom/tapo-h500-local-recordings.git (push)` alongside a LAN `origin  ssh://git@192.168.4.60:2424/...`. The gate to wire up already documents itself as commit-blocking \u2014 tools/verify.sh:2-3: `# Everything that has to pass before a commit. Exits non-zero on the first` / `# failure, so it can gate a commit with && rather than being read by eye.` Caveat for the implementer: since `origin` is the LAN server and `github` is a mirror, CI only runs on pushes that reach the mirror."
+  },
+  {
+    "id": "dx-4",
+    "dimension": "dx",
+    "title": "strings.json is dead and stale \u2014 213 lines describing an options form that was replaced by a menu, while translations/en.json (407 lines) is the file that actually loads",
+    "rationale": "Two copies of the same user-facing text, 145 keys apart, with nothing in the repo referencing or checking the older one. A developer following Home Assistant convention edits strings.json \u2014 the documented source of truth for an integration's strings \u2014 and sees no change in the UI, because the runtime reads translations/en.json. It is already wrong: it still documents the single-form options step that config_flow.py replaced with a menu.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 1,
+    "evidence": "custom_components/tapo_h500/strings.json:23-27 still has `      \"init\": {` / `        \"title\": \"Tapo H500 options\",` / `        \"data\": {` / `          \"poll_interval\": \"Seconds between activity checks\",` / `          \"auto_download\": \"Download new recordings automatically\",` \u2014 but custom_components/tapo_h500/config_flow.py:101-104 is `    async def async_step_init(self, user_input=None):` / `        return self.async_show_menu(` / ... / `            menu_options=[\"settings\", \"faces\", \"layout\", \"sensitivity\"])`, and translations/en.json:53-55 correspondingly has `      \"init\": {` / `        \"title\": \"Tapo H500\",` / `        \"menu_options\": {`. Key comparison: strings.json 140 keys vs en.json 285; strings.json lacks the whole `device_automation` and `issues` sections; `options.step.init.title` differs in value between the two. `grep -rn 'strings.json' --include=*.py --include=*.sh --include=*.md --include=*.mjs .` returns zero hits, and tools/verify.sh:48-49 checks only `custom_components/tapo_h500/translations/en.json`. Either delete strings.json, or add one assertion to verify.sh that it matches en.json."
+  },
+  {
+    "id": "dx-5",
+    "dimension": "dx",
+    "title": "The shared Home Assistant stub harness lives inside test_coordinator.py and is imported for its side effect by 38 of 55 test files",
+    "rationale": "A test module doubles as the fixture library for two thirds of the suite, so any change to test_coordinator.py's stub set can break dozens of unrelated files, and its name gives no hint that it is load-bearing. Extracting it to tests/harness.py is mechanical and is the natural first step before dx-1, which has to extend exactly these stubs.",
+    "impact": 2,
+    "effort": 3,
+    "risk": 2,
+    "evidence": "tests/test_coordinator.py:36-38 defines it: `def _install_stubs():` / `    ha = types.ModuleType(\"homeassistant\")` / `    mods = {`. Thirty-eight test files then depend on it by side effect, each with the same two lines, e.g. tests/test_snooze.py:24, tests/test_calendar.py:24 and tests/test_people.py:23: `import test_coordinator as harness  # noqa: E402  (installs the HA stubs)`; tests/test_platforms.py:26-27 spells the coupling out: `# Installs the Home Assistant stubs the component modules import.` / `import test_coordinator  # noqa: E402,F401`. Two more files do the same to test_api.py for pytapo stubs (tests/test_button.py:23, tests/test_media_health.py:33). Forty-three files also each repeat `COMPONENT = Path(__file__).parents[1] / \"custom_components\" / \"tapo_h500\"`."
+  },
+  {
+    "id": "dx-6",
+    "dimension": "dx",
+    "title": "siren_tones is fetched twice at setup by two platforms, contradicting its own docstring \u2014 the only cross-module duplicate block in the codebase",
+    "rationale": "select.py and siren.py each make an independent hub round trip for the same fixed table during parallel platform setup, on hardware the project treats as fragile. api.py's docstring already asserts the property the code does not have. Caching it once (on the client instance or the coordinator) removes a startup round trip and makes the two platforms read one value.",
+    "impact": 2,
+    "effort": 1,
+    "risk": 2,
+    "evidence": "custom_components/tapo_h500/api.py:467-471 claims: `    def siren_tones(self):` / `        \"\"\"The hub's own list of siren sounds.` / ... / `        Fetched once at setup rather than every poll: it is a fixed table.` But there are two call sites \u2014 custom_components/tapo_h500/select.py:29 `        tones = await hass.async_add_executor_job(coordinator.client.siren_tones)` and custom_components/tapo_h500/siren.py:35 `        tones = await hass.async_add_executor_job(coordinator.client.siren_tones)`. A 6-line duplicate-block scan across all 31 modules found exactly two overlapping hits, both this setup body (select.py:24 / siren.py:30) \u2014 cross-module duplication is otherwise essentially absent, so this is the one real instance. Note the two callers differ deliberately on failure (select returns without adding an entity, siren falls back to `tones = []`), so a shared helper must preserve both behaviours."
+  }
+]

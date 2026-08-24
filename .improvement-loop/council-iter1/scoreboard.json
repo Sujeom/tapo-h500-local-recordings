@@ -1,0 +1,245 @@
+{
+  "entries": [
+    {
+      "round": 1,
+      "persona": "Mei Sato",
+      "idea": "frontend-cards-2",
+      "impact": 7,
+      "feasibility": 9,
+      "evidence": 9,
+      "debate_value": 6,
+      "blend": 7.8,
+      "stance": "propose",
+      "da": false,
+      "line": "- [Mei Sato] -> \"frontend-cards-2\" (propose): I opened the card myself: the 60s setInterval, the finally-block _render, the innerHTML rebuild and the autoplay video element are all exactly as quoted, so the mid-clip reset is a real, user-felt defect with a one-guard fix and a test hook that already exists; debate value is lower because it dismisses rival ideas by assertion rather than engaging their evidence. [I7 F9 E9 D6 \u2192 7.8] {custom_components/tapo_h500/www/tapo-h500-card.js:441, custom_components/tapo_h500/www/tapo-h500-card.js:499-501, custom_components/tapo_h500/www/tapo-h500-card.js:622, custom_components/tapo_h500/www/tapo-h500-card.js:678, tests/test_cards.mjs:290-300}"
+    },
+    {
+      "round": 1,
+      "persona": "Tomas Lindqvist",
+      "idea": "correctness-1",
+      "impact": 7,
+      "feasibility": 9,
+      "evidence": 9,
+      "debate_value": 7,
+      "blend": 8,
+      "stance": "propose",
+      "da": false,
+      "line": "- [Tomas Lindqvist] -> \"correctness-1\" (propose): Verified firsthand: repairs.py:114-115 reads storage_total/storage_free while status.py:237-238 emits storage_free_gb/storage_total_gb, and the cited tests are genuinely substring matches against module source, so the explanation for why 1134 tests missed it holds; impact is a silent never-firing disk warning rather than a visible break. [I7 F9 E9 D7 \u2192 8] {tests/test_platforms.py:119-120, tests/test_platforms.py:114-117, tests/test_platforms.py:135-138, custom_components/tapo_h500/status.py:237-238 (relayed), custom_components/tapo_h500/repairs.py:114-115 (relayed), custom_components/tapo_h500/sensor.py:50-56 (relayed)}"
+    },
+    {
+      "round": 1,
+      "persona": "Priya Raman",
+      "idea": "ha-conformance-1",
+      "impact": 8,
+      "feasibility": 7,
+      "evidence": 8,
+      "debate_value": 7,
+      "blend": 7.5,
+      "stance": "propose",
+      "da": false,
+      "line": "- [Priya Raman] -> \"ha-conformance-1\" (propose): Confirmed by grep: no async_step_reauth and no ConfigEntryAuthFailed anywhere in the component or tests, and no reauth translation keys, so a changed password means endless retry against hardware this project documents as wedging under repeated auth; feasibility is docked for the acknowledged judgement call of classifying untyped pytapo exceptions. [I8 F7 E8 D7 \u2192 7.5] {custom_components/tapo_h500/__init__.py:196-202, custom_components/tapo_h500/__init__.py:209-213, custom_components/tapo_h500/config_flow.py:45-301}"
+    },
+    {
+      "round": 1,
+      "persona": "Ada Okonkwo",
+      "idea": "offline-2",
+      "impact": 7,
+      "feasibility": 8,
+      "evidence": 8,
+      "debate_value": 7,
+      "blend": 7.5,
+      "stance": "propose",
+      "da": false,
+      "line": "- [Ada Okonkwo] -> \"offline-2\" (propose): The vacuous-cooldown mechanism checks out firsthand \u2014 _auto_restarted starts at 0.0 while elapsed is computed from a Unix timestamp, so the six-hour guard is satisfied on the first poll after every restart; impact is held below 8 because the branch also requires reboot is not None, i.e. the owner opted in, which the argument never prices. [I7 F8 E8 D7 \u2192 7.5] {custom_components/tapo_h500/coordinator.py:852-855, custom_components/tapo_h500/coordinator.py:716, custom_components/tapo_h500/const.py:194, custom_components/tapo_h500/coordinator.py:141-142 (relayed)}"
+    },
+    {
+      "round": 1,
+      "persona": "Idris Bello",
+      "idea": "security-2",
+      "impact": 5,
+      "feasibility": 7,
+      "evidence": 6,
+      "debate_value": 5,
+      "blend": 5.8,
+      "stance": "propose",
+      "da": false,
+      "line": "- [Idris Bello] -> \"security-2\" (propose): The quoted validation and the per-request media session are real, but the load-bearing harm \u2014 unbounded session minting by a replayed signed URL or curious user \u2014 is asserted rather than shown, with no read of the view's auth posture, and the known-clip-start guard trades a real behavioural regression for a threat whose actor is never pinned down. [I5 F7 E6 D5 \u2192 5.8] {custom_components/tapo_h500/preview.py:55-56, custom_components/tapo_h500/media.py:180-182, custom_components/tapo_h500/preview.py:172-174}"
+    },
+    {
+      "round": 2,
+      "persona": "Tomas Lindqvist",
+      "idea": "correctness-1",
+      "impact": 7,
+      "feasibility": 9,
+      "evidence": 8,
+      "debate_value": 7,
+      "blend": 7.8,
+      "stance": "defend",
+      "assigned": "offline-2",
+      "da": false,
+      "line": "- [Tomas Lindqvist] -> \"correctness-1\" (defend vs assigned:\"offline-2\"): Meets the assignment with a real firsthand read (tests/test_auto_restart.py:136-142 does start cold and restart on the first poll), and the const.py:422-424 \"a lot of machinery\" quote prices offline-2's fix honestly; docked because \"cold start is the fixture, not a gap\" argues intent from a test comment rather than from the guard's contract, and because the DEFAULT_AUTO_RESTART key claim is relayed. [I7 F9 E8 D7 \u2192 7.8] {tests/test_auto_restart.py:136-142, custom_components/tapo_h500/const.py:422-424, custom_components/tapo_h500/const.py:193 (relayed), tests/test_platforms.py:114-117 (relayed)}"
+    },
+    {
+      "round": 2,
+      "persona": "Mei Sato",
+      "idea": "frontend-cards-2",
+      "impact": 7,
+      "feasibility": 9,
+      "evidence": 9,
+      "debate_value": 8,
+      "blend": 8.3,
+      "stance": "defend",
+      "assigned": "security-2",
+      "da": false,
+      "line": "- [Mei Sato] -> \"frontend-cards-2\" (defend vs assigned:\"security-2\"): I opened preview.py myself: H500PreviewView subclasses HomeAssistantView with no requires_auth override and every URL is minted through async_sign_path, and an unpreviewable start hits the 404 at line 70, so both halves of the assignment land firsthand; the new ground on its own idea (_playing compared at card.js:610) is also true, giving a one-guard fix with an existing test hook. [I7 F9 E9 D8 \u2192 8.3] {custom_components/tapo_h500/preview.py:42-46, custom_components/tapo_h500/preview.py:33-38, custom_components/tapo_h500/preview.py:68-70, custom_components/tapo_h500/www/tapo-h500-card.js:610, custom_components/tapo_h500/www/tapo-h500-card.js:622 (relayed), tests/test_cards.mjs:290-300 (relayed)}"
+    },
+    {
+      "round": 2,
+      "persona": "Idris Bello",
+      "idea": "ha-conformance-1",
+      "impact": 8,
+      "feasibility": 7,
+      "evidence": 8,
+      "debate_value": 8,
+      "blend": 7.8,
+      "stance": "refine",
+      "assigned": "C2\u2192assigned",
+      "da": false,
+      "line": "- [Idris Bello] -> \"ha-conformance-1\" (refine vs assigned:\"C2\u2192assigned\"): Withdrawing its own idea on evidence it went and gathered is a genuine update, and api.py:156-166 is exactly as quoted -- connect() constructs Tapo with credentials and immediately calls basicInfo, so every ConfigEntryNotReady retry is a fresh login against hardware this repo documents as wedging; feasibility stays at 7 because the untyped-error classifier is still an unproven judgement call, scoped but not shown to be possible. [I8 F7 E8 D8 \u2192 7.8] {custom_components/tapo_h500/preview.py:42-46, custom_components/tapo_h500/preview.py:33-39, custom_components/tapo_h500/api.py:156-166, custom_components/tapo_h500/__init__.py:196-202 (relayed)}"
+    },
+    {
+      "round": 2,
+      "persona": "Ada Okonkwo",
+      "idea": "ha-conformance-1",
+      "impact": 8,
+      "feasibility": 7,
+      "evidence": 9,
+      "debate_value": 9,
+      "blend": 8.3,
+      "stance": "refine",
+      "assigned": "C1\u2192assigned",
+      "da": true,
+      "line": "- [Ada Okonkwo] [DA] -> \"ha-conformance-1\" (refine vs assigned:\"C1\u2192assigned\"): The round's sharpest turn: concedes C1 against its own idea with const.py:189-193 firsthand, then lands a real attack on the leader -- I confirmed repairs.py:118 deletes the issue on unknown keys (so nothing wrong is ever displayed) and that status.py:239 already emits storage_used_percent, which makes correctness-1's filed fix arguably the wrong change; feasibility unchanged by the same classifier risk as slot 2. [I8 F7 E9 D9 \u2192 8.3] {custom_components/tapo_h500/const.py:189-193, custom_components/tapo_h500/repairs.py:113-121, custom_components/tapo_h500/__init__.py:196-202 (relayed)}"
+    },
+    {
+      "round": 2,
+      "persona": "Priya Raman",
+      "idea": "ha-conformance-1",
+      "impact": 8,
+      "feasibility": 7,
+      "evidence": 8,
+      "debate_value": 7,
+      "blend": 7.5,
+      "stance": "defend",
+      "assigned": "offline-2",
+      "da": false,
+      "line": "- [Priya Raman] -> \"ha-conformance-1\" (defend vs assigned:\"offline-2\"): Both firsthand citations check out -- coordinator.py:835 gates the block on the opt-in option and the restart additionally requires reason is not None -- which is the fullest answer to C1 anyone gave; debate value is lower only because the offline-2 kill arrives third this round and the ha-conformance-1 case restates round 1 with the same relayed __init__.py:196-202 quote. [I8 F7 E8 D7 \u2192 7.5] {custom_components/tapo_h500/const.py:188-193, custom_components/tapo_h500/coordinator.py:835-837, custom_components/tapo_h500/__init__.py:196-202 (relayed)}"
+    },
+    {
+      "round": 3,
+      "persona": "Idris Bello",
+      "idea": "ha-conformance-1",
+      "impact": 8,
+      "feasibility": 8,
+      "evidence": 9,
+      "debate_value": 8,
+      "blend": 8.3,
+      "stance": "refine",
+      "da": false,
+      "line": "- [Idris Bello] -> \"ha-conformance-1\" (refine): Genuinely novel answer to C3 that sidesteps exception parsing by reusing the existing api.py probe, and both firsthand quotes check out verbatim (api.py:106-123, config_flow.py:55-56); docked because the probe also returns \"wedged\"/\"silent\" for a hub that accepted the connection, so the stated rule \"not unreachable means it refused us\" would raise ConfigEntryAuthFailed on exactly the wedge state C3 warns about. [I8 F8 E9 D8 \u2192 8.3] {custom_components/tapo_h500/api.py:106-123, custom_components/tapo_h500/config_flow.py:55-56, custom_components/tapo_h500/__init__.py:196-202 (relayed)}"
+    },
+    {
+      "round": 3,
+      "persona": "Mei Sato",
+      "idea": "frontend-cards-2",
+      "impact": 7,
+      "feasibility": 9,
+      "evidence": 8,
+      "debate_value": 5,
+      "blend": 7.3,
+      "stance": "defend",
+      "da": false,
+      "line": "- [Mei Sato] -> \"frontend-cards-2\" (defend): The shared-base point is true and verified (_player at card.js:620-622 lives in the base class all five cards inherit, and test_cards.mjs:288-294 is a ready harness), and the steelman of correctness-1 is honest; but the card evidence is the same ground held in rounds 1 and 2, the impact case is again asserted rather than shown, and the flagged repeat leaves little new. [I7 F9 E8 D5 \u2192 7.3] {custom_components/tapo_h500/www/tapo-h500-card.js:620-622, tests/test_cards.mjs:288-294, custom_components/tapo_h500/repairs.py:113-121 (relayed)}"
+    },
+    {
+      "round": 3,
+      "persona": "Tomas Lindqvist",
+      "idea": "correctness-1",
+      "impact": 6,
+      "feasibility": 9,
+      "evidence": 9,
+      "debate_value": 8,
+      "blend": 8,
+      "stance": "refine",
+      "da": false,
+      "line": "- [Tomas Lindqvist] -> \"correctness-1\" (refine): Concedes C4 outright and rescopes from a two-key rename to a deletion, with every firsthand citation verified (status.py:220-222, :237-239, test_platforms.py:119-120 really is a substring match that would pass on dead code); impact stays modest because the defect is a warning nobody has observed fire. [I6 F9 E9 D8 \u2192 8] {custom_components/tapo_h500/status.py:220-222, custom_components/tapo_h500/status.py:237-239, tests/test_platforms.py:119-120, custom_components/tapo_h500/repairs.py:113-121 (relayed)}"
+    },
+    {
+      "round": 3,
+      "persona": "Priya Raman",
+      "idea": "ha-conformance-1",
+      "impact": 8,
+      "feasibility": 7,
+      "evidence": 9,
+      "debate_value": 9,
+      "blend": 8.3,
+      "stance": "refine",
+      "da": true,
+      "line": "- [Priya Raman] [DA] -> \"ha-conformance-1\" (refine): The round's sharpest evidence: I opened the bundled pytapo and both quotes are exact -- the -40413 device_confirm path raises the identical \"Invalid authentication data\" string after MAX_LOGIN_RETRIES, so a string classifier misfires on precisely the wedge shape this repo documents; turning that against its own leader as devil's advocate, then offering a scoped first-attempt-only guard, is a landed attack. [I8 F7 E9 D9 \u2192 8.3] {.venv/lib/python3.14/site-packages/pytapo/transport/pytapo/pytapo.py:693, .venv/lib/python3.14/site-packages/pytapo/transport/pytapo/pytapo.py:702-716, .venv/lib/python3.14/site-packages/pytapo/__init__.py:199-208, custom_components/tapo_h500/www/tapo-h500-card.js:610 (relayed)}"
+    },
+    {
+      "round": 3,
+      "persona": "Ada Okonkwo",
+      "idea": "ha-conformance-1",
+      "impact": 8,
+      "feasibility": 8,
+      "evidence": 9,
+      "debate_value": 8,
+      "blend": 8.3,
+      "stance": "refine",
+      "da": false,
+      "line": "- [Ada Okonkwo] -> \"ha-conformance-1\" (refine): Answers C3 with a type-level rule verified firsthand (pytapo/__init__.py:144 swallows RequestException only in the KLAP probe; :267-272 re-raises JSON errors carrying an error_code), and the rule fails safe toward retry, which is what actually kills the regression C3 describes -- the plain \"Invalid authentication data\" wedge string slot 3 found carries no error_code and so stays ConfigEntryNotReady. [I8 F8 E9 D8 \u2192 8.3] {.venv/lib/python3.14/site-packages/pytapo/__init__.py:268-272, .venv/lib/python3.14/site-packages/pytapo/__init__.py:144, .venv/lib/python3.14/site-packages/pytapo/__init__.py:264, custom_components/tapo_h500/__init__.py:196-202 (relayed), custom_components/tapo_h500/api.py:156-166 (relayed)}"
+    }
+  ],
+  "renames": [],
+  "adjustments": [
+    {
+      "idea": "ha-conformance-1",
+      "delta": -2,
+      "reason": "open concern C5: The probe-based variant recreates the very regression it claims to close: api.py returns \"wedged\" or \"silent\" whenever the hub accepts the TCP connection but fails the exchange, so \"probe is not unreachable therefore the hub refused our credentials\" classifies a wedged H500 -- the documented failure mode -- as an auth failure and stops retrying. Any shipped classifier must treat wedged/silent as not-authenticated-failure, and nobody has stated that.",
+      "step": "pre-verify"
+    },
+    {
+      "idea": "correctness-1",
+      "delta": -2,
+      "reason": "open concern C6: Nobody has shown storage_used_percent is ever non-None against a real H500. It is computed only when disk() yields both video_total_space and video_free_space; if the hub omits those keys the repair never fires before or after the fix, and the rescoped deletion has zero user-visible effect. A single captured status fixture would settle it.",
+      "step": "pre-verify"
+    },
+    {
+      "idea": "ha-conformance-1",
+      "delta": -1.5,
+      "reason": "premise overstated (rounds 3): No load-bearing claim was found false, so the idea survives \u2014 the defect (bare-Exception handler at __init__.py:199-202, no async_step_reauth, no reauth strings, per-attempt full login at api.py:156-166, pytapo's internal -40401 retries multiplying logins) is verified in every particular. Three claims came back overstated, only one of them load-bearing. The R3 devil's-advocate argument (scored 8.3) built its case on pytapo.py:693 raising \"Invalid authentication data\" as a stable marker unique to a rejected password; the checker found line 693 actually fires for a non-root user_group, the same literal appears at 606, 716 and 764 (764 being the generic unexpected-error_code fallback), and pytapo/__init__.py:268-272 raises a different literal entirely \u2014 so the string is neither auth-specific nor uniform. The half of that argument that landed as an attack (the -40413 device_confirm path at 702-716 emitting the same string after MAX_LOGIN_RETRIES) is verified and keeps its value, so the dock is partial rather than the full 8.3. The other two overstatements are peripheral framing whose conclusions survive intact: \"RequestException only swallowed at __init__.py:144\" is wrong on the count (it is also caught at pytapo.py:127, 396, 590, 670) but every one of those handlers re-raises the same type, so Ada's R3 type-level classifier still separates the modes; and \"reauth state lives in the config entry\" misdescribes the mechanism (Home Assistant holds an in-progress reauth in the flow manager) while the actual conclusion \u2014 no Store needed, because async_setup_entry re-raises ConfigEntryAuthFailed on every restart \u2014 holds. Two implementation cautions worth carrying into the build, surfaced by the checker rather than the debate: the type-only classifier misfires on a ValueError from a garbage response (neither OSError nor RequestException, so it would be read as auth failure), and check_media_port defaults to port 8800, a different service from the one connect() logs into, which weakens the probe-based variant behind concern C5.",
+      "step": "premise"
+    }
+  ],
+  "registry": {
+    "frontend-cards-2": {
+      "title": "Stop the 60s poll killing playback",
+      "origin_round": 1,
+      "origin_persona": "Mei Sato",
+      "one_liner": "correctness-1 and offline-1 are true defects, but a repair issue that never fires is a bug no user has ever seen; nobody"
+    },
+    "ha-conformance-1": {
+      "title": "Reauth instead of infinite login retry",
+      "origin_round": 1,
+      "origin_persona": "Priya Raman",
+      "one_liner": "I open the case for ha-conformance-1 (security-1 is the same defect; merge them). I opened `__init__.py`: every connect("
+    },
+    "security-2": {
+      "title": "Bound preview start to known clips",
+      "origin_round": 1,
+      "origin_persona": "Idris Bello",
+      "one_liner": "I open security-2, and I widen why it matters: this is the integration's only trust boundary, and its whole validation i"
+    }
+  }
+}
