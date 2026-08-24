@@ -652,3 +652,185 @@ NOTE: this iteration touches repairs.py (a pure read of coordinator.readings) an
 is no network surface in the diff at all, so the separate no-cloud / hub-safety guard agents are
 folded into the auditor as an explicit zero-network-surface check. Recorded as a deliberate,
 proportionate departure, not an omission.
+
+## Iteration 4 — claims
+
+Selected: [correctness-1] `repairs._storage` reads `coordinator.readings["storage_total"]` /
+`["storage_free"]` (`custom_components/tapo_h500/repairs.py:114-115`), but `status.hub_readings`
+emits only `storage_free_gb`, `storage_total_gb` and `storage_used_percent`
+(`custom_components/tapo_h500/status.py:237-239`). Both lookups return None on every poll, the
+guard at `:118` always takes the delete branch, and `async_create_issue` at `:125` is unreachable.
+Board value 72, crowned by the scored council on `.improvement-loop/board-iter4.json`.
+
+**Premise re-verified firsthand at planning time, not taken on trust.** `grep -rn '"storage_total"|"storage_free"'`
+over the tree hits `repairs.py:114-115` and nothing else that reads a readings dict — the
+`sensor.py:50,59` hits are entity descriptor `key=`s, and the `strings.json` / `translations/en.json`
+hits are those entities' translation keys. Separately, `_storage` was executed under the existing
+test stubs with `readings={"storage_used_percent": 96}` and the current code called
+`async_delete_issue`, never `async_create_issue` — the dead branch demonstrated rather than argued.
+
+### Zero network surface
+
+No live call of any kind was made while planning; the hub was not contacted, `tools/probe_live.py`
+was not run, and no login was opened. The diff is a pure function of `coordinator.readings` plus a
+test file — there is no network surface in it at all, which is why the separate no-cloud /
+hub-safety guard agents are folded into the auditor as an explicit zero-network-surface check.
+
+### The harness question, settled by experiment rather than by reading
+
+`repairs.py` imports `from homeassistant.helpers import issue_registry as ir`, and the shared stub
+harness (`tests/test_coordinator.py::_install_stubs`, already imported by `test_platforms.py:27`)
+does not install that submodule. It was tried: registering a `types.ModuleType` at
+`sys.modules["homeassistant.helpers.issue_registry"]` is **sufficient on its own** —
+`importlib.import_module("tapo_h500.repairs")` then succeeds with no `setattr` on the `helpers`
+module and no change to the shared harness. `_storage` needs nothing from `hass` (it is passed
+straight through to the stubbed registry functions), so a bare `object()` is a valid `hass` and a
+one-attribute fake carries `.readings`. This is the same "extend the shared stubs locally" pattern
+`tests/test_calendar.py:34-48` and `tests/test_button.py:41-45` already use; the shared base in
+`sys.modules` is not mutated, because every other test file inherits it.
+
+### Planned shape (no implementation code written yet)
+
+- `custom_components/tapo_h500/repairs.py` `_storage`: the two `.get` lines become
+  `used_percent = coordinator.readings.get("storage_used_percent")`; the guard becomes
+  `if used_percent is None:` keeping the existing "Unknown is not the same as fine" comment; the
+  `round((total - free) / total * 100)` line at `:121` is deleted. Everything from the
+  `STORAGE_WARN_PERCENT` comparison down is untouched and keeps working on the same variable name.
+- `tests/test_platforms.py`: module level, beside the existing stub import — a
+  `homeassistant.helpers.issue_registry` stub recording `(action, issue_id, kwargs)` into a list,
+  with `IssueSeverity` carrying `WARNING` and `ERROR`, then
+  `repairs = importlib.import_module("tapo_h500.repairs")`. `types`, `sys` and `importlib` are
+  already imported there; no new imports.
+- `tests/test_platforms.py`: `Repairs.test_unknown_storage_is_not_treated_as_healthy` (`:119-120`,
+  the `assertIn("if not total or free is None:", REPAIRS)` string match) is **replaced**, not
+  deleted, by a `StorageWarning(unittest.TestCase)` class that CALLS `repairs._storage`. The test
+  name survives into the new class; the assertion becomes real.
+- DELIBERATE NON-CHANGE, recorded so the auditor does not flag it: `status.py:222` rounds
+  `storage_used_percent` to one decimal, so the `{used}` placeholder can render "96.2" rather than
+  "96". The sentence reads correctly either way and the comparison works on a float, so no second
+  rounding is added. The 96 case in the test feeds an int and asserts "96" exactly.
+- SCOPE CAVEAT carried from the council, not retired: this restores the only PUSH warning, not the
+  only fullness signal. `sensor.py` already ships `storage_used_percent` and a `storage_full_in`
+  forecast sensor, so an owner who already badges those gains nothing from this fix.
+
+### Claims — iteration 4
+
+| id | claim | status |
+|----|-------|--------|
+| C1 | `_storage` reads `storage_used_percent`; both un-suffixed lookups and the subtraction are gone | VERIFIED |
+| C2 | Unknown-is-not-fine is REWRITTEN onto the new variable and holds behaviourally for absent and None | VERIFIED |
+| C3 | The `:119-120` string match is replaced by a class that CALLS `repairs._storage`: 96 raises, 90 clears | VERIFIED |
+| C4 | LOAD-BEARING — the new tests FAIL against the pre-fix `repairs.py`, proving they test behaviour | VERIFIED |
+| C5 | Green tree, test count grew, scope respected (whole `.improvement-loop/` prefix), manifest and version untouched | VERIFIED |
+
+**C1 — the reachable key replaces the two dead ones**  · status=VERIFIED
+
+- statement: `custom_components/tapo_h500/repairs.py::_storage` obtains its one input from
+  `coordinator.readings.get("storage_used_percent")` — the key `status.hub_readings` actually emits
+  at `status.py:239` — and the module no longer contains the literals `"storage_total"`,
+  `"storage_free"` or the `total - free` subtraction anywhere.
+- verify_predicate: `grep` finds `coordinator.readings.get("storage_used_percent")` in
+  `custom_components/tapo_h500/repairs.py` AND finds zero occurrences of `"storage_total"`,
+  `"storage_free"` and `total - free` in that file (a whole-file grep is exactly equivalent to a
+  `_storage`-body grep here: those literals appear nowhere else in the module today).
+- target_files: `custom_components/tapo_h500/repairs.py`
+- verify_command:
+  `cd /home/sujeo/Development/tapo-h500-for-home-assistant && grep -qF 'coordinator.readings.get("storage_used_percent")' custom_components/tapo_h500/repairs.py && ! grep -nE '"storage_(total|free)"|total - free' custom_components/tapo_h500/repairs.py && echo "C1 OK"`
+
+**C2 — unknown is still not the same as fine, and it is proven by calling the function**  · status=VERIFIED
+
+- statement: the guard is rewritten as `if used_percent is None:` -> `ir.async_delete_issue(...)`,
+  `return`, keeping the existing comment's intent, and the old `if not total or free is None:` is
+  gone. Behaviourally: a coordinator whose `readings` lacks `storage_used_percent` entirely, and
+  one where it is explicitly `None`, both produce a delete of `storage_nearly_full_<entry_id>` and
+  never a create.
+- verify_predicate: `tests.test_platforms.StorageWarning.test_unknown_storage_is_not_treated_as_healthy`
+  passes — it calls `repairs._storage(object(), "e1", fake)` for `readings={}` and for
+  `readings={"storage_used_percent": None}`, asserting the recorded action is `delete` on issue id
+  `storage_nearly_full_e1` in both cases and that no create was recorded — AND
+  `custom_components/tapo_h500/repairs.py` contains `if used_percent is None:` and does NOT contain
+  `if not total or free is None:`.
+- target_files: `custom_components/tapo_h500/repairs.py`, `tests/test_platforms.py`
+- verify_command:
+  `cd /home/sujeo/Development/tapo-h500-for-home-assistant && python -B -m unittest tests.test_platforms.StorageWarning.test_unknown_storage_is_not_treated_as_healthy -v && grep -qF 'if used_percent is None:' custom_components/tapo_h500/repairs.py && ! grep -qF 'if not total or free is None:' custom_components/tapo_h500/repairs.py && echo "C2 OK"`
+
+**C3 — the string match becomes a behavioural test that reaches the create branch**  · status=VERIFIED
+
+- statement: `tests/test_platforms.py` gains `class StorageWarning(unittest.TestCase)` which imports
+  the module (`repairs = importlib.import_module("tapo_h500.repairs")`, backed by a local
+  `homeassistant.helpers.issue_registry` stub) and calls `repairs._storage` against a fake
+  coordinator whose `.readings` uses the key names `status.hub_readings` emits. At 96 it records an
+  `async_create_issue` for `storage_nearly_full_e1` with
+  `translation_placeholders={"used": "96"}` and `translation_key="storage_nearly_full"`; at 90 it
+  records an `async_delete_issue` and no create. No assertion in the class matches against
+  `REPAIRS` module source, and the old `assertIn("if not total or free is None:", REPAIRS)` line is
+  gone from the file.
+- verify_predicate: `python -B -m unittest tests.test_platforms.StorageWarning -v` reports at least
+  3 tests and `OK`, including `test_a_nearly_full_hub_raises_the_warning` and
+  `test_a_comfortable_hub_clears_the_warning`; `tests/test_platforms.py` contains
+  `repairs._storage(` and does NOT contain the string `if not total or free is None:`.
+- target_files: `tests/test_platforms.py`
+- verify_command:
+  `cd /home/sujeo/Development/tapo-h500-for-home-assistant && python -B -m unittest tests.test_platforms.StorageWarning -v 2>&1 | tail -5 && grep -qF 'repairs._storage(' tests/test_platforms.py && ! grep -qF 'if not total or free is None:' tests/test_platforms.py && echo "C3 OK"`
+
+**C4 — LOAD-BEARING: the new tests fail against the old implementation**  · status=VERIFIED
+
+- statement: the replacement test is a real behavioural test and not a differently-spelled tautology
+  — run unchanged against the pre-fix `repairs.py` (git blob `f3cd293:custom_components/tapo_h500/repairs.py`,
+  the two-key version) it FAILS on `StorageWarning`, because that code calls `async_delete_issue` at
+  96 percent. This is the whole point of the iteration: 1152 tests stayed green over a branch that
+  could never execute, and a test that cannot detect the defect would repeat that.
+- verify_predicate: a throwaway tree containing the NEW `tests/` and the OLD `repairs.py` blob runs
+  `python -B -m unittest tests.test_platforms` and the output contains both `FAILED` and
+  `StorageWarning`. Mechanics pre-checked at planning time: the same temp-tree command against
+  today's tree and today's tests reports `Ran 34 tests ... OK`, so the harness copies and imports
+  correctly and a later `FAILED` is the code under test, not the scaffolding.
+- target_files: `tests/test_platforms.py`, `custom_components/tapo_h500/repairs.py`
+- verify_command:
+  `cd /home/sujeo/Development/tapo-h500-for-home-assistant && T=$(mktemp -d) && cp -r custom_components tests "$T"/ && find "$T" -name __pycache__ -prune -exec rm -rf {} + ; git show f3cd293:custom_components/tapo_h500/repairs.py > "$T"/custom_components/tapo_h500/repairs.py && (cd "$T" && python -B -m unittest tests.test_platforms > "$T"/old.log 2>&1; true) && grep -q FAILED "$T"/old.log && grep -q StorageWarning "$T"/old.log && tail -25 "$T"/old.log && rm -rf "$T" && echo "C4 OK"`
+
+**C5 — green tree, and scope respected**  · status=VERIFIED
+
+- statement: `bash tools/verify.sh` exits 0 with a test count strictly greater than the 1152
+  measured at HEAD f3cd293 (expected 1155: three added, one string-match removed), `manifest.json`
+  gains no `requirements` entry, the version is not bumped, `.env` is untouched, and every path
+  `git status --porcelain` reports is either `custom_components/tapo_h500/repairs.py`,
+  `tests/test_platforms.py`, or under the `.improvement-loop/` prefix — the WHOLE prefix, not a
+  file-by-file list, so `LOG.md`, `BACKLOG.md`, `LEDGER.md` and `STATE.json` are all covered. That
+  omission is what made iteration 1's equivalent claim unpassable; carried backlog item [B-013].
+- verify_predicate: `bash tools/verify.sh` exits 0 and its `Ran N tests` line has N >= 1155 with
+  `OK`; the `git status --porcelain` path list is empty after filtering the allow-list regex
+  `^(custom_components/tapo_h500/repairs\.py|tests/test_platforms\.py|\.improvement-loop/|\.gitignore|\.claude/|session-recover\.yaml)`
+  (the last three are pre-existing working-tree dirt present before this iteration started, recorded
+  here so the claim is passable rather than silently defeated by unrelated noise); `git diff` on
+  `custom_components/tapo_h500/manifest.json` is empty.
+- target_files: `custom_components/tapo_h500/repairs.py`, `tests/test_platforms.py`,
+  `custom_components/tapo_h500/manifest.json`
+- verify_command:
+  `cd /home/sujeo/Development/tapo-h500-for-home-assistant && bash tools/verify.sh && git diff --quiet -- custom_components/tapo_h500/manifest.json && ! (git status --porcelain | awk '{print $NF}' | grep -vE '^(custom_components/tapo_h500/repairs\.py|tests/test_platforms\.py|\.improvement-loop/|\.gitignore|\.claude/|session-recover\.yaml)') && echo "C5 OK"`
+
+### Audit verdict — iteration 4 (2026-08-24), applied to the statuses above
+
+PASS. C1-C5 were each moved from `CLAIMED` to `VERIFIED` in the table and in the per-claim headers
+above; nothing else in the iteration-4 section was rewritten. Every named symbol was confirmed at
+its cited line, its wiring cited, and its `verify_command` run with the real result line quoted.
+`repairs.py:116` is the single lookup, reached on every poll through `async_check` (`repairs.py:62`)
+which `coordinator.py:913` invokes at the end of each poll; the guard at `:119` is `is None` rather
+than falsy, so a genuine 0% hub now takes the clear branch instead of being misread as unknown — a
+small correctness gain the claims did not ask for.
+
+**C4 is the claim that mattered and it was proven, not asserted.** The auditor did NOT run C4's
+literal `verify_command` — it does `mktemp -d` / `cp -r` / `rm -rf`, which a read-only audit mandate
+forbids — and said so rather than quietly skipping it. The substitute is strictly stronger: the real
+`f3cd293` blob was `exec`'d into a fresh module in memory and the unmodified new tests pointed at it,
+giving `FAILED (failures=2)` with `AssertionError: Lists differ: ['delete'] != ['create']` on both
+create-branch tests, against `Ran 4 tests / OK` for the same runner on the working tree. The two
+tests describing the clear branch pass against BOTH versions, which is exactly the signature of a
+real behavioural test rather than a differently-spelled tautology.
+
+`git diff -- tests/` removes exactly ONE assertion line — the old
+`self.assertIn("if not total or free is None:", REPAIRS)` — and its test name carries into the new
+`StorageWarning` class. Tree green at `Ran 1155 tests in 3.096s / OK`, up exactly 3 from 1152 as
+predicted. Zero blockers, zero must-fixes, zero regressions; `path_ownership` PASS; `manifest.json`
+byte-identical. Five findings carried to BACKLOG.md, two [polish] and three [future], none of them a
+defect in what shipped.

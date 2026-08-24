@@ -111,14 +111,14 @@ def _tampered(hass: HomeAssistant, entry_id: str, coordinator) -> None:
 
 
 def _storage(hass: HomeAssistant, entry_id: str, coordinator) -> None:
-    total = coordinator.readings.get("storage_total")
-    free = coordinator.readings.get("storage_free")
+    # The name has to match what status.hub_readings emits exactly: a near
+    # miss reads None every poll and silently retires the warning below.
+    used_percent = coordinator.readings.get("storage_used_percent")
     issue_id = _issue_id(entry_id, STORAGE_ISSUE)
     # Unknown is not the same as fine. Say nothing rather than guessing.
-    if not total or free is None:
+    if used_percent is None:
         ir.async_delete_issue(hass, DOMAIN, issue_id)
         return
-    used_percent = round((total - free) / total * 100)
     if used_percent < STORAGE_WARN_PERCENT:
         ir.async_delete_issue(hass, DOMAIN, issue_id)
         return

@@ -258,3 +258,111 @@ below, and it is a plain correctness bug, not the session-churn hazard security-
   Surfaced by the iteration-3 premise check that disqualified `security-2` — the disqualification was
   of the ARGUMENT, not of this defect. Confirmed on disk at close-out: preview.py's only `try` blocks
   in `get` are at `:51` (the int casts) and `:61-64` (`camera_at`), and `:67` is below both.
+
+## Iteration 4 close-out (2026-08-24) — FINAL
+
+**Consumed: `correctness-1`** — "The storage-nearly-full repair reads two keys `hub_readings` never
+emits, so it can never fire". Shipped and audited PASS; do NOT re-mine it. Like `correctness-2`
+before it, it was never a `[B-xxx]` line in this file — it lived on `.improvement-loop/board-iter4.json`,
+which is the candidate pool, so there was nothing here to delete. The board file is left byte-intact
+as the record of what the council scored, following the convention iterations 2 and 3 set.
+
+**Board state at run end.** `.improvement-loop/board-iter4.json` holds 27 entries; iteration 4
+consumed exactly one (`correctness-1`), leaving 26, or 25 distinct — `correctness-i2-1` and
+`offline-7` are still the same finding under two ids ("a failed automatic download is never
+retried"), flagged at the iteration-3 close-out and never merged, because merging them is a board
+edit and the board is kept as the record of what was scored. Score it once, not twice.
+
+### From the iteration-4 audit (2026-08-24) — new findings
+
+- [B-021] [polish] `.gitignore` rides along in the tracked diff, outside the declared owner_glob.
+  `git diff --name-only` at close-out listed `.gitignore` alongside the three owned paths, and
+  `git diff -- .gitignore` adds six lines under "# Claude Code session-recovery runtime state". It is
+  NOT this iteration's work: `stat` puts `.gitignore` and the untracked `session-recover.yaml` both at
+  2026-08-24 05:02:42, roughly fifteen hours before this iteration's edits (LEDGER.md 19:56:36,
+  repairs.py 19:58:57, test_platforms.py 20:00:58), and the content is harness state with no bearing
+  on the integration. Pre-declared in C5's allow-list so the claim was passable rather than silently
+  defeated by unrelated noise. Failure mode if ignored: whoever runs `git commit -a` sweeps another
+  tool's config into the integration's history under a "correctness" subject line. Stage the owned
+  paths explicitly, which is what this close-out did.
+
+- [B-022] [polish] The placeholder assertion pins a value shape production never emits.
+  `tests/test_platforms.py:184` asserts `translation_placeholders == {"used": "96"}` because the test
+  feeds an int; `status.py:222` is `used_percent = round((total - free) / total * 100, 1)`, so a real
+  hub carries e.g. `96.2` and the rendered title reads "H500 storage is 96.2% full". No functional
+  defect — the float compares correctly against `STORAGE_WARN_PERCENT` and the sentence reads right
+  either way, and LEDGER.md pre-declares it as a deliberate non-change. But the test's fidelity to
+  `status.hub_readings` covers the key NAME only, not the value TYPE, so any future formatting work
+  on `{used}` has no test standing behind it.
+
+- [B-023] [future] Repair-check failures are swallowed at debug level — the same silent-death class,
+  one level up. `custom_components/tapo_h500/coordinator.py:911-915`: `try: async_check(...)` /
+  `except Exception as err: _LOGGER.debug("Could not update repair issues: %s", err)`. The broad
+  except is correct and load-bearing — it is what stops a raise in `_storage` from killing the poll,
+  and `tests/test_platforms.py:148` pins it. The residual risk is the LEVEL. If
+  `coordinator.readings` ever carried a non-numeric `storage_used_percent`, the
+  `used_percent < STORAGE_WARN_PERCENT` comparison raises TypeError, every check after `_storage` in
+  `async_check` is skipped for that poll, and the only trace is a debug line nobody has enabled — the
+  storage warning silently stops firing again, which is precisely the failure this iteration exists
+  to fix. Not introduced by this diff and not reachable today (`hub_readings` only ever yields float
+  or None out of `round()`). Worth a warning-level log or a one-shot counter if the checks grow.
+
+- [B-024] [future] The other eight repair checks are still guarded only by a source-text match.
+  `tests/test_platforms.py:130-133` splits `REPAIRS` on `def <name>` and `assertIn`s the call names
+  for `_storage`, `_reachable` and `_unnamed_faces`. `_storage` is now behaviourally covered, but
+  `async_check` (`repairs.py:62-70`) runs nine checks and the remaining eight are protected by the
+  same technique that let this defect live behind 1152 green tests. The auditor checked each one's
+  input for the same dead-key class and found none live: `_tampered` / `_unnamed_faces` /
+  `_silent_cameras` use coordinator methods that exist, `_media` / `_downloads_failing` /
+  `_restart_ineffective` use `getattr` with defaults over attributes that exist, and `_reachable`'s
+  `last_update_success` is inherited from `DataUpdateCoordinator` (`coordinator.py:71`). So there is
+  no second dead branch today — but the `StorageWarning` recorder now makes a behavioural test for
+  the other eight nearly free, and the guard against the next one is still a string.
+
+- [B-025] [future] All nine repair issue strings live only in `translations/en.json`, never in
+  `strings.json`. `strings.json`'s top-level keys are `title`, `config`, `options`, `selector`,
+  `entity` with no `issues` block at all; `translations/en.json:372-374` carries
+  `storage_nearly_full` with the title "H500 storage is {used}% full". Nothing is broken now that the
+  issue can finally fire — custom integrations load `translations/<lang>.json` at runtime rather than
+  `strings.json`, and the placeholder was confirmed to resolve at en.json:373. The gap is that
+  `strings.json`, the file core tooling reads, has no issues section, and
+  `tests/test_platforms.py:142-146` checks `STRINGS`, which is bound to en.json
+  (`test_platforms.py:24`), so no test would notice. Pre-existing across all nine issues; it becomes
+  worth closing the day this integration is submitted to core or gains a second language.
+
+## OPEN AT RUN END
+
+The loop stopped here because the owner asked it to finish the checklist and stop, not because the
+backlog ran out. Everything above stays valid. If a future run picks this up, these four are the
+front of the queue, in this order — the first two are defects in shipped behaviour, the third is the
+reason defects survive, and the fourth is a promise the repo has not yet kept.
+
+1. **[B-020] `preview.py:67` raises through the view and returns a 500 with a traceback.** The
+   `await async_preview_clip(hass, coordinator.client, camera, start)` call sits outside every `try`
+   in `get` — the only ones are at `:51` (the int casts) and `:61-64` (`camera_at`), both above it —
+   so an out-of-range `start_time` reaches the user as a stack trace. `media.py:172-177` has the same
+   shape above its `try` at `:179`. Confirmed on disk at the iteration-3 close-out. This is the
+   highest-value untouched must-fix in the file and it has now sat through a full iteration.
+
+2. **A failed automatic download is never retried, so footage the hub still holds is lost for good.**
+   Filed twice on `.improvement-loop/board-iter4.json` as `correctness-i2-1` and `offline-7` — the
+   same finding, and a future run must score it once. It bites exactly where this hub is documented
+   to be weakest: a clip recorded during a media-session wedge or a network outage is gone once the
+   hub's own 24h window closes, even though the hub was holding it the whole time.
+
+3. **[B-001] `tools/verify.sh` is a real gate that nothing automated runs.** There is no `.github/`
+   workflow anywhere in the repo. Every green result in this log was produced by a human or an agent
+   remembering to run it. Related and cheap alongside it: [B-002], zero static analysis — no ruff,
+   flake8 or mypy config exists, so the test suite is the only signal. Iteration 4 is the argument
+   for both: a defect lived behind 1152 passing tests because its only coverage was a string match,
+   and nothing outside a person's habit was checking even that.
+
+4. **[B-007] The reauth flow iteration 1 shipped has no demonstrated real-hardware trigger.** It is
+   correct and fail-safe — it errs toward retry, which is the right direction against a hub that
+   wedges — but the reauth screen, the `ConfigEntryAuthFailed` route and the `invalid_auth` string
+   may all be dead in the field. Every pytapo login raise site strips the error code
+   (`pytapo/transport/pytapo/pytapo.py:606, :693, :716, :764`), so the only live route is a coded
+   refusal out of `Tapo.__init__`'s own `getBasicInfo()`, with `-40414 NEED_LOGIN_BY_LOCAL_PASSWORD`
+   the realistic arrival — asserted, never observed. Proving it costs a real login against hardware
+   this repo documents as wedging under repeated auth, which is the owner's call to make and not the
+   loop's. Recorded here so it is not mistaken for settled.

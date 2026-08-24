@@ -1,18 +1,17 @@
 {
   "runId": "ril-20260823-215339",
-  "iter": 3,
+  "iter": 4,
   "branch": "improvments",
   "lastGreenCommit": "50b247d",
   "minedCategories": {
     "ha-conformance": 1,
     "offline-resilience": 1,
-    "correctness": 1
+    "correctness": 2
   },
   "agentsUsedThisWorkflow": 0,
   "workflowSession": 6,
-  "status": "running",
+  "status": "stopped",
+  "stoppedReason": "user asked the loop to finish the checklist and stop",
   "profilePath": ".improvement-loop/PROFILE.md",
-  "lastIterationStatus": "COMPLETE",
-  "nextIteration": 4,
-  "iter4Checkpoint": "council complete, winner correctness-1 (value 72), implement Workflow NOT yet launched; tree clean and green at 1152"
+  "lastIterationStatus": "COMPLETE"
 }
