@@ -6,22 +6,56 @@ field offered by a form but missing from en.json renders as a raw key like
 "poll_interval", and a setting written to the wrong place is stored, ignored,
 and silently replaced by its default.
 """
+import ast
 import importlib
 import json
 import re
+import socket
 import sys
 import types
 import unittest
 from pathlib import Path
 
+import requests
+
 COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
 SOURCE = (COMPONENT / "config_flow.py").read_text()
+SETUP = ast.parse((COMPONENT / "__init__.py").read_text())
 STRINGS = json.loads((COMPONENT / "translations" / "en.json").read_text())
+# Both files, because Home Assistant reads en.json and the store reads
+# strings.json: a key added to one and forgotten in the other is a form that
+# renders raw keys for everybody who never installed from HACS.
+LABEL_FILES = {
+    name: json.loads((COMPONENT / name).read_text())
+    for name in ("strings.json", "translations/en.json")
+}
 
 package = types.ModuleType("tapo_h500")
 package.__path__ = [str(COMPONENT)]
 sys.modules.setdefault("tapo_h500", package)
 const = importlib.import_module("tapo_h500.const")
+
+try:
+    import pytapo  # noqa: F401
+except ImportError:
+    # api.py imports pytapo at module level and this suite runs on a Python
+    # that does not have it. The classifier touches none of it, so the same
+    # hollow stand-ins tests/test_api.py installs are enough -- kept here so
+    # this file passes on its own whatever order discovery uses.
+    _session = types.ModuleType("pytapo.media_stream.session")
+    _session.HttpMediaSession = type("HttpMediaSession", (), {})
+    _crypto = types.ModuleType("pytapo.media_stream.crypto")
+    _crypto.AESHelper = type("AESHelper", (), {})
+    _stream = types.ModuleType("pytapo.media_stream")
+    _stream.session, _stream.crypto = _session, _crypto
+    _pytapo = types.ModuleType("pytapo")
+    _pytapo.Tapo = type("Tapo", (), {})
+    sys.modules.update({
+        "pytapo": _pytapo, "pytapo.media_stream": _stream,
+        "pytapo.media_stream.session": _session,
+        "pytapo.media_stream.crypto": _crypto,
+    })
+api = importlib.import_module("tapo_h500.api")
 
 # The few keys that come from homeassistant.const rather than the component.
 HA_KEYS = {
@@ -154,6 +188,200 @@ class FaceNaming(unittest.TestCase):
         """A column of raw ids with text boxes tells nobody anything."""
         self.assertIn("description_placeholders", SOURCE)
         self.assertIn("{faces}", STRINGS["options"]["step"]["faces"]["description"])
+
+
+class AuthClassifier(unittest.TestCase):
+    """Which failures may stop the retries, and which may never.
+
+    This hub wedges under repeated authentication and recovers only on a
+    timeout, so the cost of guessing wrong is asymmetric: a retry too many is
+    a slow setup, while calling a wedge an auth failure abandons the entry and
+    tells its owner to retype a password that was never wrong.
+    """
+
+    def test_no_wedge_shape_is_ever_called_an_auth_failure(self):
+        shapes = [
+            OSError("No route to host"),
+            ConnectionResetError("Connection reset by peer"),
+            TimeoutError("timed out"),
+            socket.timeout("timed out"),
+            requests.exceptions.ConnectionError("Connection refused"),
+            requests.exceptions.ReadTimeout("Read timed out"),
+            # A hub answering HTML, or nothing at all, to a JSON request.
+            requests.exceptions.JSONDecodeError("Expecting value", "", 0),
+            ValueError("Expecting value: line 1 column 1 (char 0)"),
+            # pytapo raises this verbatim on the -40413 nonce path after its
+            # own retries, so the string says nothing about credentials.
+            Exception("Invalid authentication data"),
+            # The lockout. Waiting it out is the fix; a new password is not.
+            Exception("Temporary Suspension: Try again in 300 seconds"),
+        ]
+        for err in shapes:
+            with self.subTest(shape=type(err).__name__ + ": " + str(err)):
+                self.assertFalse(api.is_auth_failure(err))
+        # The dropped idea: check_media_port talks to port 8800, a different
+        # service from the one connect() logs into, and answers a wedge with
+        # "wedged" -- so a probe-based rule would have failed the wrong way
+        # on exactly the shapes above.
+        source = (COMPONENT / "api.py").read_text()
+        classifier = source.split(
+            "def is_auth_failure", 1)[1].split("\nclass ", 1)[0]
+        # _refused_code does the code extraction, so the ban has to cover it
+        # too or the probe idea could simply move one function up.
+        classifier += source.split(
+            "def _refused_code", 1)[1].split("\nclass ", 1)[0]
+        for banned in ("check_media", "8800", "Invalid authentication data"):
+            self.assertNotIn(banned, classifier)
+
+    def test_a_rejection_carrying_an_error_code_is_an_auth_failure(self):
+        """The hub's own refusal, in the only shape it reaches a caller in:
+        pytapo's "Error: <msg>, Response: {...}" text."""
+        self.assertTrue(api.is_auth_failure(Exception(
+            'Error: Invalid login credentials, '
+            'Response: {"error_code": -40209}')))
+
+    def test_a_retryable_error_code_still_retries(self):
+        """-40401 is an expired stok, which pytapo re-logs-in for itself."""
+        self.assertFalse(api.is_auth_failure(Exception(
+            'Error: Invalid stok value, Response: {"error_code": -40401}')))
+
+    def test_a_nested_error_code_is_not_mistaken_for_the_refusal(self):
+        """The hub reports per-request codes as well as its own.
+
+        A multi-request answer carries an error_code inside result.responses[]
+        and the hub's own at the top level, and pytapo raises on the top-level
+        one. Reading whichever code appears first in the text picks the nested
+        one, which is the fail-dangerous direction: a body the hub did not
+        refuse on ends the retries and blames the owner's password.
+        """
+        self.assertFalse(api.is_auth_failure(Exception(
+            'Error: Request failed, Response: '
+            '{"result": {"responses": [{"error_code": -40209}]}, '
+            '"error_code": 0}')))
+        # ...and the same body shape must still be read as a refusal when the
+        # refusal is the hub's own.
+        self.assertTrue(api.is_auth_failure(Exception(
+            'Error: Invalid login credentials, Response: '
+            '{"result": {"responses": [{"error_code": 0}]}, '
+            '"error_code": -40209}')))
+
+    def test_an_unreadable_body_retries(self):
+        """No parseable code is not evidence of a refusal."""
+        for err in (Exception("Error: boom, Response: not json at all"),
+                    Exception("no response marker here"),
+                    Exception('Error: x, Response: ["error_code", -40209]')):
+            with self.subTest(text=str(err)):
+                self.assertFalse(api.is_auth_failure(err))
+
+
+def _setup_function(name: str) -> ast.AST:
+    for node in ast.walk(SETUP):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == name:
+            return node
+    raise AssertionError(f"{name} is gone")
+
+
+def _names(node: ast.AST) -> set:
+    return {inner.id for inner in ast.walk(node) if isinstance(inner, ast.Name)}
+
+
+def _connect_try() -> ast.Try:
+    """The try in async_setup_entry whose body performs the login."""
+    for node in ast.walk(_setup_function("async_setup_entry")):
+        if isinstance(node, ast.Try) and any(
+                "connect" in {getattr(inner, "attr", "")
+                              for inner in ast.walk(statement)
+                              if isinstance(inner, ast.Attribute)}
+                for statement in node.body):
+            return node
+    raise AssertionError("the connect() call is no longer inside a try")
+
+
+class SetupClassification(unittest.TestCase):
+    """Only a named credential refusal may abandon the entry.
+
+    Asserted through the syntax tree, as tests/test_setup_cleanup.py does: a
+    test that greps the source is satisfied by a comment mentioning the name.
+    """
+
+    def test_only_the_auth_error_reaches_config_entry_auth_failed(self):
+        handlers = _connect_try().handlers
+        auth = [handler for handler in handlers
+                if "H500AuthError" in _names(handler)]
+        self.assertEqual(len(auth), 1, "no handler names the auth error")
+        self.assertIn("ConfigEntryAuthFailed", _names(auth[0]))
+        for handler in handlers:
+            if handler is not auth[0]:
+                self.assertNotIn("ConfigEntryAuthFailed", _names(handler),
+                                 "a broader handler also gives up on the entry")
+
+    def test_everything_else_still_raises_config_entry_not_ready(self):
+        """Ordering is the whole guarantee: the broad handler has to come last,
+        or it swallows the auth case and nothing ever asks for a password."""
+        last = _connect_try().handlers[-1]
+        self.assertIn("ConfigEntryNotReady", _names(last))
+        self.assertNotIn("H500AuthError", _names(last))
+        message = "".join(
+            node.value for node in ast.walk(last)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str))
+        self.assertIn("Cannot reach the H500", message)
+
+    def test_both_paths_still_close_the_client(self):
+        """Either way the login just made has to be closed, or a hub that is
+        briefly unhappy collects one unclosed session per retry."""
+        for handler in _connect_try().handlers:
+            attributes = {inner.attr for inner in ast.walk(handler)
+                          if isinstance(inner, ast.Attribute)}
+            self.assertIn("close", attributes)
+
+
+class Reauth(unittest.TestCase):
+    def test_the_flow_offers_a_reauth_step(self):
+        """Without it a changed password is a permanently retrying entry and
+        no way at all to type the new one."""
+        tree = ast.parse(SOURCE)
+        flow = [node for node in ast.walk(tree)
+                if isinstance(node, ast.ClassDef)
+                and node.name == "TapoH500ConfigFlow"][0]
+        steps = {node.name for node in flow.body
+                 if isinstance(node, ast.AsyncFunctionDef)}
+        self.assertIn("async_step_reauth", steps)
+        self.assertIn("async_step_reauth_confirm", steps)
+
+    def test_reauth_rewrites_the_stored_password(self):
+        fields = _schema_fields("async_step_reauth_confirm")
+        self.assertIn(const.CONF_CLOUD_PASSWORD, fields)
+        self.assertIn("password", fields)
+        # No host box: this form exists because a password changed, not
+        # because the entry should be repointed at a different device.
+        self.assertNotIn("host", fields)
+        self.assertIn("async_update_reload_and_abort", SOURCE)
+        self.assertIn("data_updates=user_input", SOURCE)
+
+    def test_one_validation_path_serves_both_forms(self):
+        """Two copies of the login would sooner or later mean two logins, and
+        this hub wedges under repeated ones."""
+        self.assertIn("def _validate", SOURCE)
+        self.assertEqual(SOURCE.count("H500Client("), 1)
+
+
+class ReauthLabels(unittest.TestCase):
+    def test_every_reauth_field_has_a_label_in_both_files(self):
+        fields = _schema_fields("async_step_reauth_confirm")
+        for name, strings in LABEL_FILES.items():
+            with self.subTest(file=name):
+                labelled = set(
+                    strings["config"]["step"]["reauth_confirm"]["data"])
+                self.assertEqual(fields - labelled, set())
+
+    def test_the_new_error_and_abort_keys_exist_in_both_files(self):
+        """Unlabelled, the form's failure reads as "invalid_auth" and its
+        success as "reauth_successful"."""
+        for name, strings in LABEL_FILES.items():
+            with self.subTest(file=name):
+                self.assertIn("invalid_auth", strings["config"]["error"])
+                self.assertIn("reauth_successful", strings["config"]["abort"])
 
 
 if __name__ == "__main__":

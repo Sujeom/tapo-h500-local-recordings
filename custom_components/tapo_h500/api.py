@@ -123,6 +123,79 @@ def check_media_port(host: str, port: int = 8800, timeout: float = 5.0) -> str:
     return "healthy" if data else "wedged"
 
 
+# The hub's own "these credentials are wrong" codes -- the ones no retry can
+# ever fix. Deliberately not -40401 (invalid stok) or -40413 (invalid nonce),
+# which pytapo already retries by itself, and deliberately not the lockout
+# codes: a hub refusing everyone for five minutes has to be waited out, not
+# answered by asking its owner to retype a password that was never wrong.
+AUTH_ERROR_CODES = frozenset({-40209, -40414, -40418})
+
+# pytapo's only route for a code that survived its own retries is the text of
+# `Exception("Error: <msg>, Response: {... \"error_code\": N ...}")`.
+def _refused_code(err):
+    """The TOP-LEVEL error_code of the body pytapo raised on, or None.
+
+    Reading this with a regex over the message text is what a first draft does,
+    and it is wrong in the one direction this module cannot afford. The hub
+    answers a multi-request call with a per-request error_code inside
+    `result.responses[]` as well as its own at the top, pytapo decides to raise
+    on the top-level one, and json.dumps emits it last -- so the first match in
+    the text is often some nested code the hub was not refusing on. Parsing the
+    body reads the code pytapo actually raised on instead of whichever one got
+    serialised first.
+
+    Anything unparseable returns None, which the caller treats as "no code" and
+    therefore as retryable. Failing towards retry is the whole contract here.
+    """
+    _, marker, body = str(err).partition("Response: ")
+    if not marker:
+        return None
+    try:
+        return json.loads(body).get("error_code")
+    except (ValueError, AttributeError):
+        return None
+
+
+class H500AuthError(Exception):
+    """The hub named a credential-refusal code. Retrying cannot fix it."""
+
+
+def is_auth_failure(err: BaseException) -> bool:
+    """True only when the hub itself refused the credentials.
+
+    Fails safe towards RETRY, and that direction is the whole point. This hub
+    wedges under repeated logins and recovers only on a timeout; a wedge
+    surfaces as a reset, a timeout or a zero-byte read, none of which carries
+    a code. Calling one of those an auth failure would end the retries and
+    put a "check your password" notification in front of somebody whose
+    password is fine.
+
+    Nothing that is an OSError -- every transport failure, which on this stack
+    includes every requests error and both timeout spellings -- or a
+    ValueError -- a garbage body, requests' JSONDecodeError included -- can
+    qualify, whatever text it carries. The string "Invalid authentication
+    data" is not a signal either: pytapo raises it verbatim on the -40413
+    nonce path after its own retries, so it means "wedged" as often as it
+    means "wrong password".
+
+    So this is narrower than it looks, and deliberately: pytapo's login path
+    raises that bare Exception with the code stripped out, so a camera account
+    password changed in the Tapo app is invisible here and keeps retrying like
+    any other refusal. Only a refusal the hub names on a call it had already
+    authenticated -- what Tapo.__init__'s own getBasicInfo call produces --
+    carries a code this can read.
+    """
+    if isinstance(err, (OSError, ValueError)):
+        return False
+    code = getattr(err, "error_code", None)
+    if code is None:
+        code = _refused_code(err)
+    try:
+        return int(code) in AUTH_ERROR_CODES
+    except (TypeError, ValueError):
+        return False
+
+
 class H500Client:
     def __init__(self, host, username, password, cloud_password, debug=False):
         self.debug = debug
@@ -154,11 +227,21 @@ class H500Client:
         self._batch_supported = True
 
     def connect(self):
-        self._hub = Tapo(
-            self.host, self.username, self.password, self.cloud_password,
-            playerID=self.player_id, redactConfidentialInformation=True,
-            printDebugInformation=self.debug,
-        )
+        try:
+            self._hub = Tapo(
+                self.host, self.username, self.password, self.cloud_password,
+                playerID=self.player_id, redactConfidentialInformation=True,
+                printDebugInformation=self.debug,
+            )
+        except Exception as err:
+            # Fixed text, never str(err): the response body pytapo puts in
+            # that message is the hub's, and this exception ends up in a log.
+            if is_auth_failure(err):
+                raise H500AuthError("The H500 refused these credentials") \
+                    from err
+            # Anything else -- the wedge included -- leaves untouched, so the
+            # caller goes on retrying instead of demanding a new password.
+            raise
         # The record is nested two levels down. Reading device_model off the
         # outer dictionary always found nothing, so the default fired, the
         # model came back empty and the guard below never ran -- this

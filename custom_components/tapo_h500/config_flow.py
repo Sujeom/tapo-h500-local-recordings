@@ -8,7 +8,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
-from .api import H500Client
+from .api import H500AuthError, H500Client
 from .media import clip_path, signed_url
 from .const import (
     AUTO_DOWNLOAD_MODES, CONF_AUTO_DOWNLOAD, CONF_CLOUD_PASSWORD, CONF_FACE_NAMES,
@@ -42,38 +42,52 @@ class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(entry):
         return TapoH500OptionsFlow()
 
+    async def _validate(self, data: dict) -> dict:
+        """One login, one camera list, always closed. Errors for a form.
+
+        The only place in this file that logs in. Setup and reauth ask the
+        same question, and a second copy of it would sooner or later mean two
+        logins where there was one -- against a hub that wedges under
+        repeated authentication and recovers only on a timeout.
+        """
+        client = H500Client(
+            data[CONF_HOST], data[CONF_USERNAME],
+            data[CONF_PASSWORD], data[CONF_CLOUD_PASSWORD],
+        )
+        try:
+            await self.hass.async_add_executor_job(client.connect)
+            cameras = await self.hass.async_add_executor_job(client.cameras)
+        except H500AuthError:
+            # The hub named a credential-refusal code. Anything vaguer -- a
+            # wedge, a timeout, a garbage answer -- is cannot_connect, because
+            # "check your password" is the wrong thing to tell somebody whose
+            # password is fine.
+            return {"base": "invalid_auth"}
+        except Exception:
+            return {"base": "cannot_connect"}
+        finally:
+            await self.hass.async_add_executor_job(client.close)
+        return {} if cameras else {"base": "no_cameras"}
+
     async def async_step_user(self, user_input=None):
         errors = {}
         if user_input is not None:
-            client = H500Client(
-                user_input[CONF_HOST], user_input[CONF_USERNAME],
-                user_input[CONF_PASSWORD], user_input[CONF_CLOUD_PASSWORD],
-            )
-            try:
-                await self.hass.async_add_executor_job(client.connect)
-                cameras = await self.hass.async_add_executor_job(client.cameras)
-            except Exception:
-                errors["base"] = "cannot_connect"
-            finally:
-                await self.hass.async_add_executor_job(client.close)
+            errors = await self._validate(user_input)
             if not errors:
-                if not cameras:
-                    errors["base"] = "no_cameras"
-                else:
-                    await self.async_set_unique_id(user_input[CONF_HOST])
-                    self._abort_if_unique_id_configured(
-                        updates={CONF_HOST: user_input[CONF_HOST]})
-                    # The interval goes to options, not data. Options is where
-                    # the coordinator reads it and where the options flow later
-                    # writes it; left in data it would be recorded, ignored,
-                    # and silently replaced by the default.
-                    interval = user_input.pop(
-                        CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
-                    return self.async_create_entry(
-                        title=f"Tapo H500 ({user_input[CONF_HOST]})",
-                        data=user_input,
-                        options={CONF_POLL_INTERVAL: interval},
-                    )
+                await self.async_set_unique_id(user_input[CONF_HOST])
+                self._abort_if_unique_id_configured(
+                    updates={CONF_HOST: user_input[CONF_HOST]})
+                # The interval goes to options, not data. Options is where
+                # the coordinator reads it and where the options flow later
+                # writes it; left in data it would be recorded, ignored,
+                # and silently replaced by the default.
+                interval = user_input.pop(
+                    CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
+                return self.async_create_entry(
+                    title=f"Tapo H500 ({user_input[CONF_HOST]})",
+                    data=user_input,
+                    options={CONF_POLL_INTERVAL: interval},
+                )
 
         # Keep whatever was typed when the form comes back with an error, so a
         # wrong password does not also cost the host and the interval.
@@ -92,6 +106,38 @@ class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         })
         return self.async_show_form(
             step_id="user", data_schema=schema, errors=errors)
+
+    async def async_step_reauth(self, entry_data):
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None):
+        """Retype the credentials for a hub that has stopped accepting them.
+
+        No host box: the entry already knows where the hub is, and offering it
+        here would turn a credential refusal into a chance to point an existing
+        entry at a different device.
+        """
+        errors = {}
+        entry = self._get_reauth_entry()
+        if user_input is not None:
+            # Merged over the stored data because the host is not on this
+            # form, and _validate needs somewhere to connect to.
+            errors = await self._validate({**entry.data, **user_input})
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates=user_input)
+
+        schema = vol.Schema({
+            vol.Required(CONF_USERNAME,
+                         default=entry.data.get(CONF_USERNAME, "admin")): str,
+            # No default and no placeholder for either password: the point of
+            # this form is that the stored ones are wrong, and putting one on
+            # screen would show a credential to anyone at the tablet.
+            vol.Required(CONF_PASSWORD): str,
+            vol.Required(CONF_CLOUD_PASSWORD): str,
+        })
+        return self.async_show_form(
+            step_id="reauth_confirm", data_schema=schema, errors=errors)
 
 
 class TapoH500OptionsFlow(config_entries.OptionsFlow):
