@@ -430,3 +430,183 @@ refusal and permanently ended retries. It was caught one iteration later, by a s
 repo's own protocol notes — the same file that was on disk when iteration 1 wrote the set. That is
 a miss the loop made and then found, not an improvement the loop delivered, and it is recorded here
 as a miss.
+
+## Iteration 3 — 2026-08-24
+
+Selected: [correctness-2] `hub_control.py:39` schedules an unconditional `async_request_refresh()`
+after every successful write, but the status read inside `_poll` is gated by
+`if self._polls % self._status_every == 0` (`coordinator.py:753`), and `_status_every` is
+`max(1, round(STATUS_MAX_AGE / interval))` = `round(60 / 2)` = **30** at the default 2s interval
+(`coordinator.py:112`, `const.py:155`). So the poll that was supposed to confirm the write usually
+skips the very read that would confirm it: roughly 29 writes in 30 leave `self.readings` holding
+the pre-write value, and every control rendering from it — the LED, loop-recording, auto-upgrade
+and face-detection switches (`switch.py:95-96`), the siren-tone select (`select.py:49`), the siren
+volume and duration numbers (`number.py:68`) — snaps back in the frontend for up to a minute.
+Board value 68, crowned by the 3-round scored council on `.improvement-loop/board-iter3.json`.
+
+### The build constraint that shapes every claim below
+
+Ada Okonkwo's round-1 dissent was answered and counted resolved, but it **binds the build**: the
+fix may add **no additional hub round trip**. The flag must ride the refresh the caller already
+schedules — never a second one — and must be cleared inside the branch it triggers, so it can
+never leave the status read permanently unconditional. A permanently-on status read is continuous
+extra traffic against hardware documented to wedge under repeated sessions. C2 pins the refresh
+count, C3 is the negative test that pins the gate against a later refactor, C4 pins the one-shot.
+The status read itself is one control-channel `multipleRequest` on the existing client
+(`coordinator.py:749-751` -> `api.py:511-513`) — not a login, not a port-8800 media session — which
+is the only reason this is safe at all. No live network call was made while planning; the hub was
+not contacted.
+
+### Driver amendment applied (supersedes council decomposition steps 1-2)
+
+The council proposed that `H500HubControl.apply()` set `coordinator._force_status` directly. Not
+done: it reaches into another module's private attribute and it misses two of the three defective
+call sites. There are exactly THREE write-then-refresh callers, all with the same defect —
+`hub_control.py:39`, `siren.py:84`, `siren.py:88`. One shared public method on the coordinator
+fixes all three, pokes no privates, and is a smaller total diff than three flag assignments.
+
+### Planned shape (no implementation code written yet)
+
+- `coordinator.py` `__init__`, beside `self._polls = 0` (`:90`): `self._force_status = False`.
+- `coordinator.py`, new public method: `async def async_refresh_after_write(self) -> None:` — sets
+  `self._force_status = True`, then `await self.async_request_refresh()`. Exactly one refresh; it
+  is the refresh the caller was already about to make, not an extra one.
+- `coordinator.py:753` gate becomes
+  `if self._force_status or self._polls % self._status_every == 0:` with
+  `self._force_status = False` as the **first statement inside the branch, before the `try`** — so
+  a status read that raises still clears the flag and the read can never latch on.
+- `hub_control.py:39`, `siren.py:84`, `siren.py:88`: `await self.coordinator.async_request_refresh()`
+  becomes `await self.coordinator.async_refresh_after_write()`. Three lines, one call each.
+- `tests/test_coordinator.py`: new `WriteConfirmation(unittest.TestCase)` driving the coordinator
+  directly via `_build(interval=20)` (`_status_every` = 3) and setting `coord._polls` / reading
+  `coord._force_status` as plain attributes — the harness already used at `tests/test_coordinator.py:363`
+  and `:400`. Nothing in `tests/` constructs `H500HubSwitch` or calls `apply()`, so no entity and
+  no extra `hass` stub is built. `_StubCoordinatorBase` has no `async_request_refresh`, so the one
+  test that needs it assigns a recorder **on the instance** (`coord.async_request_refresh = ...`);
+  the shared stub base is not touched, because `sys.modules` carries it into every other test file.
+
+### Claims — iteration 3
+
+| id | claim | status |
+|----|-------|--------|
+| C1 | `_force_status` and `async_refresh_after_write()` exist on `H500Coordinator` and force the gated status read | VERIFIED |
+| C2 | All three write-then-refresh call sites route through the shared method; the refresh count per write is still exactly one | VERIFIED |
+| C3 | NEGATIVE — flag unset and the modulo due to skip, `hub_status` is NOT called: no additional hub round trip on the normal path | VERIFIED |
+| C4 | The flag is one-shot, cleared inside the branch it triggers, so the status read can never latch on permanently | VERIFIED |
+| C5 | Green tree, scope respected, manifest untouched, version unbumped | VERIFIED |
+
+**C1 — the one-shot flag and the shared method exist and force the read**  · status=VERIFIED
+
+- statement: `H500Coordinator.__init__` initialises `self._force_status = False`; a public
+  `async def async_refresh_after_write(self)` sets it True and awaits the refresh; and the status
+  gate in `_poll` reads `if self._force_status or self._polls % self._status_every == 0:`, so a
+  poll whose modulo would skip fetches `hub_status` when the flag is set.
+- verify_predicate: `tests.test_coordinator.WriteConfirmation.test_a_write_forces_the_status_read_on_a_poll_that_would_skip`
+  passes — with `_build(interval=20)` (`_status_every` == 3), `coord._polls = 1` (1 % 3 != 0, the
+  modulo is due to skip) and `coord._force_status = True`, one `_async_update_data()` leaves
+  `"hub_status"` in `client.calls` — AND the gate line
+  `if self._force_status or self._polls % self._status_every == 0:` is present in
+  `custom_components/tapo_h500/coordinator.py`.
+- target_files: `custom_components/tapo_h500/coordinator.py`, `tests/test_coordinator.py`
+- verify_command:
+  `python -B -m unittest tests.test_coordinator.WriteConfirmation.test_a_write_forces_the_status_read_on_a_poll_that_would_skip -v && grep -qF 'if self._force_status or self._polls % self._status_every == 0:' custom_components/tapo_h500/coordinator.py && grep -qF 'async def async_refresh_after_write' custom_components/tapo_h500/coordinator.py && echo "C1 OK"`
+
+**C2 — all three call sites route through it, and the refresh count does not change**  · status=VERIFIED
+
+- statement: `hub_control.py` (1 site) and `siren.py` (2 sites) call
+  `await self.coordinator.async_refresh_after_write()` and no longer call
+  `async_request_refresh` directly; the coordinator contains exactly one
+  `await self.async_request_refresh()` — inside the new method — so each write still causes
+  exactly one refresh, and no module outside `coordinator.py` touches `_force_status`.
+- verify_predicate: `grep -c 'async_refresh_after_write()'` is 1 in `hub_control.py` and 2 in
+  `siren.py`; `grep 'async_request_refresh'` over both files is empty; `coordinator.py` contains
+  exactly one `await self.async_request_refresh()` and exactly three `_force_status = `
+  assignments (init False, method True, gate clear False); no other `.py` under
+  `custom_components/tapo_h500/` mentions `_force_status`; and
+  `tests.test_coordinator.WriteConfirmation.test_the_write_helper_refreshes_exactly_once` passes,
+  asserting the method awaits the instance recorder exactly once and leaves `_force_status` True.
+- target_files: `custom_components/tapo_h500/hub_control.py`, `custom_components/tapo_h500/siren.py`, `custom_components/tapo_h500/coordinator.py`, `tests/test_coordinator.py`
+- verify_command:
+  `test "$(grep -c 'async_refresh_after_write()' custom_components/tapo_h500/hub_control.py)" = 1 && test "$(grep -c 'async_refresh_after_write()' custom_components/tapo_h500/siren.py)" = 2 && test -z "$(grep -n 'async_request_refresh' custom_components/tapo_h500/hub_control.py custom_components/tapo_h500/siren.py)" && test "$(grep -c 'await self.async_request_refresh()' custom_components/tapo_h500/coordinator.py)" = 1 && test "$(grep -c '_force_status = ' custom_components/tapo_h500/coordinator.py)" = 3 && test -z "$(grep -rln '_force_status' custom_components/tapo_h500 --include='*.py' | grep -vx custom_components/tapo_h500/coordinator.py)" && python -B -m unittest tests.test_coordinator.WriteConfirmation.test_the_write_helper_refreshes_exactly_once -v && echo "C2 OK"`
+
+**C3 — NEGATIVE: no write, no status read. The gate still skips.**  · status=VERIFIED
+
+- statement: with `_force_status` left at its default False and the modulo due to skip, a poll does
+  NOT call `hub_status`. This is the claim that pins the fix against a later refactor making the
+  status read unconditional — which is precisely the per-poll session churn the fragile-hardware
+  brief and Okonkwo's dissent warn about. The ordinary poll path gains no hub round trip.
+- verify_predicate: `tests.test_coordinator.WriteConfirmation.test_status_is_still_skipped_when_no_write_asked_for_it`
+  passes — `_build(interval=20)`, `coord._polls = 1`, flag untouched, one `_async_update_data()`,
+  and `client.calls.count("hub_status") == 0`. The test must be genuinely failing against a broken
+  gate: deleting `self._polls % self._status_every == 0` from the condition (leaving the read
+  unconditional) makes it fail with `AssertionError: 1 != 0`, and that inversion is to be run once
+  and recorded here before the claim is marked VERIFIED. The pre-existing cadence test
+  `PollOrdering.test_status_is_not_fetched_on_every_poll` must still pass unchanged, proving the
+  default 3-poll cadence is untouched.
+- target_files: `tests/test_coordinator.py`, `custom_components/tapo_h500/coordinator.py`
+- verify_command:
+  `python -B -m unittest tests.test_coordinator.WriteConfirmation.test_status_is_still_skipped_when_no_write_asked_for_it tests.test_coordinator.PollOrdering.test_status_is_not_fetched_on_every_poll -v && echo "C3 OK"`
+- inversion, run once by the implementer (2026-08-24) and recorded here as the predicate
+  requires — status left CLAIMED, not VERIFIED: replacing the gate with
+  `if self._force_status or True:` (the modulo deleted, the read unconditional) makes
+  `test_status_is_still_skipped_when_no_write_asked_for_it` fail at `tests/test_coordinator.py:470`
+  with exactly `AssertionError: 1 != 0`. `coordinator.py` was restored from a scratch copy
+  immediately afterwards and the gate line re-checked on disk before `tools/verify.sh` was run.
+
+**C4 — the forced read is one-shot, cleared inside the branch it triggers**  · status=VERIFIED
+
+- statement: `self._force_status = False` is the first statement inside the branch the flag
+  triggers, before the `try`, so one forced read follows one write and the next skipping poll
+  reads nothing — and a status read that raises still clears the flag rather than latching the
+  read permanently on.
+- verify_predicate: the line immediately after the gate line in `coordinator.py` is
+  `self._force_status = False` (so the clear is inside the branch and outside the `try`), AND
+  `tests.test_coordinator.WriteConfirmation.test_the_forced_read_happens_once_not_forever` passes —
+  after a forced poll `coord._force_status is False`, and a second `_async_update_data()` with the
+  modulo still due to skip leaves `client.calls.count("hub_status")` at 1.
+- target_files: `custom_components/tapo_h500/coordinator.py`, `tests/test_coordinator.py`
+- verify_command:
+  `grep -A1 -F 'if self._force_status or self._polls % self._status_every == 0:' custom_components/tapo_h500/coordinator.py | grep -qF 'self._force_status = False' && python -B -m unittest tests.test_coordinator.WriteConfirmation.test_the_forced_read_happens_once_not_forever -v && echo "C4 OK"`
+
+**C5 — green tree, scope respected, manifest untouched**  · status=VERIFIED
+
+- statement: `bash tools/verify.sh` exits 0 with a test count of at least the 1148 baseline plus
+  the new `WriteConfirmation` tests; the tracked diff touches only the four owner-glob files plus
+  anything under `.improvement-loop/`; `manifest.json` is byte-identical, so no requirement was
+  added and the version was not bumped.
+- verify_predicate: the allow-list greps out the **whole `.improvement-loop/` prefix** rather than
+  naming files one by one — carried from [B-013] and iteration 2's fix, because every close-out
+  writes `LOG.md`, `BACKLOG.md` and this `LEDGER.md`, and iteration 1's equivalent claim could
+  never pass for omitting them. Command exits 0 and prints `ITER3-GATE OK`; `tools/verify.sh`
+  prints `OK` after its `Ran N tests` line with N >= 1152. Baseline measured at HEAD before any
+  edit: `Ran 1148 tests in 3.167s / OK`, exit 0; the gate command already prints `ITER3-GATE OK`
+  at HEAD (the untracked `tapo-h500-media-session-wedge-development-plan.md` is invisible to
+  `git diff --name-only HEAD`, by design).
+- target_files: `custom_components/tapo_h500/coordinator.py`, `custom_components/tapo_h500/hub_control.py`, `custom_components/tapo_h500/siren.py`, `tests/test_coordinator.py`, `.improvement-loop/**`
+- verify_command:
+  `bash tools/verify.sh && test -z "$(git diff HEAD -- custom_components/tapo_h500/manifest.json)" && test -z "$(git diff --name-only HEAD | grep -vxF -e custom_components/tapo_h500/coordinator.py -e custom_components/tapo_h500/hub_control.py -e custom_components/tapo_h500/siren.py -e tests/test_coordinator.py | grep -v '^\.improvement-loop/')" && echo "ITER3-GATE OK"`
+
+### Audit verdict — iteration 3 (2026-08-24), applied to the statuses above
+
+PASS. C1-C5 were each moved from `CLAIMED` to `VERIFIED` in the table and in the per-claim headers
+above; nothing else in the iteration-3 section was rewritten. Every named symbol was confirmed to
+exist at its cited line, every one to be genuinely called, and every `verify_command` was run with
+its real result line quoted. The tree is green at 1152 tests, up exactly 4 from the 1148 baseline
+with zero test deletions and no weakened assertions; path ownership passes and `manifest.json` is
+byte-identical at 0.123.0. Zero blockers, zero regressions.
+
+One line above is now stale and is deliberately NOT rewritten, per the append-only convention this
+ledger adopted after iteration 1: LEDGER.md:550 reads "status left CLAIMED, not VERIFIED", which was
+true when the implementer recorded the C3 inversion and is false now. It is superseded here. The
+inversion it records was not taken on trust either — the auditor reproduced it independently, in
+memory, and confirmed that `if self._force_status or True:` fails
+`test_status_is_still_skipped_when_no_write_asked_for_it` with exactly `AssertionError: 1 != 0` at
+tests/test_coordinator.py:470, while the pre-fix and latching variants discriminate correctly.
+
+The audit's one [must-fix] is a coverage gap, not a defect in shipped behaviour: the clear at
+coordinator.py:768 sits before the `try:` at :769 and provably cannot latch — confirmed empirically
+against a raising status read — but that position is pinned only by the `grep -A1` inside C4's
+verify_command, which does not survive into the test suite. Carried to BACKLOG.md as [B-017] for
+iteration 4, along with [B-018] (forced reads append off-cadence storage_trend samples) and [B-019]
+(`format_hub_storage` writes and never refreshes — this same defect class at a site C2's scope did
+not cover).

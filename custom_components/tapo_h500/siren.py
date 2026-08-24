@@ -81,11 +81,11 @@ class H500Siren(CoordinatorEntity[H500Coordinator], SirenEntity):
                 volume=None if level is None else hub_volume(level),
                 duration=duration))
         await self._call(partial(self.coordinator.client.set_siren, True))
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_after_write()
 
     async def async_turn_off(self, **kwargs) -> None:
         await self._call(partial(self.coordinator.client.set_siren, False))
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_after_write()
 
     async def _call(self, action) -> None:
         # Deliberately does not refresh: turning on can be two calls, and this

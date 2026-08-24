@@ -1,0 +1,17 @@
+[
+  {
+    "round": 2,
+    "claim": "pytapo bounds only the TCP connect: session.py:100-101 wraps open_connection in wait_for(CONNECTION_TIMEOUT) but the digest-challenge read at line 108 is a bare await self._reader.readuntil(b'\\r\\n\\r\\n') with no timeout.",
+    "slot": 3,
+    "idea_id": "offline-8",
+    "verdict": "verified",
+    "evidence": "session.py:100-101 \"self._reader, self._writer = await asyncio.wait_for(asyncio.open_connection(self.ip, self.port), timeout=CONNECTION_TIMEOUT)\"; session.py:108 \"data = await self._reader.readuntil(b\\\"\\\\r\\\\n\\\\r\\\\n\\\")\" \u2014 no wait_for. Path: /home/sujeo/Development/tapo-h500-for-home-assistant/.venv/lib/python3.14/site-packages/pytapo/media_stream/session.py (pytapo 3.4.18). Only other wait_for in the file is line 486, guarding the post-handshake chunk queue with no_data_timeout, not the handshake. Second handshake read at line 165 and the streaming reads at 246/251/264 are likewise bare."
+  },
+  {
+    "round": 3,
+    "idea_id": "security-2",
+    "claim": "In media.py's async_preview_clip, the only pre-session guard is the clip_path + _has_content cache check at lines 172-174, so any start_time without an existing non-empty .jpg falls through to client.iter_recording at lines 180-182 \u2014 meaning N distinct unvalidated timestamps open N media sessions.",
+    "verdict": "verified",
+    "evidence": "media.py:172-174 `thumbnail = clip_path(hass, camera, start_time, \".jpg\")` / `if await hass.async_add_executor_job(_has_content, thumbnail): return thumbnail`; _has_content is only `path.exists() and path.stat().st_size > 0` (media.py:148), which is true only after a prior ffmpeg run wrote that exact path (media.py:195-200 or async_thumbnail:142). Nothing between line 174 and the `async for chunk in client.iter_recording(camera, start_time, start_time + PREVIEW_SECONDS, kind=\"preview\")` at media.py:180-182 consults a recording index. The HTTP entry point preview.py:52-56 validates only `int()` parseability and `start < 0 or index < 0`, then calls `async_preview_clip(hass, coordinator.client, camera, start)` at preview.py:67 with no membership check against the hub's clip list. api.py:608-610 confirms the cost per call: \"Every call is a whole session of its own: TCP connect, digest challenge, AES key exchange. One at a time\". Failures return None (media.py:201-206) without writing any negative-cache marker, so even a repeated bogus timestamp re-opens a session. Caveat worth flagging to the parent: preview_url uses `async_sign_path` on the fully formatted path including start_time (preview.py:34-39), so one leaked signature authorizes exactly one timestamp \u2014 driving N timestamps requires an actor who can mint N signed paths (an authenticated HA user or the dashboard itself). The code-path claim holds; the \"behind a valid signed URL\" framing is the weaker half."
+  }
+]

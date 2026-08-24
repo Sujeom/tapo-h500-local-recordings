@@ -187,3 +187,74 @@ faces a genuine choice among them.
 `AUTH_ERROR_CODES` has a demonstrated real-hardware arrival on this hub, which is a reachability gap
 rather than a fail-danger, and the evidence costs a real login against hardware that wedges under
 repeated auth. That is the owner's call, not the loop's.
+
+## Iteration 3 close-out (2026-08-24)
+
+**Consumed: `correctness-2`** — "Writing a hub setting refreshes the coordinator but not readings,
+so every control snaps back to its old value". Shipped and audited PASS; do NOT re-mine it. It was
+never a `[B-xxx]` line in this file — it lived on `.improvement-loop/board-iter3.json`, which is the
+candidate pool, so there was nothing here to delete. It has no duplicate id on that board: no other
+entry describes a write that fails to confirm. Two OTHER entries there ARE duplicates of each other
+— `correctness-i2-1` and `offline-7` are the same finding ("a failed automatic download is never
+retried") under two ids, and iteration 4 should score them once, not twice.
+
+**Board state for iteration 4.** `.improvement-loop/board-iter3.json` holds 28 entries; iteration 3
+consumed exactly one (`correctness-2`), leaving 27, or 26 distinct after the duplicate above. The
+board file is left byte-intact as the record of what the council scored, following iteration 2's
+convention.
+
+**`security-2` is disqualified as an ARGUMENT, not as a defect.** It led the raw board at 38.2 and
+was struck premise-false in the iteration-3 premise check: its round-2 claim that preview.py's
+handlers keep a wild `start_time` from producing a user-visible 500 was checked and found false. The
+idea must not be re-crowned on that reasoning. The real defect the check surfaced is filed as [B-020]
+below, and it is a plain correctness bug, not the session-churn hazard security-2 argued for.
+
+### From the iteration-3 audit (2026-08-24) — new findings
+
+- [B-017] [must-fix] No test pins the one-shot clear to its position BEFORE the `try`, so a refactor
+  that moves it inside latches the status read permanently on while all four new tests stay green.
+  `custom_components/tapo_h500/coordinator.py:768` (the clear) vs `:769` (the `try:`);
+  `tests/test_coordinator.py:472-481` is the one-shot test and it does not exercise a raising read.
+  The auditor built the variant: with the clear moved inside the `try` after the `hub_status` call,
+  C1, C3 and C4 all still pass — then with `client.hub_status` raising and the modulo due to skip,
+  four consecutive polls gave `_force_status=True, hub_status called 4 times over 4 skipping polls`,
+  and it never stops. That is continuous extra traffic against hardware this ledger documents as
+  wedging under repeated sessions (`.improvement-loop/LEDGER.md:452-453`), reachable by a refactor
+  the suite cannot see. Today the position is guarded only by a `grep -A1` inside C4's
+  verify_command, which does not survive into the test suite. Three lines close it: set
+  `client.hub_status` to raise, run three skipping polls with the flag set, assert
+  `client.calls.count("hub_status") == 1`. Shipped behaviour is CORRECT — this is a coverage gap.
+
+- [B-018] [polish] Forced status reads append off-cadence `storage_trend` samples, and sustained
+  writes can evict the 24h history until the fill forecast goes unavailable.
+  `custom_components/tapo_h500/coordinator.py:775-778` takes the storage sample inside the branch the
+  new flag can force, and its own comment at `:772-774` says "One sample per status refresh, which is
+  once a minute" — an assumption the write rate now breaks. `const.py:415-429` documents the same
+  cadence and sets `STORAGE_SAMPLES = 1440` / `MIN_TREND_SECONDS = 3600`. Measured against the real
+  `trend_samples`/`fill_rate`/`hours_until_full`: 1440 samples at the documented cadence span 86340s
+  and forecast 99.995 hours; an automation writing a hub setting every 2s for 48 minutes fills the
+  whole cap, the span collapses to 2878s — under `MIN_TREND_SECONDS` — and `hours_until_full`
+  returns None, so `sensor.py:493`'s "full in" sensor goes unavailable and stays that way for an hour
+  after the writes stop. A modest burst is harmless (200 writes moved the fill rate by -0.0%), so
+  this needs a write-heavy automation to bite. One-line fix: sample the trend only when the modulo
+  was actually due.
+
+- [B-019] [future] `format_hub_storage` writes to the hub and never refreshes at all — the same
+  defect class iteration 3 fixed, at a site it did not touch.
+  `custom_components/tapo_h500/__init__.py:472-481`: the service erases every recording
+  (`await hass.async_add_executor_job(coordinator.client.format_storage)`, `:477`) and returns with
+  no refresh, so the storage sensors keep reporting the pre-format used-percent and free-space until
+  the next scheduled status read, up to 60s at the default 2s interval — and after a format that
+  stale figure is maximally wrong. Outside C2's scope, which is explicitly the three callers that
+  already refreshed, so it failed no claim. The new `coordinator.async_refresh_after_write()` is a
+  one-line fix here.
+
+### Surfaced by the iteration-3 premise check — filed here because nobody had
+
+- [B-020] [must-fix] `custom_components/tapo_h500/preview.py:67`
+  (`path = await async_preview_clip(hass, coordinator.client, camera, start)`) sits outside every
+  `try`, so an out-of-range `start_time` raises through the view and returns a 500 with a traceback;
+  `custom_components/tapo_h500/media.py:172-177` also runs above the `try` at `media.py:179`.
+  Surfaced by the iteration-3 premise check that disqualified `security-2` — the disqualification was
+  of the ARGUMENT, not of this defect. Confirmed on disk at close-out: preview.py's only `try` blocks
+  in `get` are at `:51` (the int casts) and `:61-64` (`camera_at`), and `:67` is below both.

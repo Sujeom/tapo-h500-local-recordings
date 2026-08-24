@@ -1,0 +1,50 @@
+[
+  {
+    "id": "C1",
+    "idea": "correctness-2",
+    "concern": "Forcing a status read after every write may cost an extra hub round trip per switch/select/number change, which is the session churn the H500 hardware brief warns against - the fix is only cheap if the refresh poll would have happened anyway rather than adding one.",
+    "raised_round": 1,
+    "status": "resolved",
+    "routed_round": 2,
+    "resolved_round": 2,
+    "resolved_by": "Priya Raman"
+  },
+  {
+    "id": "C2",
+    "idea": "offline-8",
+    "concern": "The premise assumes the handshake inside 'async with session' is genuinely unbounded; if H500MediaSession or the underlying pytapo socket already sets a connect/read timeout, nothing parks forever and the idea collapses.",
+    "raised_round": 1,
+    "status": "resolved",
+    "routed_round": 2,
+    "resolved_round": 2,
+    "resolved_by": "Ada Okonkwo"
+  },
+  {
+    "id": "C3",
+    "idea": "frontend-cards-7",
+    "concern": "The fix only stays cheap if it is a pending-rerun flag; implemented as a plain reload or correlation token it lets two list_recordings calls fly at the hub concurrently, and nothing in tests/test_cards.mjs currently asserts serialization, so the churn could ship unnoticed.",
+    "raised_round": 2,
+    "status": "open"
+  },
+  {
+    "id": "C4",
+    "idea": "offline-8",
+    "concern": "Wrapping the session enter in wait_for cancels a blocked readuntil, but whether pytapo's session closes its writer on cancellation is unverified -- if it does not, every timeout leaks a half-open socket onto the hardware the brief says wedges, which is worse than the parked lock.",
+    "raised_round": 2,
+    "status": "open"
+  },
+  {
+    "id": "C5",
+    "idea": "security-2",
+    "concern": "The residual claim prices N bogus timestamps as N media sessions, but api.py:614 serialises them behind one lock, so the real cost is a queue of 2-second bounded sessions, not concurrency - unless the preview URL is reachable without a valid signature, an attacker must already be an authenticated HA user, which makes the whole hazard a self-inflicted slow queue rather than a security defect.",
+    "raised_round": 3,
+    "status": "open"
+  },
+  {
+    "id": "C6",
+    "idea": "security-2",
+    "concern": "The proposed test (a fake client counting iter_recording calls) pins the clamp, but nothing establishes what the correct clamp bound IS - a timestamp range check needs a source of truth for valid clip times, and if that means asking the hub for the recording list first, the fix adds the very session it is trying to prevent.",
+    "raised_round": 3,
+    "status": "open"
+  }
+]

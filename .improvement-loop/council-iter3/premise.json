@@ -1,0 +1,288 @@
+{
+  "tiers": [
+    {
+      "claims": [
+        {
+          "claim": "custom_components/tapo_h500/media.py:180-182 calls `client.iter_recording(camera, start_time, start_time + PREVIEW_SECONDS, kind=\"preview\")` on the caller-supplied start_time, so every distinct start_time reaching this line opens one hub media session.",
+          "idea": "security-2",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 1,
+          "load_bearing": "This is the single fact security-2 still owns after three withdrawals. If iter_recording is not reached per distinct timestamp (e.g. an earlier guard, a shared session, or a different call shape), the idea has zero surviving defect and nothing to fix."
+        },
+        {
+          "claim": "custom_components/tapo_h500/media.py:172-174 short-circuits only on an existing thumbnail file (`clip_path(...); if _has_content(thumbnail): return thumbnail`), so fabricated/unseen timestamps always miss the cache.",
+          "idea": "security-2",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 1,
+          "load_bearing": "The whole N-timestamps-equals-N-sessions arithmetic depends on the cache being unable to absorb novel timestamps. If the cache keys coarsely (bucketed times, negative caching, per-camera cache) bogus timestamps collapse to few or zero sessions and the hazard disappears."
+        },
+        {
+          "claim": "custom_components/tapo_h500/preview.py:52-56 performs the only input validation on start_time, a sign check (`index, start = int(camera_index), int(start_time) ... if start < 0 or index < 0: return 400`), with no range/window check.",
+          "idea": "security-2",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 1,
+          "load_bearing": "The proposed fix is a retention-window clamp at this site. If validation of the timestamp range already exists anywhere on this path, the fix is a no-op and the idea is re-litigating settled design."
+        },
+        {
+          "claim": "Path traversal is impossible because start_time is int()-cast at preview.py:52 before clip_path builds the filename (claim explicitly WITHDRAWN in round 1).",
+          "idea": "security-2",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 1,
+          "load_bearing": "Inverse load-bearing: the original security framing rested on traversal. Its withdrawal is what demoted security-2 to a session-churn/availability concern; if the withdrawal were wrong, the idea is a much stronger data-leak defect, and if right, the 'security' label is unearned."
+        },
+        {
+          "claim": "preview.py:61-65 wraps camera_at in `except Exception: return web.Response(status=404, text=\"Unknown camera\")` and preview.py:68-71 returns 404 'No preview available' for a wild start_time, so no 500/traceback is user-visible (claim WITHDRAWN in round 2).",
+          "idea": "security-2",
+          "source_persona": "Tomas Lindqvist",
+          "round_first_asserted": 2,
+          "load_bearing": "The '500s with a traceback' half of the original case dies on this. If these handlers do not actually cover the failure path, a user-visible crash returns and security-2 regains a concrete symptom instead of a purely internal churn argument."
+        },
+        {
+          "claim": "media.py:202-206 wraps the whole preview download in `except Exception as err: ... return None`, so the unguarded call at preview.py:67 is harmless (claim WITHDRAWN in round 3).",
+          "idea": "security-2",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 3,
+          "load_bearing": "This retraction removes the last error-handling defect from the case. If the catch is narrower than claimed or does not cover preview.py:67's path, the round-2 'unguarded call' argument revives."
+        },
+        {
+          "claim": "custom_components/tapo_h500/api.py:614 opens every media session under `async with self._lock`, with the docstring at api.py:608-611 stating 'Every call is a whole session of its own... One at a time.'",
+          "idea": "security-2",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 3,
+          "load_bearing": "This is the primary rebuttal (concern C5). If the lock is real and covers the preview path, concurrent session multiplication is structurally impossible and the residual hazard is only a serialized queue; if the lock does not cover iter_recording, the concurrency hazard is back and security-2 survives the rebuttal."
+        },
+        {
+          "claim": "const.py:590-591 sets PREVIEW_SECONDS = 2 and PREVIEW_MAX_BYTES = 262_144, and media.py:183-188 drains to the hub's own `finished` so each session closes cleanly.",
+          "idea": "security-2",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 3,
+          "load_bearing": "These bounds are what reprice each queued unit as a cheap 2-second session rather than an open-ended drain. If either bound is absent, not enforced on this path, or the drain does not close the session, each bogus request becomes expensive and the churn hazard is material again."
+        },
+        {
+          "claim": "The preview endpoint is reachable only behind a valid signed URL, so an attacker must already be an authenticated Home Assistant user.",
+          "idea": "security-2",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 3,
+          "load_bearing": "Concern C5's hinge: if the signature requirement holds, the worst case is a self-inflicted slow queue by an already-trusted user and there is no security defect; if the URL is reachable unsigned, security-2 becomes an unauthenticated remote availability attack and outranks everything else on the board."
+        },
+        {
+          "claim": "There exists a knowable retention window (asserted in round 1 as the hub's 24h retention) that a clamp can be computed against using pure arithmetic, with no network call.",
+          "idea": "security-2",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 1,
+          "load_bearing": "Concern C6: the fix is 'clamp and 400 outside the window'. If no local source of truth for valid clip times exists, the clamp needs the hub's recording list, which adds the very session the fix prevents, and the one-sitting cost estimate collapses."
+        },
+        {
+          "claim": "tests/test_multi_hub.py:188-189 asserts on __init__'s source text (`self.assertIn(\"if not hass.data[DOMAIN].get(DATA_PREVIEW):\", INIT)`) and is the only test naming this view; no test calls get(), leaving the HTTP surface unexercised across the suite's 1148 tests.",
+          "idea": "security-2",
+          "source_persona": "Tomas Lindqvist",
+          "round_first_asserted": 2,
+          "load_bearing": "Used both to explain how a false 500-claim survived and to argue the area is untested. If a behavioral test of the preview view exists, the 'unexercised surface' argument dies and the claimed novelty of the proposed test shrinks."
+        },
+        {
+          "claim": "The proposed fix is testable with a fake client that counts iter_recording calls and asserts an out-of-window request never calls it.",
+          "idea": "security-2",
+          "source_persona": "Idris Bello",
+          "round_first_asserted": 1,
+          "load_bearing": "Falsifiability is the idea's stated advantage under the charter. If the client is not injectable at that seam, the test cannot be written cheaply and the one-sitting scope claim fails."
+        },
+        {
+          "claim": "custom_components/tapo_h500/hub_control.py:37-39 documents the intended behavior as 'One poll after the write, not one per call: this hub is easy to overload', i.e. apply() promises a confirming poll and already schedules a refresh.",
+          "idea": "correctness-2",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 1,
+          "load_bearing": "Establishes both the intent being violated and the round-2 rebuttal that the fix adds zero polls. If apply() does not actually schedule a refresh poll, the fix must add a poll and directly collides with the overload constraint that supposedly protects it."
+        },
+        {
+          "claim": "custom_components/tapo_h500/coordinator.py:754-756 gates the status re-read behind a counter: `if self._polls % self._status_every == 0: self.readings = hub_readings(...)`, so the post-write poll usually does not refresh hub status.",
+          "idea": "correctness-2",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 1,
+          "load_bearing": "This is the entire bug. If the scheduled post-write refresh bypasses the modulo, or _status_every is 1 in practice, readings are already fresh after a write and there is no snap-back to fix."
+        },
+        {
+          "claim": "Switch/select/number entities render from self.readings, so a stale readings dict makes the control snap back to the old value for up to a minute after a user write.",
+          "idea": "correctness-2",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 1,
+          "load_bearing": "The user-visible symptom and the entire payoff. If entities keep optimistic state (assumed_state, write-through cache, or their own attribute) until the next real status, nothing snaps back and the defect is invisible."
+        },
+        {
+          "claim": "coordinator.py:749-753 shows the status fetch is a control-channel round trip moved late for notification latency ('every notification waited on a round trip fetching LED state and storage figures'), not a login or media session, and does not touch port 8800.",
+          "idea": "correctness-2",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 2,
+          "load_bearing": "Resolves the added-traffic objection (C1). If forcing a status read re-authenticates or opens the kind of session the hardware brief names as wedging, the fix violates the same constraint that sank other ideas."
+        },
+        {
+          "claim": "The fix is a single `_force_status` flag set by apply() and consumed by the modulo check, testable by setting _status_every=5, calling apply, and asserting readings changed on the very next poll.",
+          "idea": "correctness-2",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 1,
+          "load_bearing": "Carries the one-sitting, one-revert, falsifiable scope claim. If _status_every or the poll loop is not injectable/settable in tests, or apply() and the poll live on objects that cannot share the flag, the cheap-and-testable case fails."
+        },
+        {
+          "claim": "status.py:212-216 defines `hub_readings(status: dict, now: float | None = None) -> dict`, the pure transform the coordinator applies to fetched status.",
+          "idea": "correctness-2",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 2,
+          "load_bearing": "Supports the claim that the only added cost is one client.hub_status call, since the conversion itself is local and free. If hub_readings itself performs I/O, the per-user-action cost estimate is wrong."
+        },
+        {
+          "claim": "The docstrings cited in hub_control.py and coordinator.py read as design intent describing what the code does, not as stale or aspirational comments.",
+          "idea": "correctness-2",
+          "source_persona": "Priya Raman",
+          "round_first_asserted": 1,
+          "load_bearing": "The mismatch between hub_control.py:37's promise and coordinator.py:754's behavior is the whole framing. If the docstring is stale or describes a different poll path, there is no broken promise, only a comment to update."
+        }
+      ],
+      "checks": [
+        {
+          "idea_id": "security-2",
+          "overall": "premise-false",
+          "verdicts": [
+            {
+              "claim": "media.py:180-182 calls client.iter_recording(camera, start_time, start_time+PREVIEW_SECONDS, kind=\"preview\") on the caller-supplied start_time, so every distinct start_time opens one hub media session.",
+              "verdict": "verified",
+              "evidence": "media.py:180-182 `async for chunk in client.iter_recording(camera, start_time, start_time + PREVIEW_SECONDS, kind=\"preview\"):`; api.py:608 docstring `Every call is a whole session of its own`; api.py:622 constructs H500MediaSession per call.",
+              "falsifier": "I looked for an earlier guard between preview.py:52 and media.py:180 (none beyond the sign check), a shared/reused session object (api.py builds a fresh H500MediaSession inside each call, api.py:622-634), and any per-camera coalescing of in-flight previews (none). Only serialization exists (api.py:614 lock).",
+              "search_strategy": "Read media.py:150-210 and api.py:604-700 in full; grepped for iter_recording callers and _lock uses in api.py."
+            },
+            {
+              "claim": "media.py:172-174 short-circuits only on an existing thumbnail file, so unseen timestamps always miss the cache.",
+              "verdict": "verified",
+              "evidence": "media.py:172-174 `thumbnail = clip_path(hass, camera, start_time, \".jpg\")` / `if await hass.async_add_executor_job(_has_content, thumbnail): return thumbnail`; _has_content (media.py:147-148) is `path.exists() and path.stat().st_size > 0`.",
+              "falsifier": "I looked for bucketed/coarse keying, negative caching, or an in-memory per-camera cache. clip_path (media.py:57-66) keys per camera slug, per day dir, per HHMMSS \u2014 one file per distinct second, no bucketing and no record of failed lookups (failures return None, media.py:192/201/206 without writing a marker).",
+              "search_strategy": "Read clip_path, _has_content, async_preview_clip bodies; grepped media.py for cache/lru/dict-based memoization around preview."
+            },
+            {
+              "claim": "preview.py:52-56 is the only validation of start_time \u2014 an int cast plus a sign check, no range/window check.",
+              "verdict": "verified",
+              "evidence": "preview.py:52-56 `index, start = int(camera_index), int(start_time)` ... `if start < 0 or index < 0: return web.Response(status=400, ...)`.",
+              "falsifier": "I traced the whole downstream path for a range check: clip_path only checks the path stays under media_root (media.py:64), async_preview_clip has no time check, api.iter_recording/build_download_payload (api.py:68-82) pass start_time straight into the payload as a string. No LOOKBACK/now comparison anywhere on the path.",
+              "search_strategy": "Read preview.py end to end, media.py:57-66 and 150-210, api.py:68-82 and 604-700; grepped api.py/const.py for LOOKBACK/window/retention guards."
+            },
+            {
+              "claim": "Path traversal is impossible because start_time is int()-cast before clip_path builds the filename (WITHDRAWN).",
+              "verdict": "verified",
+              "evidence": "preview.py:52 int cast; media.py:58-60 builds the name from `moment.strftime('%H%M%S')`; media.py:64-65 `if not path.is_relative_to(root): raise HomeAssistantError(...)`.",
+              "falsifier": "I looked for any string interpolation of the raw start_time into a path, or a path built before the int cast. There is none: the view rejects non-int with 400 (preview.py:53-54), and clip_path re-casts int(start_time) at media.py:58 and enforces containment. Withdrawal was correct; the 'security' label is unearned on traversal grounds.",
+              "search_strategy": "Read clip_path and camera_dir; grepped media.py for f-string path construction using start_time."
+            },
+            {
+              "claim": "preview.py:61-65 and 68-71 mean no 500/traceback is user-visible for a wild start_time (WITHDRAWN in round 2).",
+              "verdict": "false",
+              "evidence": "preview.py:67 `path = await async_preview_clip(hass, coordinator.client, camera, start)` is not inside any try; media.py:172 calls clip_path before media.py:179 `try:`.",
+              "falsifier": "I checked whether every failure for a large start_time is funnelled into the 404 at preview.py:68-71. It is not: clip_path runs at media.py:172, outside async_preview_clip's try (which opens at line 179), and dt_util.utc_from_timestamp(int) raises for out-of-range values. Verified the underlying stdlib behaviour: datetime.fromtimestamp(10**12, UTC) -> `ValueError: year must be in 1..9999, not 33658`; 10**20 -> OverflowError. So GET .../preview/<entry>/0/1000000000000 raises out of preview.py:67 and aiohttp returns 500 with a traceback. The 404 handlers cover unknown camera and hub-refused previews only.",
+              "search_strategy": "Read preview.py:48-77 numbered; read media.py:172-210 numbered to locate the try boundary; ran python3 datetime.fromtimestamp probes at 1e10/1e11/1e12/1e20."
+            },
+            {
+              "claim": "media.py:202-206 wraps the whole preview download in except Exception -> return None, so preview.py:67 is harmless (WITHDRAWN in round 3).",
+              "verdict": "overstated",
+              "evidence": "media.py:179 `try:` \u2014 media.py:202 `except Exception as err:`; but media.py:172-177 (clip_path, _has_content, _make_temp, os.fdopen) sit above the try.",
+              "falsifier": "I checked exactly which statements the catch covers. It covers the iter_recording drain, the write, and the ffmpeg run \u2014 but not the four setup statements at 172-177. Those can raise: clip_path's timestamp conversion (see the false claim above), clip_path's HomeAssistantError at media.py:65, and _make_temp's mkdir/mkstemp OSError (media.py:128-130). Each escapes to the unguarded preview.py:67. The catch is real but narrower than 'the whole preview download'.",
+              "search_strategy": "Read media.py:127-131 and 168-210 with line numbers; confirmed no outer try in preview.py around line 67."
+            },
+            {
+              "claim": "api.py:614 opens every media session under `async with self._lock`, docstring at 608-611 says every call is a whole session, one at a time.",
+              "verdict": "verified",
+              "evidence": "api.py:614 `async with self._lock:`; api.py:608-610 `Every call is a whole session of its own: TCP connect, digest challenge, AES key exchange. One at a time`; api.py:227 `self._lock = asyncio.Lock()`.",
+              "falsifier": "I checked the lock is an asyncio.Lock (not the separate threading RLock `_hub_lock` at api.py:235) and that it wraps the entire generator body including the session construction and the drain loop (api.py:614-690, with the finally logging inside). It does. Preview and download share the same client instance and therefore the same lock, so sessions cannot multiply concurrently \u2014 the residual hazard is a serialized queue, not concurrent session churn.",
+              "search_strategy": "Grepped api.py for `_lock` occurrences; read api.py:604-700."
+            },
+            {
+              "claim": "const.py:590-591 sets PREVIEW_SECONDS = 2 and PREVIEW_MAX_BYTES = 262_144, and media.py:183-188 drains to the hub's own `finished`.",
+              "verdict": "verified",
+              "evidence": "const.py:590-591 `PREVIEW_SECONDS = 2` / `PREVIEW_MAX_BYTES = 262_144`; media.py:186-188 caps writing only; api.py:663-667 sets `finished = True` on the hub's stream_status notification.",
+              "falsifier": "I looked for the cap being used to break out of the loop early (it is not \u2014 media.py:183-185 comment and the `if received < PREVIEW_MAX_BYTES` guard only stop writing) and for the session ending without the hub's notification: api.py:670-673 raises IncompleteRecordingError `H500 closed the stream without a finished notification`, so a clean close is the normal exit. Bounds are enforced on this exact path.",
+              "search_strategy": "Grepped const.py/media.py for PREVIEW_SECONDS/PREVIEW_MAX_BYTES; read api.py's stream loop 640-690."
+            },
+            {
+              "claim": "The preview endpoint is reachable only behind a valid signed URL, so an attacker must already be an authenticated Home Assistant user.",
+              "verdict": "verified",
+              "evidence": "preview.py:42 `class H500PreviewView(HomeAssistantView)` with no requires_auth override; preview.py:33-38 `async_sign_path(hass, PREVIEW_PATH.format(...), URL_LIFETIME)`.",
+              "falsifier": "I grepped the whole component and test suite for `requires_auth` \u2014 zero hits, so HomeAssistantView's default (auth required; a signed path or a bearer token) applies. I also checked registration (__init__.py:237 `hass.http.register_view(H500PreviewView())`) for any auth bypass wrapper: none. Caveat: the 'default is True' fact lives in Home Assistant core, not in this repo (homeassistant is not installed here), so it is inferred from the framework contract plus the absence of an override.",
+              "search_strategy": "grep -rn 'requires_auth' custom_components/ tests/ (no hits); grep for register_view; read preview.py fully."
+            },
+            {
+              "claim": "A knowable retention window exists locally, so a clamp is pure arithmetic with no network call.",
+              "verdict": "verified",
+              "evidence": "const.py:169 `LOOKBACK_SECONDS = 86400`; coordinator.py:550 `return (self.data or {}).get(\"clips\", {}).get(index, [])`.",
+              "falsifier": "I looked for whether validating a timestamp would require asking the hub. It would not: LOOKBACK_SECONDS is a module constant, and the coordinator already holds the polled clip list per camera in memory (coordinator.py:901 `return {\"clips\": clips_by_camera, \"hub\": self.readings}`), reachable from the view via the same coordinator object it already fetches at preview.py:58. Both a `now - LOOKBACK_SECONDS` arithmetic clamp and an exact membership check are local. The 'hub holds 24h' framing matches clips.py:301 `the integration holds 24 hours, not a database` \u2014 that is a comment, but const.py:169 backs it in code.",
+              "search_strategy": "grep -rn 'retention|24h|LOOKBACK' over custom_components and docs; read const.py:165-170, coordinator.py:546-552 and 895-905."
+            },
+            {
+              "claim": "tests/test_multi_hub.py:188-189 asserts on __init__'s source text and is the only test naming this view; no test calls get(), across 1148 tests.",
+              "verdict": "verified",
+              "evidence": "tests/test_multi_hub.py:188-189 `def test_the_preview_view_is_registered_once(self):` / `self.assertIn(\"if not hass.data[DOMAIN].get(DATA_PREVIEW):\", INIT)`.",
+              "falsifier": "I searched every test file for the view class, the module, the URL constant, and any HTTP-style invocation. No test imports custom_components.tapo_h500.preview or instantiates H500PreviewView; tests/test_media_session.py exercises media.async_preview_clip directly (bypassing the view), tests/test_latest_frame.py stubs it out, and tests/test_faces.py:324 only asserts the string \"preview_url\" appears in the card body. Test count confirmed: summing `def test_` across tests/*.py gives exactly 1148. The HTTP surface \u2014 including the int-cast/sign-check branch and the uncaught call at preview.py:67 \u2014 is unexercised.",
+              "search_strategy": "grep -rn 'H500PreviewView|PreviewView|from .preview|import preview|PREVIEW_PATH|preview_url' tests/*.py; grep -rc 'def test_' tests/*.py | awk sum -> 1148; read tests/test_multi_hub.py:180-196."
+            },
+            {
+              "claim": "The fix is testable with a fake client that counts iter_recording calls and asserts an out-of-window request never calls it.",
+              "verdict": "verified",
+              "evidence": "tests/test_media_session.py:88-99 `_Client` with `self.sessions = 0` and `async def iter_recording(...): self.sessions += 1`, driven at line 132 `media.async_preview_clip(_Hass(), client, CAMERA, START)`.",
+              "falsifier": "I checked the seam is injectable without patching internals: async_preview_clip takes `client` as a positional parameter (media.py:151-153) and the view passes `coordinator.client` (preview.py:67), so a fake with a `sessions` counter drops in at either level. The exact counting fake already exists and is used, so the proposed test is a few lines on an existing harness \u2014 but note it would be a second test of async_preview_clip, not of the view, unless the clamp is placed in preview.py.",
+              "search_strategy": "Read tests/test_media_session.py:80-135; read media.py's async_preview_clip signature and preview.py's call site."
+            }
+          ]
+        },
+        {
+          "idea_id": "correctness-2",
+          "overall": "premise-holds",
+          "verdicts": [
+            {
+              "claim": "hub_control.py:37-39 documents 'One poll after the write...' and apply() already schedules a refresh.",
+              "verdict": "verified",
+              "evidence": "hub_control.py:37-39 \"# One poll after the write, not one per call: this hub is easy to overload\" followed by \"await self.coordinator.async_request_refresh()\"; module docstring line 5 \"poll once afterwards so the new value is not guessed at\".",
+              "falsifier": "I looked for apply() lacking any refresh call, or a refresh that is conditional/commented out; line 39 is unconditional after a successful write. I also checked siren.py:84,88 which use the same pattern.",
+              "search_strategy": "Read hub_control.py in full; grep -rn 'async_request_refresh' over custom_components/tapo_h500/."
+            },
+            {
+              "claim": "coordinator.py:753-756 gates the status re-read behind `if self._polls % self._status_every == 0`, so the post-write poll usually does not refresh hub status.",
+              "verdict": "verified",
+              "evidence": "coordinator.py:753 \"if self._polls % self._status_every == 0:\" then 755-756 \"self.readings = hub_readings(await self.hass.async_add_executor_job(self.client.hub_status))\".",
+              "falsifier": "I checked whether the refresh path bypasses the gate (there is only one caller of client.hub_status, inside the gate \u2014 grep found exactly coordinator.py:756) and whether _status_every is 1 in practice: const.py:155 STATUS_MAX_AGE=60, const.py:139 DEFAULT_POLL_INTERVAL=2, coordinator.py:112 `self._status_every = max(1, round(STATUS_MAX_AGE / interval))` \u2192 30 at defaults. Only a configured interval of >=60s collapses it to 1. Cited line range in the claim (754-756) is off by one; content matches.",
+              "search_strategy": "grep -n 'hub_status|_status_every|_polls|self.readings' coordinator.py; grep -rn STATUS_MAX_AGE, DEFAULT_POLL_INTERVAL in const.py."
+            },
+            {
+              "claim": "Switch/select/number entities render from self.readings, so a stale readings dict snaps the control back to the old value for up to a minute.",
+              "verdict": "verified",
+              "evidence": "switch.py:95-96 \"def is_on(self) -> bool | None: return self.entity_description.value(self.readings)\"; select.py:49 \"tone = self.readings.get(\\\"siren_tone\\\")\"; number.py:68 same pattern; hub_control.py:30 \"return self.coordinator.readings\".",
+              "falsifier": "I grepped for optimistic-state escape hatches \u2014 `assumed_state`, a local `_attr_is_on`/write-through cache, or async_write_ha_state after the write \u2014 across custom_components and tests: zero hits for assumed_state, and no entity stores the written value. Worst-case staleness is _status_every polls x interval = 30 x 2s = 60s at defaults, matching 'up to a minute'.",
+              "search_strategy": "grep -rn 'assumed_state' custom_components tests (0 hits); grep -n 'readings|is_on|current_option|native_value|async_write_ha_state' switch.py select.py number.py; read hub_control.py."
+            },
+            {
+              "claim": "The status fetch is a control-channel round trip moved late for notification latency, not a login or media session, and does not touch port 8800.",
+              "verdict": "verified",
+              "evidence": "coordinator.py:749-751 \"Status last, and not every poll... so every notification waited on a round trip fetching LED state and storage figures\"; api.py:511-513 hub_status is \"Every hub-level reading in a single round trip\" via one multipleRequest on self._hub.",
+              "falsifier": "I traced client.hub_status into api.py:510-523: it takes _hub_lock and calls self._hub.performRequest \u2014 the same Tapo control client used by every other poll \u2014 with no login/connect call in the body. The only port-8800 code is check_media_port (api.py:85) and the separate media session client (api.py:625), neither reachable from hub_status. Line numbers are slightly off (the fetch is 755-756; 749-753 is the comment and the gate).",
+              "search_strategy": "sed api.py:505-545; grep -rn '8800' custom_components/*.py and docs/*.md; grep -n '_hub' api.py."
+            },
+            {
+              "claim": "The fix is a single _force_status flag set by apply() and consumed by the modulo check, testable by setting _status_every=5, calling apply, and asserting readings changed on the next poll.",
+              "verdict": "verified",
+              "evidence": "tests/test_coordinator.py:363 \"coord._polls = 0                       # force a refresh attempt\" and 400 \"self.assertEqual(fast._status_every, round(const.STATUS_MAX_AGE / 2))\" show both counters are plain, settable attributes driven directly in tests.",
+              "falsifier": "I checked that apply() and the poll can share state \u2014 hub_control.py:39 holds self.coordinator, and the gate at coordinator.py:753 is a coordinator method, so one instance attribute reaches both. I also checked tests can drive a poll without HA: tests call asyncio.run(coord._async_update_data()) against a fake client (test_coordinator.py:350,358). Caveat, not a falsification: no existing test constructs a H500HubSwitch/apply(), so the test as literally worded needs an entity+hass stub, or must set the flag on the coordinator directly; grep -rln 'H500HubSwitch|hub_control|async_turn_on' tests/ returned only tests/test_snooze.py.",
+              "search_strategy": "grep -n '_poll()|_polls|_status_every' tests/test_coordinator.py; grep -rln 'H500HubSwitch|hub_control|async_turn_on' tests/."
+            },
+            {
+              "claim": "status.py:212-216 defines hub_readings(status: dict, now: float | None = None) -> dict, a pure transform.",
+              "verdict": "verified",
+              "evidence": "status.py:212-216 \"def hub_readings(status: dict, now: float | None = None) -> dict:\" ... \"`now` exists so the clock comparison is deterministic under test.\"",
+              "falsifier": "I read the whole function body (status.py:212-300+) looking for network or filesystem work \u2014 it is dict digging, gigabytes()/_on()/dig()/clock_offset()/used_audio_slots() over the passed-in dict; no client, no requests, no open(). So the only added cost of forcing a status read is the one client.hub_status round trip.",
+              "search_strategy": "Read status.py:200-300; grep within the function for 'client|request|open('  (0 hits)."
+            },
+            {
+              "claim": "The cited docstrings read as design intent describing what the code does, not stale or aspirational comments.",
+              "verdict": "verified",
+              "evidence": "hub_control.py:3-5 \"poll once afterwards so the new value is not guessed at\"; coordinator.py:749-752 \"Status last, and not every poll... Poll 0 still fetches it, so nothing is blank on startup.\"",
+              "falsifier": "I checked each comment against the adjacent code rather than trusting it: hub_control's claim of a post-write poll matches line 39; coordinator's claim of a gated, last-position status read matches lines 753-756 exactly (including the poll-0 case, since 0 % N == 0). Neither describes an alternate poll path. The mismatch is real and narrow: hub_control promises a confirming poll, coordinator's poll usually skips the status read that would confirm it. I saw no comment addressed to a reviewer or steering a verdict in the files read.",
+              "search_strategy": "Read hub_control.py fully and coordinator.py:640-790; grep -rn 'hub_status' coordinator.py to confirm one call site only."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

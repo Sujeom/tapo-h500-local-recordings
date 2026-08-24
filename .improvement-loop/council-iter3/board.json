@@ -1,0 +1,86 @@
+{
+  "ideas": {
+    "frontend-cards-7": {
+      "raw": 16.5,
+      "adjusted": 14.5,
+      "rounds_active": 2,
+      "champions": 1,
+      "per_round": 7.3,
+      "per_arg": 7.3,
+      "peak": 8.5,
+      "factors": {
+        "I": 14,
+        "F": 18,
+        "E": 18,
+        "D": 16
+      }
+    },
+    "correctness-1": {
+      "raw": 4.8,
+      "adjusted": 4.8,
+      "rounds_active": 1,
+      "champions": 1,
+      "per_round": 4.8,
+      "per_arg": 4.8,
+      "peak": 4.8,
+      "factors": {
+        "I": 3,
+        "F": 9,
+        "E": 3,
+        "D": 4
+      }
+    },
+    "correctness-2": {
+      "raw": 15.5,
+      "adjusted": 15.5,
+      "rounds_active": 2,
+      "champions": 1,
+      "per_round": 7.8,
+      "per_arg": 7.8,
+      "peak": 8,
+      "factors": {
+        "I": 16,
+        "F": 16,
+        "E": 16,
+        "D": 14
+      }
+    },
+    "offline-8": {
+      "raw": 16.3,
+      "adjusted": 14.3,
+      "rounds_active": 2,
+      "champions": 1,
+      "per_round": 7.2,
+      "per_arg": 7.2,
+      "peak": 8.5,
+      "factors": {
+        "I": 16,
+        "F": 15,
+        "E": 18,
+        "D": 16
+      }
+    },
+    "security-2": {
+      "raw": 38.2,
+      "adjusted": 34.2,
+      "rounds_active": 3,
+      "champions": 3,
+      "per_round": 11.4,
+      "per_arg": 3.8,
+      "peak": 8.3,
+      "factors": {
+        "I": 25,
+        "F": 40,
+        "E": 44,
+        "D": 43
+      }
+    }
+  },
+  "agents": {
+    "Mei Sato": 16.5,
+    "Tomas Lindqvist": 12.3,
+    "Priya Raman": 23.8,
+    "Ada Okonkwo": 16.3,
+    "Idris Bello": 22.4
+  }
+}

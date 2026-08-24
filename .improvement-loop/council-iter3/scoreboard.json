@@ -1,0 +1,206 @@
+{
+  "entries": [
+    {
+      "round": 1,
+      "persona": "Mei Sato",
+      "idea": "frontend-cards-7",
+      "impact": 7,
+      "feasibility": 9,
+      "evidence": 9,
+      "debate_value": 7,
+      "blend": 8,
+      "stance": "propose",
+      "da": false,
+      "line": "- [Mei Sato] -> \"frontend-cards-7\" (propose): I opened the card myself: the _busy early-return at 482, the 60s setInterval at 441, and the _onClick path at 516-520 are all exactly as quoted, so a click landing mid-poll really does render an empty list; fix is genuinely five lines with an existing test harness, and it prices its rival honestly. [I7 F9 E9 D7 \u2192 8] {custom_components/tapo_h500/www/tapo-h500-card.js:481-482, custom_components/tapo_h500/www/tapo-h500-card.js:441, custom_components/tapo_h500/www/tapo-h500-card.js:516-520, tests/test_cards.mjs:641-647}"
+    },
+    {
+      "round": 1,
+      "persona": "Tomas Lindqvist",
+      "idea": "correctness-1",
+      "impact": 3,
+      "feasibility": 9,
+      "evidence": 3,
+      "debate_value": 4,
+      "blend": 4.8,
+      "stance": "propose",
+      "da": false,
+      "line": "- [Tomas Lindqvist] -> \"correctness-1\" (propose): The key mismatch is real and firsthand (repairs.py:114-115 vs status.py:237-239), but the load-bearing sweeping negative is FALSE - tests/test_platforms.py:106-127 has a Repairs class and grepping tests/ for _storage returns hits at lines 114 and 119 - and the author concedes the user-visible effect is one warning that never fires. [I3 F9 E3 D4 \u2192 4.8] {custom_components/tapo_h500/repairs.py:114-115, custom_components/tapo_h500/status.py:237-239, tests/:n/a (relayed)}"
+    },
+    {
+      "round": 1,
+      "persona": "Priya Raman",
+      "idea": "correctness-2",
+      "impact": 8,
+      "feasibility": 8,
+      "evidence": 8,
+      "debate_value": 6,
+      "blend": 7.5,
+      "stance": "propose",
+      "da": false,
+      "line": "- [Priya Raman] -> \"correctness-2\" (propose): Both halves check out firsthand - hub_control.py:37-39 schedules async_request_refresh while coordinator.py:753 gates the status read behind self._polls % self._status_every, so a write really can snap back for up to a minute; the single-flag fix respects the hardware constraint, though it engages no rival. [I8 F8 E8 D6 \u2192 7.5] {custom_components/tapo_h500/hub_control.py:37-39, custom_components/tapo_h500/coordinator.py:754-756}"
+    },
+    {
+      "round": 1,
+      "persona": "Ada Okonkwo",
+      "idea": "offline-8",
+      "impact": 8,
+      "feasibility": 7,
+      "evidence": 9,
+      "debate_value": 7,
+      "blend": 7.8,
+      "stance": "propose",
+      "da": false,
+      "line": "- [Ada Okonkwo] -> \"offline-8\" (propose): Verified at api.py:614-643 and coordinator.py:772/809-811: the lock is taken with no timeout and both wedge probes skip while it is held, so one stuck handshake blinds the sensor and queues everything behind it; feasibility docked only because the bound is hardware guesswork, honestly flagged. [I8 F7 E9 D7 \u2192 7.8] {custom_components/tapo_h500/api.py:614, custom_components/tapo_h500/api.py:635-643, custom_components/tapo_h500/coordinator.py:772-773, custom_components/tapo_h500/coordinator.py:767-769, custom_components/tapo_h500/coordinator.py:809-811}"
+    },
+    {
+      "round": 1,
+      "persona": "Idris Bello",
+      "idea": "security-2",
+      "impact": 5,
+      "feasibility": 8,
+      "evidence": 8,
+      "debate_value": 8,
+      "blend": 7.3,
+      "stance": "refine",
+      "da": false,
+      "line": "- [Idris Bello] -> \"security-2\" (refine): Exactly the charter's premise-truth discipline: preview.py:52-56 confirms the int() cast kills the traversal claim and the author withdrew it unprompted, leaving the verifiable session-churn hazard at media.py:180-182; remaining impact is modest since clamping absurd inputs does not bound concurrency, as admitted. [I5 F8 E8 D8 \u2192 7.3] {custom_components/tapo_h500/preview.py:52-56, custom_components/tapo_h500/media.py:180-182, custom_components/tapo_h500/media.py:172-174}"
+    },
+    {
+      "round": 2,
+      "persona": "Tomas Lindqvist",
+      "idea": "security-2",
+      "impact": 4,
+      "feasibility": 8,
+      "evidence": 9,
+      "debate_value": 9,
+      "blend": 7.5,
+      "stance": "attack",
+      "assigned": "security-2",
+      "da": false,
+      "line": "- [Tomas Lindqvist] -> \"security-2\" (attack vs assigned:\"security-2\"): Assigned attack lands and I verified it: preview.py:61-65 really does wrap camera_at in except Exception -> 404 and line 71 catches the wild start_time, so the '500s with a traceback' half is false; the test-surface negative also checks out (tests/ reference the view only as source text at test_multi_hub.py:189), leaving security-2 with almost nothing user-visible. [I4 F8 E9 D9 \u2192 7.5] {custom_components/tapo_h500/preview.py:64-65, custom_components/tapo_h500/preview.py:68-71, tests/test_multi_hub.py:188-189, custom_components/tapo_h500/www/tapo-h500-card.js:481-482 (relayed)}"
+    },
+    {
+      "round": 2,
+      "persona": "Mei Sato",
+      "idea": "frontend-cards-7",
+      "impact": 7,
+      "feasibility": 9,
+      "evidence": 9,
+      "debate_value": 9,
+      "blend": 8.5,
+      "stance": "defend",
+      "assigned": "correctness-1",
+      "da": false,
+      "line": "- [Mei Sato] -> \"frontend-cards-7\" (defend vs assigned:\"correctness-1\"): Met the assignment the hard way -- steelmanned correctness-1 with a verified fix pattern (test_platforms.py:60-64 compares the allow-list against set(status.hub_readings({}))) before rejecting it on charter clause (b) for zero observed harm, and declined to bundle frontend-cards-2; every quote I opened matched. [I7 F9 E9 D9 \u2192 8.5] {tests/test_platforms.py:119-120, tests/test_platforms.py:53-54, tests/test_platforms.py:60-64, custom_components/tapo_h500/www/tapo-h500-card.js:622, custom_components/tapo_h500/www/tapo-h500-card.js:481-482 (relayed)}"
+    },
+    {
+      "round": 2,
+      "persona": "Idris Bello",
+      "idea": "security-2",
+      "impact": 5,
+      "feasibility": 8,
+      "evidence": 9,
+      "debate_value": 9,
+      "blend": 7.8,
+      "stance": "refine",
+      "assigned": "frontend-cards-7",
+      "da": false,
+      "line": "- [Idris Bello] -> \"security-2\" (refine vs assigned:\"frontend-cards-7\"): Honest concession on the assigned idea plus a real constraint I confirmed -- _load calls list_recordings at card.js:485, so _busy is a hub-traffic guard and the fix must serialize, not parallelize; the security-2 narrowing to the unguarded async_preview_clip at preview.py:67 is exactly right but the residual payoff stays modest. [I5 F8 E9 D9 \u2192 7.8] {custom_components/tapo_h500/preview.py:61-67, custom_components/tapo_h500/preview.py:67, custom_components/tapo_h500/www/tapo-h500-card.js:485-489, custom_components/tapo_h500/www/tapo-h500-card.js:481-482 (relayed)}"
+    },
+    {
+      "round": 2,
+      "persona": "Ada Okonkwo",
+      "idea": "offline-8",
+      "impact": 8,
+      "feasibility": 8,
+      "evidence": 9,
+      "debate_value": 9,
+      "blend": 8.5,
+      "stance": "defend",
+      "assigned": "C2\u2192assigned",
+      "da": true,
+      "line": "- [Ada Okonkwo] [DA] -> \"offline-8\" (defend vs assigned:\"C2\u2192assigned\"): C2 answered with the decisive firsthand read: pytapo session.py:100-101 bounds only open_connection, while line 108's readuntil(b'\\r\\n\\r\\n') has no timeout -- the exact 'silent' wedge api.py:95 names -- which both narrows the fix to one wait_for and makes it testable with a never-returning fake. [I8 F8 E9 D9 \u2192 8.5] {.venv/lib/python3.14/site-packages/pytapo/media_stream/session.py:100-108, custom_components/tapo_h500/api.py:94-95, custom_components/tapo_h500/www/tapo-h500-card.js:441 (relayed)}"
+    },
+    {
+      "round": 2,
+      "persona": "Priya Raman",
+      "idea": "correctness-2",
+      "impact": 8,
+      "feasibility": 8,
+      "evidence": 8,
+      "debate_value": 8,
+      "blend": 8,
+      "stance": "defend",
+      "assigned": "C1\u2192assigned",
+      "da": false,
+      "line": "- [Priya Raman] -> \"correctness-2\" (defend vs assigned:\"C1\u2192assigned\"): C1 priced rather than dodged: coordinator.py:749-756 confirms the status read is a control-channel round trip gated by the modulo and moved late for notification latency, not an auth or 8800 session, so the cost is one extra control read per human action -- docked slightly because hub_control.py:37-39 is relayed and the rival jab is thin. [I8 F8 E8 D8 \u2192 8] {custom_components/tapo_h500/coordinator.py:749-753, custom_components/tapo_h500/status.py:212-216, custom_components/tapo_h500/hub_control.py:37-39 (relayed)}"
+    },
+    {
+      "round": 3,
+      "persona": "Priya Raman",
+      "idea": "security-2",
+      "impact": 7,
+      "feasibility": 8,
+      "evidence": 9,
+      "debate_value": 9,
+      "blend": 8.3,
+      "stance": "attack",
+      "da": true,
+      "line": "- [Priya Raman] [DA] -> \"security-2\" (attack): Devil's advocate attack lands and I verified every load-bearing quote firsthand: api.py:614 really is 'async with self._lock' with the docstring at 608-611 stating the one-at-a-time invariant, const.py:590-591 confirms PREVIEW_SECONDS=2/PREVIEW_MAX_BYTES=262_144, and media.py:180-188 shows the deliberate drain-to-finished, so the 'burst multiplies sessions' framing is structurally wrong and the champion concedes next slot; docked slightly on Impact because the argument's own payoff is redirecting to a rival idea rather than a fix, and the 'considered design' step leans on docstring prose. [I7 F8 E9 D9 \u2192 8.3] {custom_components/tapo_h500/api.py:608-614, custom_components/tapo_h500/const.py:590-591, custom_components/tapo_h500/media.py:160-167, custom_components/tapo_h500/media.py:180-188, custom_components/tapo_h500/preview.py:52-56 (relayed)}"
+    },
+    {
+      "round": 3,
+      "persona": "Idris Bello",
+      "idea": "security-2",
+      "impact": 4,
+      "feasibility": 8,
+      "evidence": 9,
+      "debate_value": 8,
+      "blend": 7.3,
+      "stance": "defend",
+      "da": false,
+      "line": "- [Idris Bello] -> \"security-2\" (defend): An honest, verified capitulation: media.py:202-206 does wrap the whole download in 'except Exception -> return None', killing the author's own R2 narrowing, and the surviving residual (media.py:180-182 reached for every distinct start_time, cache short-circuit at 172-174 only hitting already-rendered timestamps) checks out firsthand and is genuinely testable with a call-counting fake; Impact is low by the author's own admission that this is the thinnest user-visible payoff on the board, and Debate-value is high for the concession but not top because it advances no new attack. [I4 F8 E9 D8 \u2192 7.3] {custom_components/tapo_h500/media.py:202-206, custom_components/tapo_h500/media.py:180-182, custom_components/tapo_h500/media.py:172-174, custom_components/tapo_h500/preview.py:52-56, custom_components/tapo_h500/preview.py:61-67}"
+    }
+  ],
+  "renames": [],
+  "adjustments": [
+    {
+      "idea": "frontend-cards-7",
+      "delta": -2,
+      "reason": "open concern C3: The fix only stays cheap if it is a pending-rerun flag; implemented as a plain reload or correlation token it lets two list_recordings calls fly at the hub concurrently, and nothing in tests/test_cards.mjs currently asserts serialization, so the churn could ship unnoticed.",
+      "step": "pre-verify"
+    },
+    {
+      "idea": "offline-8",
+      "delta": -2,
+      "reason": "open concern C4: Wrapping the session enter in wait_for cancels a blocked readuntil, but whether pytapo's session closes its writer on cancellation is unverified -- if it does not, every timeout leaks a half-open socket onto the hardware the brief says wedges, which is worse than the parked lock.",
+      "step": "pre-verify"
+    },
+    {
+      "idea": "security-2",
+      "delta": -2,
+      "reason": "open concern C5: The residual claim prices N bogus timestamps as N media sessions, but api.py:614 serialises them behind one lock, so the real cost is a queue of 2-second bounded sessions, not concurrency - unless the preview URL is reachable without a valid signature, an attacker must already be an authenticated HA user, which makes the whole hazard a self-inflicted slow queue rather than a security defect.",
+      "step": "pre-verify"
+    },
+    {
+      "idea": "security-2",
+      "delta": -2,
+      "reason": "open concern C6: The proposed test (a fake client counting iter_recording calls) pins the clamp, but nothing establishes what the correct clamp bound IS - a timestamp range check needs a source of truth for valid clip times, and if that means asking the hub for the recording list first, the fix adds the very session it is trying to prevent.",
+      "step": "pre-verify"
+    }
+  ],
+  "registry": {
+    "correctness-2": {
+      "title": "Confirming poll skips hub status",
+      "origin_round": 1,
+      "origin_persona": "Priya Raman",
+      "one_liner": "I'll take correctness-2, and I opened both halves because premise-truth is the charter. hub_control.apply promises a con"
+    },
+    "offline-8": {
+      "title": "Bound the media handshake",
+      "origin_round": 1,
+      "origin_persona": "Ada Okonkwo",
+      "one_liner": "I take offline-8, and I verified the premise myself rather than trusting the board. In `iter_recording` the single clien"
+    }
+  }
+}
