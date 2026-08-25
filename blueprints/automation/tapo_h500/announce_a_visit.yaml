@@ -77,6 +77,27 @@ blueprint:
       selector:
         boolean:
 
+    announce_from:
+      name: Announce from
+      description: >-
+        Optional. Stay silent outside this window. A speaker in the hallway is
+        welcome at six in the evening and not at four in the morning, and the
+        night gate above is the opposite question — it decides whether to speak
+        ONLY after dark, where this decides when speaking is allowed at all.
+        Both ends must be set or the window is ignored; half a window is a
+        guess about which half was meant. A window that wraps midnight is
+        understood.
+      default: ""
+      selector:
+        time:
+
+    announce_until:
+      name: ...until
+      description: The end of the window. Ignored unless both are set.
+      default: ""
+      selector:
+        time:
+
     snooze_entity:
       name: Snooze switch
       description: >-
@@ -148,11 +169,30 @@ conditions:
     value_template: >-
       {{ not input_snooze_entity
          or states(input_snooze_entity) != 'on' }}
+  # An allowed window, not a quiet one: silent outside it. Wrap-around is the
+  # case worth the extra branch -- 22:00 to 07:00 is one night, and comparing
+  # the clock against both ends the obvious way makes it the empty set.
+  - condition: template
+    value_template: >-
+      {%- if not input_announce_from or not input_announce_until -%}
+        {{ true }}
+      {%- else -%}
+        {%- set clock = now().strftime('%H:%M') -%}
+        {%- set start = input_announce_from[0:5] -%}
+        {%- set finish = input_announce_until[0:5] -%}
+        {%- if start <= finish -%}
+          {{ start <= clock < finish }}
+        {%- else -%}
+          {{ clock >= start or clock < finish }}
+        {%- endif -%}
+      {%- endif -%}
 
 variables:
   input_detections: !input detections
   input_who: !input who
   input_night_only: !input night_only
+  input_announce_from: !input announce_from
+  input_announce_until: !input announce_until
   input_snooze_entity: !input snooze_entity
   input_tts_entity: !input tts_entity
   input_speaker: !input speaker

@@ -7,6 +7,7 @@ thing that matters about the event -- that it does not turn back into sixteen
 messages, and that it stays quiet when it has been told to.
 """
 import asyncio
+from datetime import datetime
 import importlib
 import re
 import sys
@@ -60,11 +61,16 @@ def _passes(index: int, data: dict, **context) -> bool:
         input_who=context.get("who", "anyone"),
         input_night_only=context.get("night_only", False),
         input_snooze_entity=context.get("snooze", ""),
+        input_announce_from=context.get("announce_from", ""),
+        input_announce_until=context.get("announce_until", ""),
+        # Home Assistant supplies now(); the window gate is the only condition
+        # that reads the clock, so the test decides what time it is.
+        now=lambda: datetime.strptime(context.get("clock", "12:00"), "%H:%M"),
     )
     return rendered.strip().lower() == "true"
 
 
-DETECTIONS, WHO, NIGHT, SNOOZE = 0, 1, 2, 3
+DETECTIONS, WHO, NIGHT, SNOOZE, WINDOW = 0, 1, 2, 3, 4
 
 
 class Structure(unittest.TestCase):
@@ -123,6 +129,45 @@ class QuietWhenTold(unittest.TestCase):
     def test_no_snooze_switch_is_not_a_snooze(self):
         """An unset optional entity must not read as "always silent"."""
         self.assertTrue(_passes(SNOOZE, VISIT, snooze="", state="on"))
+
+    def test_no_window_is_not_a_closed_window(self):
+        """Both ends unset means announce whenever, not announce never. Half a
+        window is a guess about which half was meant, so it is ignored too."""
+        self.assertIs(INPUTS["announce_from"]["default"], "")
+        self.assertIs(INPUTS["announce_until"]["default"], "")
+        self.assertTrue(_passes(WINDOW, VISIT, clock="03:00"))
+        self.assertTrue(_passes(WINDOW, VISIT, announce_from="08:00",
+                                clock="03:00"))
+        self.assertTrue(_passes(WINDOW, VISIT, announce_until="22:00",
+                                clock="03:00"))
+
+    def test_a_daytime_window_speaks_inside_it_and_not_outside(self):
+        day = {"announce_from": "08:00", "announce_until": "22:00"}
+        for clock in ("08:00", "12:00", "21:59"):
+            with self.subTest(clock=clock):
+                self.assertTrue(_passes(WINDOW, VISIT, clock=clock, **day))
+        for clock in ("07:59", "22:00", "03:00"):
+            with self.subTest(clock=clock):
+                self.assertFalse(_passes(WINDOW, VISIT, clock=clock, **day))
+
+    def test_a_window_that_wraps_midnight_is_one_night_not_an_empty_set(self):
+        """The case the extra branch exists for. Comparing the clock against
+        both ends the obvious way makes 22:00-07:00 match nothing at all."""
+        night = {"announce_from": "22:00", "announce_until": "07:00"}
+        for clock in ("22:00", "23:30", "00:01", "06:59"):
+            with self.subTest(clock=clock):
+                self.assertTrue(_passes(WINDOW, VISIT, clock=clock, **night))
+        for clock in ("07:00", "12:00", "21:59"):
+            with self.subTest(clock=clock):
+                self.assertFalse(_passes(WINDOW, VISIT, clock=clock, **night))
+
+    def test_the_window_accepts_a_seconds_suffix(self):
+        """HA's time selector hands back HH:MM:SS, so the gate slices to five
+        characters. A window stored with seconds must behave the same."""
+        self.assertTrue(_passes(WINDOW, VISIT, announce_from="08:00:00",
+                                announce_until="22:00:00", clock="12:00"))
+        self.assertFalse(_passes(WINDOW, VISIT, announce_from="08:00:00",
+                                 announce_until="22:00:00", clock="03:00"))
 
     def test_it_announces_every_visit_by_default(self):
         """An empty detection list is no filter. A blueprint that shipped with
