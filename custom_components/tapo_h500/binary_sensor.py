@@ -383,8 +383,13 @@ class H500CameraSilent(H500Entity, BinarySensorEntity):
         # camera's own expectation -- a busy doorbell that should have
         # produced three events by now is flagged in hours, not in a day.
         # The adaptive half can only ever flag EARLIER than the ceiling.
-        return (seconds >= silent_threshold(self.coordinator)
-                or self._expected() >= SILENT_EXPECTED)
+        tripped = (seconds >= silent_threshold(self.coordinator)
+                   or self._expected() >= SILENT_EXPECTED)
+        # Latched, because the expectation decays: its baseline is the clips
+        # still inside the poll window, and they age out while the camera
+        # stays dark. Without this the sensor trips in the evening and reads
+        # healthy again by midnight, with the camera still dead.
+        return self.coordinator.latch_silent(self.index, tripped)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -395,6 +400,10 @@ class H500CameraSilent(H500Entity, BinarySensorEntity):
             # Why it is on, when it is on early -- and how close it is when
             # it is not.
             "expected_events": round(self._expected(), 1),
+            # ...and why it is still on once that number has decayed away,
+            # which otherwise reads as a sensor stuck for no reason.
+            "held_since_last_recording": self.coordinator.silent_latched(
+                self.index),
         }
 
 

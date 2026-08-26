@@ -92,6 +92,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # would skip it; at a 2s interval status is every 30th poll, so
         # without this a control snaps back to its old value for a minute.
         self._force_status = False
+        # Which cameras are currently held as silent, and the activity stamp
+        # they were holding at. Only a newer recording clears one.
+        self._silent_latched: dict[int, int | None] = {}
         self._failures = 0
         # Who has already been seen today, and which day that refers to.
         self._arrived: set[str] = set()
@@ -649,6 +652,42 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         if last is None:
             return LOOKBACK_SECONDS
         return max(0, int(dt_util.utcnow().timestamp()) - last)
+
+    def latch_silent(self, index: int, tripped: bool) -> bool:
+        """Hold a silence alarm until the camera actually records again.
+
+        The adaptive half of the test un-fires as the silence lengthens, and
+        that is the opposite of what a watchdog owes anyone. Its baseline is
+        drawn from the clips still inside the poll window, so the evidence
+        ages out while the camera stays dark: a doorbell doing thirty a day
+        trips at nine hours, reads healthy again at twelve as its own history
+        scrolls out of the window, and predicts nothing at all past a day.
+        Measured against a real outage, not reasoned about.
+
+        The ceiling still catches it at the configured hours, so the fault was
+        never invisible -- but an alarm that switches itself off while the
+        fault is still there is worse than one that never fired, because the
+        dashboard says fine and the automation sees no transition to act on.
+
+        So the trip latches, and only the camera recording again clears it --
+        the same rule the restart breaker uses, for the same reason.
+        """
+        last = self.last_activity(index)
+        if index in self._silent_latched:
+            # A stamp that has moved is a recording that arrived after the
+            # alarm tripped. Nothing else counts as recovery: the expectation
+            # falling back under its line is the decay this exists to ignore.
+            if last is not None and last != self._silent_latched[index]:
+                del self._silent_latched[index]
+            else:
+                return True
+        if tripped:
+            self._silent_latched[index] = last
+        return tripped
+
+    def silent_latched(self, index: int) -> bool:
+        """Whether this camera's alarm is being held rather than re-proved."""
+        return index in self._silent_latched
 
     def tampered(self, within: int) -> list[tuple[str, int]]:
         """Every report of a camera being interfered with, newest first.

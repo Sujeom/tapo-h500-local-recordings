@@ -267,3 +267,129 @@ class AdaptiveSensorWiring(unittest.TestCase):
     def test_the_expectation_is_shown_alongside_the_silence(self):
         attrs = self.BODY.split("extra_state_attributes", 1)[1]
         self.assertIn("expected_events", attrs)
+
+
+class TheAlarmDoesNotSwitchItselfOff(unittest.TestCase):
+    """A watchdog whose evidence expires is a watchdog that lies.
+
+    `expected_since` draws its baseline from the clips still inside the poll
+    window. While a camera is dark those clips age out, so the expectation
+    climbs, peaks, and then falls back through its own alarm line with the
+    camera still dead. The ceiling catches it eventually; between the two the
+    sensor reads healthy, which is worse than never having fired.
+    """
+
+    # The Side Doorbell's real histogram, measured off the hub during the
+    # 2026-08-25 outage: recordings per local hour across the two days before
+    # it went dark. Clustered, not sprinkled -- that is what makes the rate
+    # collapse as the window scrolls, and a uniform stand-in does not
+    # reproduce the bug at all.
+    SHAPE = {0: {14: 1, 17: 1, 19: 6, 20: 3, 22: 2, 23: 6},
+             1: {0: 4, 1: 1, 10: 1, 12: 1, 13: 2, 14: 3}}
+
+    @classmethod
+    def _real_shape(cls) -> tuple[list[dict], int]:
+        clips = [{"startTime": at_local_hour(day, hour, n * 7), "endTime": 0}
+                 for day, hours in cls.SHAPE.items()
+                 for hour, count in hours.items()
+                 for n in range(count)]
+        return clips, max(c["startTime"] for c in clips)
+
+    def _score_at(self, clips, last, hours) -> float:
+        """What the adaptive half computes `hours` into the outage, with the
+        window aged exactly as the coordinator would age it."""
+        now = last + hours * 3600
+        indexed = [c for c in clips
+                   if c["startTime"] >= now - const.LOOKBACK_SECONDS]
+        if not indexed:
+            return 0.0
+        return clips_mod.expected_since(
+            indexed, last, now, const.LOOKBACK_SECONDS)
+
+    def test_the_expectation_decays_to_nothing_while_the_camera_is_dead(self):
+        """The bug this class exists for, shown rather than asserted.
+
+        Past the poll window there is no history left to measure against, so
+        the adaptive half scores zero at the exact point the camera is most
+        certainly dead. The existing coverage missed it by passing the same
+        clip list at every `now`, which is the one thing the real coordinator
+        never does.
+        """
+        clips, last = self._real_shape()
+        peak = max(self._score_at(clips, last, h) for h in range(1, 25))
+        self.assertGreater(peak, 0.0, "it should score something while dark")
+        self.assertEqual(self._score_at(clips, last, 36), 0.0)
+        self.assertLess(self._score_at(clips, last, 36), peak,
+                        "a longer outage must never score lower than a shorter one")
+
+    def test_the_latch_is_what_keeps_it_on_through_the_decay(self):
+        """End to end, at the level this harness can reach.
+
+        The sensor computes a verdict and hands it to latch_silent. So feed
+        the REAL verdict sequence -- recomputed hour by hour against a window
+        that ages exactly as the coordinator ages it -- and show two things:
+        the raw verdict really does fall back to False while the camera is
+        still dark, and the latched one does not. Without the second half
+        this test would pass against the unlatched code and prove nothing.
+        """
+        clips, last = self._real_shape()
+        raw, latched = [], []
+        coord, client = build()
+        client.clips = [{"startTime": last, "endTime": last + 15}]
+        poll(coord)
+        for hours in range(6, 25, 3):
+            verdict = self._score_at(clips, last, hours) >= const.SILENT_EXPECTED
+            raw.append(verdict)
+            latched.append(coord.latch_silent(0, verdict))
+        self.assertIn(True, raw, "the outage must trip at some point")
+        self.assertIn(False, raw[raw.index(True):],
+                      "and the raw verdict must fall back -- that IS the bug")
+        held = latched[raw.index(True):]
+        self.assertTrue(all(held),
+                        f"the latch must hold once tripped, got {latched}")
+
+    def test_a_tripped_alarm_is_held_while_the_camera_stays_dark(self):
+        coord, client = build()
+        client.clips = [{"startTime": NOW - 60, "endTime": NOW - 45}]
+        poll(coord)
+        self.assertTrue(coord.latch_silent(0, True))     # trips
+        # ...and now the expectation decays away underneath it.
+        self.assertTrue(coord.latch_silent(0, False))
+        self.assertTrue(coord.latch_silent(0, False))
+        self.assertTrue(coord.silent_latched(0))
+
+    def test_only_a_new_recording_clears_it(self):
+        coord, client = build()
+        client.clips = [{"startTime": NOW - 60, "endTime": NOW - 45}]
+        poll(coord)
+        coord.latch_silent(0, True)
+        self.assertTrue(coord.latch_silent(0, False))
+        # The camera records again: the one thing that counts as recovery.
+        client.clips = [{"startTime": NOW + 600, "endTime": NOW + 615}]
+        poll(coord)
+        self.assertFalse(coord.latch_silent(0, False))
+        self.assertFalse(coord.silent_latched(0))
+
+    def test_a_camera_that_never_recorded_stays_held(self):
+        """last_activity is None for a camera dark longer than the window.
+        None must not read as "it recorded something new"."""
+        coord, client = build()
+        client.clips = [{"startTime": NOW - 60, "endTime": NOW - 45}]
+        poll(coord)
+        self.assertIsNone(coord.last_activity(1))
+        self.assertTrue(coord.latch_silent(1, True))
+        self.assertTrue(coord.latch_silent(1, False))
+
+    def test_an_untripped_camera_is_not_latched_by_asking(self):
+        coord, client = build()
+        client.clips = [{"startTime": NOW - 60, "endTime": NOW - 45}]
+        poll(coord)
+        self.assertFalse(coord.latch_silent(0, False))
+        self.assertFalse(coord.silent_latched(0))
+
+    def test_the_sensor_says_when_it_is_being_held(self):
+        body = BINARY_SENSOR.split("class H500CameraSilent", 1)[1].split(
+            "\nclass ", 1)[0]
+        self.assertIn("latch_silent", body.split("def is_on", 1)[1])
+        self.assertIn("held_since_last_recording",
+                      body.split("extra_state_attributes", 1)[1])
