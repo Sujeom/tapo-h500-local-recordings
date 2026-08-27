@@ -211,8 +211,16 @@ conditions:
           - condition: template
             value_template: >-
               {% set wanted = input_detections | map('int') | list %}
-              {{ (state_attr(trigger.entity_id, 'detection_types') or [])
-                 | select('in', wanted) | list | count > 0 }}
+              {% set seen = state_attr(trigger.entity_id, 'detection_types')
+                            or [] %}
+              {#- Unclassified passes. An empty list is the hub having indexed
+                  the clip before its detection log caught up -- the event
+                  carries real timing and a picture, and the classification
+                  lands moments later. Dropping it loses the visitor outright,
+                  which is not what a filter for "only these detections" was
+                  ever meant to do. A populated list still has to match. -#}
+              {{ not seen
+                 or seen | select('in', wanted) | list | count > 0 }}
           # Optional gate: only notify while some other entity is in a given state.
           - condition: template
             value_template: >-

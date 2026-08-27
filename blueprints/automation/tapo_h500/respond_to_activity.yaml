@@ -178,8 +178,11 @@ conditions:
   - condition: template
     value_template: >-
       {% set wanted = input_detections | map('int') | list %}
-      {{ (state_attr(trigger.entity_id, 'detection_types') or [])
-         | select('in', wanted) | list | count > 0 }}
+      {% set seen = state_attr(trigger.entity_id, 'detection_types') or [] %}
+      {#- Unclassified passes: the clip was indexed before the detection log
+          caught up, so the list is empty for a moment. Acting on it beats
+          silently doing nothing. A populated list still has to match. -#}
+      {{ not seen or seen | select('in', wanted) | list | count > 0 }}
   # The night gate, decided by the integration rather than re-implemented
   # here: a window that wraps midnight is the obvious thing to get wrong.
   - condition: template

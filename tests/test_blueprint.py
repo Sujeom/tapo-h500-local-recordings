@@ -187,6 +187,42 @@ class FirstEventAfterRestart(unittest.TestCase):
 
     NOW = 1_786_600_000.0
 
+    @staticmethod
+    def _detection_filter(seen, wanted):
+        """Render the detection-type condition exactly as HA would."""
+        import types
+        import jinja2
+        template = next(
+            inner["value_template"]
+            for outer in DOC["conditions"] for inner in
+            outer.get("conditions", [{}])[-1].get("conditions", [])
+            if "detection_types" in inner.get("value_template", ""))
+        env = jinja2.Environment()  # noqa: S701 - not HTML
+        rendered = env.from_string(template).render(
+            input_detections=wanted,
+            trigger=types.SimpleNamespace(entity_id="event.front_activity"),
+            state_attr=lambda entity, attribute: seen)
+        return rendered.strip() == "True"
+
+    def test_an_unclassified_event_still_notifies(self):
+        """The real failure, from a trace on 2026-08-27: the hub indexes a
+        clip before its detection log catches up, so the event fires with
+        `detection_types: []` -- real timing, real picture, no classification
+        yet. The old filter asked "does this list intersect the wanted one",
+        which an empty list never can, so the visitor was dropped outright and
+        no selection of codes could ever have recovered them.
+        """
+        self.assertTrue(self._detection_filter([], ["17", "6", "9"]))
+        self.assertTrue(self._detection_filter(None, ["17", "6", "9"]))
+
+    def test_a_classified_event_is_still_filtered(self):
+        """The half that must not regress. Passing the unclassified case is
+        only correct while a populated list is still held to the selection --
+        otherwise this stops being a filter at all."""
+        self.assertFalse(self._detection_filter([2, 8], ["17", "6", "9"]))
+        self.assertTrue(self._detection_filter([2, 6], ["17", "6", "9"]))
+        self.assertTrue(self._detection_filter([2, 22], ["22"]))
+
     def _passes(self, from_state, to_state):
         import datetime, types
         import jinja2

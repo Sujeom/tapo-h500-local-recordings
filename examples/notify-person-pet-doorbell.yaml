@@ -40,8 +40,11 @@ conditions:
   # at once, so a person who also triggers plain motion still matches.
   - condition: template
     value_template: >-
-      {{ (state_attr(trigger.entity_id, 'detection_types') or [])
-         | select('in', [6, 9, 17]) | list | count > 0 }}
+      {% set seen = state_attr(trigger.entity_id, 'detection_types') or [] %}
+      {#- Unclassified passes: the hub indexes the clip before its detection
+          log catches up, so the list is briefly empty and the visitor would
+          otherwise be dropped entirely. -#}
+      {{ not seen or seen | select('in', [6, 9, 17]) | list | count > 0 }}
 
 actions:
   - variables:
