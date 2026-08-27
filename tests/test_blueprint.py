@@ -204,6 +204,28 @@ class FirstEventAfterRestart(unittest.TestCase):
             state_attr=lambda entity, attribute: seen)
         return rendered.strip() == "True"
 
+    @staticmethod
+    def _message(who, seen):
+        """Render the notification body exactly as HA would."""
+        import jinja2
+        line = next(l.strip() for l in RAW.splitlines()
+                    if "{{ when }}" in l and "seen" in l)
+        return jinja2.Environment().from_string(line).render(  # noqa: S701
+            who=who, seen=seen, when="10:11 AM").strip()
+
+    def test_an_unclassified_event_reads_as_a_sentence(self):
+        """The unclassified event has no description, and the message used to
+        interpolate it anyway: "Activity at Side Doorbell" / ", 10:11 AM".
+        A leading comma is how a notification announces that the automation
+        that sent it is broken."""
+        self.assertEqual(self._message("", ""), "10:11 AM")
+        self.assertNotIn(",", self._message("", ""))
+
+    def test_a_described_event_still_reads_normally(self):
+        self.assertEqual(self._message("", "a person"), "a person, 10:11 AM")
+        self.assertEqual(self._message("Alice", "a doorbell press"),
+                         "Alice — a doorbell press, 10:11 AM")
+
     def test_an_unclassified_event_still_notifies(self):
         """The real failure, from a trace on 2026-08-27: the hub indexes a
         clip before its detection log catches up, so the event fires with

@@ -429,7 +429,7 @@ actions:
     data:
       title: "{{ headline }}"
       message: >-
-        {% if who %}{{ who }} — {% endif %}{{ seen }}, {{ when }}
+        {% if who %}{{ who }} — {% endif %}{% if seen %}{{ seen }}, {% endif %}{{ when }}
       data:
         tag: "tapo-h500-{{ camera }}"
         # An unfamiliar face at night gets a high-importance channel, which is
@@ -460,7 +460,7 @@ actions:
         data:
           title: "{{ headline }}"
           message: >-
-            {% if who %}{{ who }} — {% endif %}{{ seen }}, {{ when }}
+            {% if who %}{{ who }} — {% endif %}{% if seen %}{{ seen }}, {% endif %}{{ when }}
           data:
             image: "{{ frame }}"
             tag: "tapo-h500-{{ camera }}"
