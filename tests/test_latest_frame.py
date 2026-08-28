@@ -214,3 +214,61 @@ class HealsWithTheHub(unittest.TestCase):
         coord.media_status = "healthy"
         coord.note_media_status("healthy")
         self.assertEqual(coord._frame_attempts, {0: 123})
+
+
+IMAGE_SOURCE = (COMPONENT / "image.py").read_text()
+
+
+def _stamp_code() -> str:
+    """The BODY of _stamp with its docstring removed.
+
+    The docstring explains the old bug and therefore contains the very text
+    these tests search for; matching against it would pass on prose alone.
+    """
+    body = IMAGE_SOURCE.split("class H500EventImage", 1)[1].split(
+        "\nclass ", 1)[0]
+    stamp = body.split("def _stamp", 1)[1].split("async def", 1)[0]
+    return stamp.split('"""')[-1] if '"""' in stamp else stamp
+
+
+class ThePictureSaysHowOldItIs(unittest.TestCase):
+    """A wedged camera serves its last frame forever, and a still picture
+    cannot say so itself. The timestamp has to.
+
+    `image_last_updated` was stamped with `utcnow()` -- the moment Home
+    Assistant was told to look -- so a frame from last night reported itself
+    as seconds old. The module docstring says the timestamp exists so
+    "anyone looking at it can see how old it is instead of wondering whether
+    they are looking at now", which is exactly what stamping now() defeats.
+    """
+
+    def test_the_stamp_is_the_events_moment_not_the_lookup(self):
+        code = _stamp_code()
+        self.assertIn("last_activity", code)
+        self.assertIn("utc_from_timestamp", code)
+
+    def test_now_survives_only_as_the_no_activity_fallback(self):
+        """A camera that has produced nothing has no truer answer -- but
+        now() must not be reachable when an event exists, or the bug is
+        back."""
+        code = _stamp_code()
+        head, sep, tail = code.partition("else")
+        self.assertTrue(sep, "the fallback must be an explicit else branch")
+        self.assertNotIn("utcnow()", head,
+                         "now() must not answer when an event exists")
+        self.assertIn("utcnow()", tail)
+
+    def test_the_age_is_published_for_a_person_to_read(self):
+        body = IMAGE_SOURCE.split("class H500EventImage", 1)[1].split(
+            "\nclass ", 1)[0]
+        attrs = body.split("extra_state_attributes", 1)[1]
+        self.assertIn("frame_taken", attrs)
+        self.assertIn("frame_age_seconds", attrs)
+
+    def test_the_coordinator_answers_what_the_stamp_asks_for(self):
+        """The stamp reads last_activity, so it must mean the newest event."""
+        coord, _ = harness._build()
+        coord.clips_for = lambda index: [clip(NOW - 3600), clip(NOW - 600)]
+        self.assertEqual(coord.last_activity(0), NOW - 600)
+        coord.clips_for = lambda index: []
+        self.assertIsNone(coord.last_activity(0))

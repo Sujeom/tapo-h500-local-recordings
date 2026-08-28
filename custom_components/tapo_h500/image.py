@@ -78,7 +78,25 @@ class H500EventImage(H500Entity, ImageEntity):
 
     @callback
     def _stamp(self) -> None:
-        self._attr_image_last_updated = dt_util.utcnow()
+        """Timestamp the picture with when it was TAKEN, not when we looked.
+
+        `utcnow()` here was the whole reason a frame from last night read as
+        seconds old: the frontend was being told the picture had just changed
+        every time anything asked it to look. That is the exact confusion the
+        module docstring says this timestamp exists to prevent, so it now
+        reports the newest event's own moment.
+
+        Home Assistant re-fetches when this value changes, and it still does:
+        a new event means a newer moment. Two stamps for the SAME event now
+        collapse to one value, which is correct -- the second stamp exists for
+        the download landing after the fetch, and by then the entity has the
+        frame it was waiting for either way. Falls back to now() only when the
+        camera has produced nothing at all, where there is no truer answer.
+        """
+        moment = self.coordinator.last_activity(self.index)
+        self._attr_image_last_updated = (
+            dt_util.utc_from_timestamp(moment) if moment is not None
+            else dt_util.utcnow())
         self.async_write_ha_state()
 
     async def async_image(self) -> bytes | None:
@@ -90,6 +108,23 @@ class H500EventImage(H500Entity, ImageEntity):
     @property
     def image_last_updated(self) -> datetime | None:
         return self._attr_image_last_updated
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """How old the picture is, in the words a person would use.
+
+        A camera that has wedged keeps serving its last frame forever, and a
+        still picture cannot say so itself. This can: the age is the signal
+        that what you are looking at is not what is happening now.
+        """
+        moment = self.coordinator.last_activity(self.index)
+        if moment is None:
+            return {"frame_taken": None, "frame_age_seconds": None}
+        age = max(0, int(dt_util.utcnow().timestamp()) - moment)
+        return {
+            "frame_taken": dt_util.utc_from_timestamp(moment).isoformat(),
+            "frame_age_seconds": age,
+        }
 
 
 class H500ContactSheet(H500Entity, ImageEntity):
