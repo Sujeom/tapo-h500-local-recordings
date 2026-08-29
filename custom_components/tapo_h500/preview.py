@@ -64,12 +64,30 @@ class H500PreviewView(HomeAssistantView):
         except Exception:
             return web.Response(status=404, text="Unknown camera")
 
-        path = await async_preview_clip(hass, coordinator.client, camera, start)
+        try:
+            path = await async_preview_clip(
+                hass, coordinator.client, camera, start)
+        except Exception as err:  # noqa: BLE001 - a preview must not 500
+            # async_preview_clip catches its own download failures, but the
+            # lines that set the session up -- building the path, making the
+            # temp file -- run above that guard, and a start_time outside the
+            # hub's retention reaches them. Unhandled, this view answers a
+            # dashboard tile with a stack trace.
+            _LOGGER.debug("Preview for clip %s failed: %s", start, err)
+            path = None
         if path is None:
             # The card renders a missing image as a blank tile, which is the
             # right outcome for a clip the hub would not preview.
             return web.Response(status=404, text="No preview available")
-        image = await hass.async_add_executor_job(path.read_bytes)
+        try:
+            image = await hass.async_add_executor_job(path.read_bytes)
+        except OSError as err:
+            # Retention runs on its own schedule and does not know a request
+            # is in flight, so the frame can be pruned between being made and
+            # being read.
+            _LOGGER.debug("Preview %s vanished before it was read: %s",
+                          path, err)
+            return web.Response(status=404, text="No preview available")
         return web.Response(
             body=image, content_type="image/jpeg",
             # Immutable: a clip's opening frame never changes, and the signed
