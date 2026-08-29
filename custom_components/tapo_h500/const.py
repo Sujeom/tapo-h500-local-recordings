@@ -172,6 +172,13 @@ POLL_BACKOFF_MAX = 300
 POLL_IDLE_AFTER = 600
 POLL_IDLE_INTERVAL = 6
 
+# How much of the wedge log to keep. The hub records none of this, and
+# Home Assistant keeps binary sensor history only until the recorder
+# purges it -- ten days by default, where the interesting question is
+# whether this hub is getting worse over months. Ninety days of onset
+# timestamps is a few hundred floats at the observed rate.
+WEDGE_HISTORY_SECONDS = 90 * 86400
+
 STATUS_MAX_AGE = 60
 CAMERAS_MAX_AGE = 300
 # An H500 with TD21 doorbells labels every clip video_type "2", so ring-only

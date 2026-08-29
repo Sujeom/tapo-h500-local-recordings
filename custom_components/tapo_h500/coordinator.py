@@ -36,6 +36,7 @@ from .const import (
     FIRMWARE_CHECK_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
     MEDIA_EVIDENCE_MAX_AGE,
     POLL_BACKOFF_MAX, POLL_IDLE_AFTER, POLL_IDLE_INTERVAL, PROWL_WINDOW,
+    WEDGE_HISTORY_SECONDS,
     SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
 )
@@ -167,6 +168,13 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # confirmed empty answer. Stale evidence plus an indexed clip is
         # what triggers the deep check.
         self._media_evidence = 0.0
+        # The wedge record. Onset times, and when the current healthy run
+        # began. The hub keeps no such history, and by the time anybody asks
+        # how often this happens the evidence is a month of anecdote.
+        self.wedges: list[float] = []
+        self._healthy_since = dt_util.utcnow().timestamp()
+        self._longest_healthy = 0.0
+        self._was_wedged = False
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
@@ -1130,6 +1138,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
     def note_empty_download(self) -> None:
         self._empty_downloads += 1
         self._media_evidence = dt_util.utcnow().timestamp()
+        self._note_wedge_state()
 
     def note_served_download(self) -> None:
         recovering = self.media_serving_empty
@@ -1147,6 +1156,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             # refetch per clip.
             self._frame_attempts.clear()
             self._retry_failed_clips()
+        self._note_wedge_state()
 
     def _remember_failed_clip(self, index: int, start_time: int) -> None:
         """Remember a clip that did not download, for one more try later.
@@ -1191,6 +1201,66 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         if status == "healthy" and self.media_status == "wedged":
             self._frame_attempts.clear()
         self.media_status = status
+        self._note_wedge_state()
+
+    @property
+    def media_wedged(self) -> bool:
+        """Whether the hub is refusing to serve recordings right now.
+
+        Either signal is enough and they are independent: the sentinel's
+        handshake against port 8800, and two clean-but-empty downloads in a
+        row. Serving-empty counts whether or not a handshake has ever run,
+        because the downloads themselves are the evidence.
+        """
+        return self.media_serving_empty or self.media_status == "wedged"
+
+    def _note_wedge_state(self) -> None:
+        """Keep the log of when this hub stopped serving and started again.
+
+        The hub keeps no such history, and neither does Home Assistant in any
+        form that outlives a purge: binary sensors get no long-term
+        statistics, so the wedge sensor's own history ends there. This is what
+        makes "how often, and how long between" answerable months later, which
+        is the question a support case turns on.
+        """
+        wedged = self.media_wedged
+        if wedged == self._was_wedged:
+            return
+        self._was_wedged = wedged
+        now = dt_util.utcnow().timestamp()
+        if wedged:
+            self._longest_healthy = max(
+                self._longest_healthy, now - self._healthy_since)
+            self.wedges.append(now)
+            # A wedge every twelve hours over the kept window is a few hundred
+            # floats. Older than that has stopped being evidence about the hub
+            # as it is now.
+            cutoff = now - WEDGE_HISTORY_SECONDS
+            self.wedges = [at for at in self.wedges if at >= cutoff]
+        else:
+            self._healthy_since = now
+
+    @property
+    def healthy_seconds(self) -> float:
+        """How long the media path has been serving, this run.
+
+        Zero while it is not, climbing while it is -- so the recorder's
+        long-term graph is a sawtooth whose peaks are the times to wedge and
+        whose resets are the wedges. One number answering how often, how long
+        between, and what the best run was.
+        """
+        if self.media_wedged:
+            return 0.0
+        return max(0.0, dt_util.utcnow().timestamp() - self._healthy_since)
+
+    def wedges_since(self, seconds: float) -> int:
+        cutoff = dt_util.utcnow().timestamp() - seconds
+        return sum(1 for at in self.wedges if at >= cutoff)
+
+    @property
+    def longest_healthy_seconds(self) -> float:
+        """The best run yet, the one in progress included."""
+        return max(self._longest_healthy, self.healthy_seconds)
 
     async def _deep_media_check(self, camera, start: int, end: int) -> None:
         """Two bounded seconds of the newest clip, as evidence.

@@ -515,14 +515,15 @@ class H500MediaProblem(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
 
     @property
     def is_on(self) -> bool | None:
-        # Serving-empty is known regardless of whether a handshake has run:
-        # the downloads themselves are the evidence.
-        if getattr(self.coordinator, "media_serving_empty", False):
-            return True
-        status = self.coordinator.media_status
-        if status is None:
+        # The same question the wedge clock asks, asked once. Two copies of
+        # "is it wedged" would drift, and the clock's whole value is that its
+        # resets line up with this sensor's edges.
+        if self.coordinator.media_status is None and not getattr(
+                self.coordinator, "media_serving_empty", False):
+            # Nothing has been checked and nothing has been downloaded: no
+            # verdict is available, which is not the same as "fine".
             return None
-        return status == "wedged"
+        return self.coordinator.media_wedged
 
     @property
     def extra_state_attributes(self) -> dict:

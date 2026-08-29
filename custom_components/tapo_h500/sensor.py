@@ -258,6 +258,7 @@ async def async_setup_entry(
         for index, camera in enumerate(coordinator.cameras)
     ]
     entities.append(H500StorageForecast(coordinator, entry))
+    entities.append(H500WedgeClock(coordinator, entry))
     entities.append(H500Household(coordinator, entry))
     async_add_entities(entities)
 
@@ -502,6 +503,65 @@ class H500StorageForecast(CoordinatorEntity[H500Coordinator], SensorEntity):
             # "not filling" and "not enough history yet".
             "percent_per_hour": None if rate is None else round(rate, 4),
             "samples": len(self.coordinator.storage_trend),
+        }
+
+
+class H500WedgeClock(CoordinatorEntity[H500Coordinator], SensorEntity):
+    """How long the hub has been serving recordings, this run.
+
+    The hub stops serving video every so often and keeps no record of having
+    done it. Neither does Home Assistant in any form that lasts: the wedge
+    binary sensor beside this one says whether it is happening now, and binary
+    sensors get no long-term statistics, so its history ends at the recorder's
+    purge -- ten days, where the question worth asking is whether this hub is
+    getting worse over months.
+
+    A number does get kept forever, so this is the same fact as a number.
+    Climbing while the hub serves, zero while it does not: the long-term graph
+    is a sawtooth whose peaks are the times to wedge and whose resets are the
+    wedges. How often, how long between, and what the best run was, all read
+    off one line -- which is what a support case needs and what nobody could
+    produce from memory.
+
+    Hours rather than seconds because the observed gap is about twelve of
+    them, and a seconds axis would be unreadable at the span that matters.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "media_healthy_for"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:timer-alert-outline"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_media_healthy_for"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    @property
+    def native_value(self) -> float:
+        return self.coordinator.healthy_seconds / 3600
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """The counts the graph makes you squint at.
+
+        Since this Home Assistant started, not since the hub was made: none of
+        it is written to disk, and a number that pretended to span restarts
+        would be the more misleading of the two.
+        """
+        coordinator = self.coordinator
+        return {
+            "wedges_7d": coordinator.wedges_since(7 * 86400),
+            "wedges_24h": coordinator.wedges_since(86400),
+            "longest_healthy_hours":
+                round(coordinator.longest_healthy_seconds / 3600, 1),
+            "last_wedge": (
+                dt_util.utc_from_timestamp(coordinator.wedges[-1]).isoformat()
+                if coordinator.wedges else None),
         }
 
 

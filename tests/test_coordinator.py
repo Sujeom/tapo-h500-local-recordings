@@ -58,6 +58,8 @@ class _Hass:
 
 class _Entry:
     entry_id = "test"
+    title = "Test hub"
+    data: dict = {"host": "192.168.11.5"}
 
     def __init__(self, interval, **options):
         self.options = {"poll_interval": interval, **options}
@@ -65,6 +67,12 @@ class _Entry:
 
 class _Client:
     """Records the order calls arrive in."""
+
+    # What pytapo learned at connect. Hub entities build their DeviceInfo from
+    # it, so anything constructing one needs it present -- and deliberately
+    # sparse, because the real hub omits fields and the code has to survive
+    # that rather than only the complete answer.
+    info: dict = {"device_model": "H500"}
 
     def __init__(self):
         self.calls = []

@@ -120,6 +120,9 @@
       "storage_full_in": {
         "name": "Storage full in"
       },
+      "media_healthy_for": {
+        "name": "Media healthy for"
+      },
       "visits_24h": {
         "name": "Visits (24h)"
       },
