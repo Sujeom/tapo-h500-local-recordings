@@ -61,3 +61,20 @@ jobs:
         # where the code already is, and gate nothing, or above it, and block
         # every unrelated change until somebody games it.
         run: python -B tools/coverage.py
+
+  # Home Assistant's own manifest validator, and HACS's. Both need the network
+  # and a checkout, so they cannot run in tools/verify.sh -- tests/test_manifest.py
+  # applies the same rules locally so a mistake fails on the commit that made it.
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
