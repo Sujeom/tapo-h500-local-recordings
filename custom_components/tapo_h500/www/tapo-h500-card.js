@@ -417,6 +417,8 @@ class H500Base extends HTMLElement {
       this._card.addEventListener("click", (event) => this._onClick(event));
     }
     this._recordings = null;
+    this._busy = false;
+    this._queued = false;
     // What was last written into the card, so an unchanged render can be
     // skipped. Cleared here because a reconfigure changes the styles and the
     // shape, and the old markup is no longer what is on screen.
@@ -483,14 +485,30 @@ class H500Base extends HTMLElement {
   }
 
   async _load() {
-    if (!this._hass || this._busy) return;
+    if (!this._hass) return;
+    // One request at a time, and none dropped.
+    //
+    // A busy flag that simply returned looked like it was protecting the hub
+    // and was throwing work away: press a camera button while the minute poll
+    // is in flight and the load for the camera you just chose never happened
+    // at all. The card sat on the previous camera's recordings, under the new
+    // camera's name, until the next poll a minute later.
+    if (this._busy) { this._queued = true; return; }
     this._busy = true;
+    // What this request is for. Anything that changes it while it is in the
+    // air -- a camera button, a day arrow -- makes the answer coming back the
+    // answer to a question nobody is asking any more, and painting it is how
+    // a camera or a day ends up labelled with somebody else's recordings.
+    const index = this._index;
+    const offset = this._dayOffset;
+    const stale = () => index !== this._index || offset !== this._dayOffset;
     try {
       const response = await this._call("list_recordings", {
         config_entry_id: await this._entryId(),
-        camera_index: this._index,
+        camera_index: index,
         ...this._window(),
       });
+      if (stale()) return;
       // What the listing actually covers, when the integration decided.
       this._days = response.days ?? this._config.days;
       this._camera = response.camera;
@@ -501,10 +519,17 @@ class H500Base extends HTMLElement {
       this._recordings = response.recordings.slice().reverse();
       this._error = null;
     } catch (err) {
-      this._error = err.message || String(err);
+      // A failure belonging to a question nobody asked any more is not an
+      // error worth showing over the answer that is still coming.
+      if (!stale()) this._error = err.message || String(err);
     } finally {
       this._busy = false;
-      this._render();
+      if (this._queued) {
+        this._queued = false;
+        this._load();
+      } else if (!stale()) {
+        this._render();
+      }
     }
   }
 

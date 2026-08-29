@@ -360,6 +360,119 @@ test("a button that threw still re-enables", async () => {
   assert.equal(card._error, "hub not answering");
 });
 
+// --- one request at a time, and none dropped -------------------------------
+
+/** Let every pending microtask and timer callback run. */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/** A card whose service call resolves when the test says so. */
+const deferred = (Cls, config = {}) => {
+  const card = new Cls();
+  card.setConfig({ entry_id: "abc", ...config });
+  const calls = [];
+  card._hass = { connection: { sendMessagePromise: (message) => {
+    let settle;
+    const promise = new Promise((resolve, reject) => {
+      settle = { resolve, reject };
+    });
+    calls.push({ index: message.service_data.camera_index, ...settle });
+    return promise;
+  } } };
+  const answer = (n, recordings) => calls[n].resolve({ response: {
+    recordings, camera: { alias: `Camera ${calls[n].index}` }, days: 1 } });
+  return { card, calls, answer };
+};
+
+const clipAt = (start) => ({ ...CLIPS[0], start_time: start, end_time: start + 9 });
+
+test("choosing a camera mid-load is not thrown away", async () => {
+  // The busy flag used to return, which looked like it was protecting the hub
+  // and was dropping work: the load for the camera just chosen never ran, and
+  // the card sat on the previous camera's recordings under the new name until
+  // the next poll a minute later.
+  const { card, calls, answer } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  assert.equal(calls.length, 1);
+  card._index = 1;
+  card._load();
+  await tick();
+  assert.equal(calls.length, 1, "the second waits rather than piling on");
+  answer(0, [clipAt(100)]);
+  await tick();
+  assert.equal(calls.length, 2, "and then it runs");
+  assert.equal(calls[1].index, 1, "for the camera actually chosen");
+});
+
+test("a day change mid-load supersedes the answer too", async () => {
+  const { card, calls, answer } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  card._dayOffset = 3;
+  card._load();
+  answer(0, [clipAt(100)]);
+  await tick();
+  assert.equal(card._camera, undefined,
+    "yesterday's answer under today's heading is the same bug");
+});
+
+test("a superseded answer is not painted", async () => {
+  const { card, calls, answer } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  card._index = 1;
+  card._load();
+  answer(0, [clipAt(100)]);
+  await tick();
+  assert.equal(card._camera, undefined,
+    "camera 0's answer belongs to a question nobody is asking");
+  answer(1, [clipAt(200), clipAt(300)]);
+  await tick();
+  assert.equal(card._recordings.length, 2, "camera 1's, not camera 0's");
+  assert.equal(card._camera.alias, "Camera 1");
+});
+
+test("a superseded failure does not show over an answer still coming", async () => {
+  const { card, calls, answer } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  card._index = 1;
+  card._load();
+  calls[0].reject(new Error("hub not answering"));
+  await tick();
+  assert.equal(card._error, null,
+    "camera 0's failure must not sit over camera 1's answer still coming");
+  answer(1, [clipAt(200)]);
+  await tick();
+  assert.equal(card._error, null);
+  assert.equal(card._recordings.length, 1);
+});
+
+test("a failure on the request that is still current does show", async () => {
+  const { card, calls } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  calls[0].reject(new Error("hub not answering"));
+  await tick();
+  assert.equal(card._error, "hub not answering");
+});
+
+test("several changes while one is in flight collapse to a single follow-up", async () => {
+  // The point is the hub, which wedges under load. Queueing one is right;
+  // queueing four is a burst.
+  const { card, calls, answer } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  card._load();
+  card._load();
+  card._load();
+  await tick();
+  assert.equal(calls.length, 1);
+  answer(0, []);
+  await tick();
+  assert.equal(calls.length, 2);
+});
+
 test("the summary chart reserves room for its own x-axis labels", () => {
   // Anti-pattern: a fixed height that fits the plot but clips the axis band,
   // giving the card a tiny nested scrollbar.
