@@ -1,30 +1,22 @@
-# Try to un-wedge a camera that has stopped recording, without a power cycle.
+# Try to un-wedge a silent camera without a power cycle.
 #
-# The TD21 fails in a way nothing on the hub reports: it keeps its radio link
-# and will still serve live view, while producing no clips and no detections
-# at all. A hub restart does not clear it -- these cameras have recorded
-# straight through the hub's own nightly reboot and stayed dark afterwards --
-# and there is no camera-reboot command to send, because the hub has no
-# addressable camera child (getChildDeviceList answers sum: 0).
+# The TD21 fails in a way nothing reports: it keeps its radio link and still
+# serves live view while producing no clips and no detections. There is no
+# camera-reboot command to send -- the hub has no addressable camera child,
+# getChildDeviceList answers sum: 0 -- so these two switches are the entire
+# reachable write surface between "notice" and "go outside".
 #
-# So this is a ladder of the levers that DO exist, cheapest first, each given
-# time to take effect before the next. Every step is a setting you already
-# have a switch for, and every one is put back the way it was.
+# ponytail: neither toggle is proven to cure the wedge; they are untested
+# guesses that cost a settings write. Delete this file if a proven cure turns
+# up. The hub restart is deliberately NOT here -- these cameras recorded
+# straight through five nightly hub reboots and stayed dark, so trying it only
+# delays the alert.
 #
-# HONEST ABOUT WHAT THIS IS: none of these steps is proven to cure the wedge.
-# They are the reachable write surface, tried in order of how little they
-# disturb. The last step is telling you, because a manual reset may still be
-# the only thing that works -- and knowing within the hour beats finding out
-# after three days.
-#
-# Replace the entity ids, and note the sensor is `<camera>_silent`, which
-# scores silence against each camera's own hourly history rather than a fixed
-# timer -- an overnight quiet spell on a battery doorbell will not trip it.
+# Notification is watch_health.yaml's job -- it already triggers on the same
+# sensors with the same 30-minute grace. Run both; this one tries, that one tells.
 
 alias: Recover a silent Tapo camera
-description: >-
-  Escalating, reversible attempts to restart the recording pipeline when a
-  camera has gone silent, ending in a notification if none of them worked.
+description: Toggle the hub's recording and detection switches when a camera goes silent.
 mode: single
 
 triggers:
@@ -33,24 +25,18 @@ triggers:
       - binary_sensor.side_doorbell_silent
       - binary_sensor.front_doorbell_silent
     to: "on"
-    # Long enough that a genuinely quiet spell has already been ruled out by
-    # the sensor's own scoring, short enough to act the same morning.
     for: "00:30:00"
-
-conditions: []
 
 actions:
   - variables:
-      camera: "{{ trigger.entity_id }}"
-      # The activity sensor for the same camera: this is what says whether a
-      # step worked, because a recovered camera indexes a clip within minutes.
+      # A recovered camera indexes a clip within minutes, so its own activity
+      # sensor moving is the only proof either toggle did anything.
       activity: >-
         {{ trigger.entity_id | replace('binary_sensor.', 'sensor.')
            | replace('_silent', '_last_activity') }}
       started: "{{ as_timestamp(states(activity), 0) | int }}"
 
-  # Step 1 -- the recording pipeline itself. Cheapest thing that could plausibly
-  # reset the hub's own ingest without disturbing anything a person would notice.
+  # The write side.
   - action: switch.turn_off
     target: {entity_id: switch.h500_loop_recording}
   - delay: "00:00:05"
@@ -58,46 +44,12 @@ actions:
     target: {entity_id: switch.h500_loop_recording}
   - wait_template: "{{ as_timestamp(states(activity), 0) | int > started }}"
     timeout: "00:10:00"
-  - if:
-      - condition: template
-        value_template: "{{ wait.completed }}"
-    then:
-      - stop: "recovered after the loop-recording toggle"
+  - if: [{condition: template, value_template: "{{ wait.completed }}"}]
+    then: [{stop: "recovered after the loop-recording toggle"}]
 
-  # Step 2 -- detection. If what is wedged is the trigger side rather than the
-  # writing side, this is the switch that touches it.
+  # The trigger side.
   - action: switch.turn_off
     target: {entity_id: switch.h500_face_detection}
   - delay: "00:00:05"
   - action: switch.turn_on
     target: {entity_id: switch.h500_face_detection}
-  - wait_template: "{{ as_timestamp(states(activity), 0) | int > started }}"
-    timeout: "00:10:00"
-  - if:
-      - condition: template
-        value_template: "{{ wait.completed }}"
-    then:
-      - stop: "recovered after the face-detection toggle"
-
-  # Step 3 -- the hub. Known NOT to have cured this before, so it is last and
-  # not first: it costs a couple of minutes of blind polling, and the evidence
-  # says it does not help. Kept because it is free to try before giving up.
-  - action: button.press
-    target: {entity_id: button.h500_restart}
-  - wait_template: "{{ as_timestamp(states(activity), 0) | int > started }}"
-    timeout: "00:15:00"
-
-  # Step 4 -- tell somebody. The camera needs hands, and the whole point is to
-  # learn that within the hour instead of from a stale photograph days later.
-  - if:
-      - condition: template
-        value_template: "{{ not wait.completed }}"
-    then:
-      - action: notify.persistent_notification
-        data:
-          title: "Camera still silent"
-          message: >-
-            {{ device_attr(camera, 'name') or camera }} has recorded nothing
-            since {{ states(activity) }}. Loop recording, face detection and a
-            hub restart were all tried and none of them brought it back, so it
-            needs a physical reset.
