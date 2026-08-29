@@ -152,6 +152,26 @@ DEFAULT_POLL_INTERVAL = 2
 # consecutive failure up to this cap and snaps back on the first success.
 POLL_BACKOFF_MAX = 300
 
+# How long nothing can happen before the poll slows down, and how far.
+#
+# At 2s the hub is asked 43,200 times a day, and nearly all of it is asking a
+# quiet house whether anything happened yet. Load is a live suspect in the
+# wedge this integration exists around, so the quiet stretches are where it can
+# be handed back cheaply.
+#
+# The price is exactly one event: the first thing to happen after a quiet
+# stretch is noticed up to POLL_IDLE_INTERVAL late instead of POLL_INTERVAL
+# late, because until it arrives there is nothing to say the house stopped
+# being quiet. Everything after it runs at full speed -- anything new snaps
+# the interval straight back, which is precisely when somebody is at the door
+# and more is coming.
+#
+# Ten minutes before it engages, six seconds once it has: inside a doorbell's
+# patience, and a third of the idle traffic. A longer configured interval is
+# left alone -- this only ever slows polling down, never speeds it up.
+POLL_IDLE_AFTER = 600
+POLL_IDLE_INTERVAL = 6
+
 STATUS_MAX_AGE = 60
 CAMERAS_MAX_AGE = 300
 # An H500 with TD21 doorbells labels every clip video_type "2", so ring-only

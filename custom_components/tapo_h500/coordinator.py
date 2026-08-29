@@ -35,7 +35,7 @@ from .const import (
     EVENT_AUTO_RESTART,
     FIRMWARE_CHECK_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
     MEDIA_EVIDENCE_MAX_AGE,
-    POLL_BACKOFF_MAX, PROWL_WINDOW,
+    POLL_BACKOFF_MAX, POLL_IDLE_AFTER, POLL_IDLE_INTERVAL, PROWL_WINDOW,
     SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
 )
@@ -88,6 +88,11 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # the task doing it; see async_latest_frame.
         self._frame_attempts: dict[int, tuple[int, asyncio.Task]] = {}
         self._primed = False
+        # When anything new was last noticed, for the idle backoff. Started at
+        # now rather than at zero, so a restart runs at full speed for the
+        # first ten minutes instead of treating a fresh process as a quiet
+        # house.
+        self._last_activity_at = dt_util.utcnow().timestamp()
         self._polls = 0
         # Set by a write so the next poll reads status even when the modulo
         # would skip it; at a 2s interval status is every 30th poll, so
@@ -763,24 +768,46 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._force_status = True
         await self.async_request_refresh()
 
+    def _pace(self) -> None:
+        """Set the poll interval to suit what the hub and the house are doing.
+
+        Three states, in that order of precedence. A hub that is not answering
+        backs off hard, because pytapo re-authenticates when its token stops
+        working and a stream of fresh logins is what wedges an H500. A house
+        where nothing has happened for ten minutes backs off gently, because
+        most of this integration's traffic is asking a quiet hub whether
+        anything happened yet. Anything else runs at full speed.
+
+        Deliberately one place. Two independent writers of `update_interval`
+        would each undo the other depending on which poll finished last.
+        """
+        if self._failures:
+            wanted = backoff_seconds(
+                self._base_interval, self._failures, POLL_BACKOFF_MAX)
+            why = "hub not answering"
+        elif (dt_util.utcnow().timestamp() - self._last_activity_at
+                >= POLL_IDLE_AFTER):
+            # Never faster than configured: this only ever slows things down.
+            wanted = max(self._base_interval, POLL_IDLE_INTERVAL)
+            why = "nothing happening"
+        else:
+            wanted = self._base_interval
+            why = "recent activity"
+        if wanted != (self.update_interval.total_seconds()
+                      if self.update_interval else None):
+            _LOGGER.debug("Polling every %ss (%s)", wanted, why)
+            self.update_interval = timedelta(seconds=wanted)
+
     async def _async_update_data(self) -> dict:
-        """Poll, and back off while the hub is not answering."""
+        """Poll, paced to what the hub and the house are doing."""
         try:
             data = await self._poll()
         except Exception:
             self._failures += 1
-            delay = backoff_seconds(
-                self._base_interval, self._failures, POLL_BACKOFF_MAX)
-            if delay != (self.update_interval.total_seconds()
-                         if self.update_interval else None):
-                _LOGGER.debug("Hub not answering; polling every %ss", delay)
-                self.update_interval = timedelta(seconds=delay)
+            self._pace()
             raise
-        if self._failures:
-            _LOGGER.debug("Hub answering again; back to every %ss",
-                          self._base_interval)
-            self._failures = 0
-            self.update_interval = timedelta(seconds=self._base_interval)
+        self._failures = 0
+        self._pace()
         return data
 
     async def _poll(self) -> dict:
@@ -1052,6 +1079,11 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Forget anything the poll window can no longer return.
         seen_map[index] = {
             k for k in seen if k[0] >= window - LOOKBACK_SECONDS}
+        if fresh:
+            # Set here rather than in the two callers because this is the one
+            # place "new" is decided, for detections and for clips alike. It
+            # is what keeps the idle backoff off while anything is going on.
+            self._last_activity_at = dt_util.utcnow().timestamp()
         return [entry for _, entry in sorted(fresh, key=lambda pair: pair[0])]
 
     def _fire(self, index, entries, seen_map, window) -> None:

@@ -176,6 +176,11 @@ hub or Home Assistant install required):
   cost a whole session's detections.
 - That hub status is fetched after the detection lookups and not on every poll,
   and that the camera list is cached but never left empty.
+- That the slow lookups thin out while the hub is failing rather than
+  thickening, and that the poll slows to six seconds after ten minutes of
+  nothing happening and snaps back the moment anything does. The cost is one
+  event: the first thing to happen after a quiet stretch is noticed up to six
+  seconds late. A configured interval longer than six seconds is left alone.
 - That an empty nonce reaches key derivation intact, a real nonce is passed
   through untouched, and the session module resolves the patched helper.
 
