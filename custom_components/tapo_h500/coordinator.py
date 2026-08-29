@@ -140,6 +140,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Retried when the hub recovers, not on the next poll -- see
         # _remember_failed_clip.
         self._failed_clips: dict[int, dict[int, int]] = {}
+        # Whether the repair checks are currently failing, so the warning is
+        # said once rather than every two seconds.
+        self._repairs_broken = False
         # Consecutive downloads that completed cleanly with zero video --
         # the hub's second media failure (2026-08-18): every session works
         # and carries nothing, for every clip, until a reboot. Hub state,
@@ -955,7 +958,25 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             from .repairs import async_check
             async_check(self.hass, self.entry.entry_id, self)
         except Exception as err:  # noqa: BLE001 - never fail a poll over this
-            _LOGGER.debug("Could not update repair issues: %s", err)
+            # Loudly the first time, quietly after. Every repair notice this
+            # integration raises comes through here, so one exception silences
+            # all nine -- the storage warning, the wedge, the silent camera --
+            # and at debug level nobody ever learns why the notices stopped.
+            # Warning on every poll would be a line every two seconds, which
+            # is its own way of being unreadable, so it is said once and then
+            # only again after the checks have worked in between.
+            if not self._repairs_broken:
+                self._repairs_broken = True
+                _LOGGER.warning(
+                    "Repair notices are not being updated: %s. Every notice "
+                    "this integration raises comes from here, so none of them "
+                    "is reliable until this is fixed", err)
+            else:
+                _LOGGER.debug("Repair notices still failing: %s", err)
+        else:
+            if self._repairs_broken:
+                self._repairs_broken = False
+                _LOGGER.warning("Repair notices are being updated again")
         return {"clips": clips_by_camera, "hub": self.readings}
 
     def _fresh(self, index, entries, seen_map, window,
