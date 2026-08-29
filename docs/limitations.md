@@ -197,6 +197,14 @@ paired-device record to read instead -- the simultaneity is the whole signal.
 Its attributes say how long, and whether the hub's own media path went at the
 same moment, which is what separates a hub problem from a camera one.
 
+"Recordings today" is a per-camera daily count that Home Assistant keeps in
+long-term statistics for good, so a camera that went dark on a Tuesday shows
+it as a column that stops. The hub's own index reaches back a day and its
+recordings about seventeen, which is why "when was this camera last working
+properly?" previously had no answer. The rolling 24-hour count beside it
+cannot do that job: it is never at rest, so what it reads for a day depends on
+the minute it is read.
+
 Each outage keeps a record of what was tried against it. The diagnostics
 download carries the last ten, newest first: when each started, how long it
 lasted, and every automatic restart or player-id rotation made during it, with

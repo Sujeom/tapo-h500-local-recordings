@@ -902,6 +902,17 @@ def local_hour(moment: int) -> int:
     return _local(moment).hour
 
 
+def local_midnight(moment: int) -> int:
+    """The start of the local day `moment` falls in, as a timestamp.
+
+    Local because "today" is a human word, and the same reason `local_date`
+    is: someone arriving home at 00:30 arrived on the new day, and west of
+    Greenwich a UTC boundary puts that back on the previous one.
+    """
+    return int(_local(moment).replace(
+        hour=0, minute=0, second=0, microsecond=0).timestamp())
+
+
 def local_date(moment: int) -> str:
     """Which local calendar day a moment falls on, as YYYY-MM-DD.
 

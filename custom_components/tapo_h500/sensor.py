@@ -18,8 +18,8 @@ from homeassistant.util import dt as dt_util
 
 from .clips import (
     ACTIVITY_LEVELS, activity_level, busiest_hour, events_since, hourly_baseline,
-    hourly_counts, longest_visit, sessions, unique_faces, unknown_face_count,
-    unusual_threshold,
+    hourly_counts, local_midnight, longest_visit, sessions, unique_faces,
+    unknown_face_count, unusual_threshold,
 )
 from .const import (
     DATA_HUBS, DOMAIN, FACE_PRESENCE_WINDOW, LOITER_GAP, LOOKBACK_SECONDS,
@@ -194,6 +194,26 @@ CAMERA_SENSORS: tuple[CameraSensor, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="recordings",
         value=lambda c, i, cam: len(c.clips_for(i)),
+    ),
+    # The one figure that outlives everything. The hub's own index reaches
+    # back a day and its recordings about seventeen, so "when was this camera
+    # last working properly?" had no answer here at all -- it was asked this
+    # week and could only be guessed at. A daily count is kept in long-term
+    # statistics for good, and a camera that went dark on a Tuesday shows it
+    # as a column that stops.
+    #
+    # Total-increasing rather than a measurement: it climbs through the day
+    # and returns to zero at local midnight, which is the shape Home
+    # Assistant already knows how to sum into days. The rolling 24-hour count
+    # above cannot do that job -- it is never at rest, so its daily figure
+    # depends on the minute it was read.
+    CameraSensor(
+        key="recordings_today", translation_key="recordings_today",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement="recordings",
+        value=lambda c, i, cam: events_since(
+            c.clips_for(i),
+            local_midnight(int(dt_util.utcnow().timestamp()))),
     ),
     # Statistics, all with a state class so the recorder keeps them for the
     # long-term graphs. They are computed from the polled window rather than

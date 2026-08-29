@@ -162,6 +162,9 @@
       "recordings_24h": {
         "name": "Recordings (24h)"
       },
+      "recordings_today": {
+        "name": "Recordings today"
+      },
       "ai_enhance": {
         "name": "AI enhance"
       },
