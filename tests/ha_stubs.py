@@ -173,6 +173,15 @@ class _StubCoordinatorBase:
         return cls
 
 
+class _EventEntity(_Entity):
+    """An EventEntity that keeps what it fired, in order."""
+
+    def _trigger_event(self, event_type, event_attributes=None) -> None:
+        if not hasattr(self, "triggered"):
+            self.triggered = []
+        self.triggered.append((event_type, dict(event_attributes or {})))
+
+
 def _module(path: str, **names) -> types.ModuleType:
     """Register `path` now, with real behaviour. For names a test exercises."""
     module = types.ModuleType(path)
@@ -361,6 +370,11 @@ def install(component_path=None):
             f"{camel}EntityDescription": _EntityDescription,
             f"{camel}Entity": type(f"{camel}Entity", (_Entity,), {}),
         })
+    # The event platform, registered rather than manufactured because a test
+    # has to read back what an entity fired. The real base sets state and
+    # attributes; what a test needs is the type and the payload.
+    _module("homeassistant.components.event",
+            EventEntity=_EventEntity)
     _module("homeassistant.components.http.auth",
             async_sign_path=lambda hass, path, expiry: f"{path}?authSig=stub")
 

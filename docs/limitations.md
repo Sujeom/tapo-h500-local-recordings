@@ -197,6 +197,13 @@ paired-device record to read instead -- the simultaneity is the whole signal.
 Its attributes say how long, and whether the hub's own media path went at the
 same moment, which is what separates a hub problem from a camera one.
 
+When a notification does not arrive, the answer is in two places and neither
+needs an automation trace. The camera's activity event entity records every
+event this integration fired, so its history says whether one fired at all;
+and each event carries whether notifications were snoozed at that moment, so a
+snooze that has since expired still explains the silence. If an event fired
+and was not snoozed, the decision was the automation's.
+
 "Media sessions" counts every recording fetched off the hub, with how the
 last fifty went beside it: served, empty, failed. That was previously only in
 the debug log, which has to have been turned on before the trouble started.

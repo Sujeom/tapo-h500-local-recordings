@@ -123,6 +123,19 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # this 404s until the download lands. Signing does not check for
             # the file, and the URL is good for 12 hours.
             "image": self._own_frame(start_time),
+            # Whether notifications were muted when this fired.
+            #
+            # "There was activity and I got no message" has exactly two
+            # answers on this side -- no event, or an event while snoozed --
+            # and neither was visible after the fact. The event entity's own
+            # history answers the first; without this it could not answer the
+            # second, and the question went to the automation traces, which
+            # are kept for a few runs and not at all after a restart.
+            #
+            # Recorded on the event rather than read from the switch later:
+            # a snooze that has since expired is exactly the case that needs
+            # explaining.
+            "snoozed": self.coordinator.snoozed,
         })
         # Also on the event bus, which is what the logbook can describe and
         # what an automation can trigger on without naming an entity. The
@@ -137,5 +150,8 @@ class H500ActivityEvent(H500Entity, EventEntity):
             "detection_types": detection_types(entry),
             "detection": describe_detection(entry),
             "start_time": start_time,
+            # The same fact as on the entity: an automation triggering on the
+            # bus should not have to go and read a switch to learn it.
+            "snoozed": self.coordinator.snoozed,
         })
         self.async_write_ha_state()
