@@ -226,6 +226,19 @@ class ExpectedSince(unittest.TestCase):
         two_day = clips_mod.expected_since(clips, since, now, 2 * 86400)
         self.assertAlmostEqual(two_day, one_day / 2, delta=0.2)
 
+    def test_a_zero_window_predicts_nothing_rather_than_dividing_by_it(self):
+        """The boundary of the guard, not just one side of it.
+
+        `window` becomes the divisor two lines later (`days = window / 86400`),
+        so the guard is what stands between a zero window and a
+        ZeroDivisionError inside a poll. Mutation testing found this: widening
+        `window <= 0` to `window < 0` survived the whole suite, because every
+        test passed a real window and nothing exercised nought.
+        """
+        clips = [{"startTime": at_local_hour(0, 9), "endTime": 0}]
+        self.assertEqual(clips_mod.expected_since(clips, 0, 100, 0), 0.0)
+        self.assertEqual(clips_mod.expected_since(clips, 0, 100, -1), 0.0)
+
     def test_no_history_predicts_nothing(self):
         self.assertEqual(clips_mod.expected_since([], NOW - 3600, NOW, 86400), 0.0)
 

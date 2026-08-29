@@ -1,0 +1,63 @@
+# The gate that already exists, run by something other than memory.
+#
+# tools/verify.sh is a real gate -- 1200 tests, the card suite, an AST parse of
+# every module, a YAML/JSON sweep and a translation-key check -- and nothing
+# automated ran it. This repo is what HACS installs from, so a push that
+# skipped it shipped.
+name: verify
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A second push to the same branch makes the first run's answer worthless.
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The floor hacs.json declares Home Assistant needs, and the version
+          # the suite is developed on. A syntax error that only 3.13 rejects is
+          # still a syntax error for somebody.
+          python-version: "3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install what the suite reads
+        # Not the integration's own requirement (pytapo): the suite stubs it,
+        # deliberately, so a hub library release cannot turn the tests red.
+        #
+        # requests IS installed, though it is guarded and the suite passes
+        # without it. The auth-classifier test asserts that requests'
+        # exceptions really are OSError subclasses -- the premise the whole
+        # classifier rests on -- and skipping that in CI would leave the one
+        # place it gets checked automatically checking nothing.
+        run: python -m pip install --upgrade pyyaml jinja2 requests
+
+      - name: ffmpeg
+        # The contact-sheet tests skip themselves without it, and a skipped
+        # test that nobody notices is the same as no test.
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: tools/verify.sh
+        run: bash tools/verify.sh
+
+      - name: Coverage
+        # Reported, not gated. A threshold picked today would either sit below
+        # where the code already is, and gate nothing, or above it, and block
+        # every unrelated change until somebody games it.
+        run: python -B tools/coverage.py

@@ -722,6 +722,30 @@ class DetectionTest(unittest.TestCase):
         # are separate lookups and need not agree to the second.
         self.assertEqual(clip_list[1]["alarm_type"], 20)
 
+    def test_the_matching_tolerance_includes_its_own_boundary(self):
+        """MATCH_SECONDS is inclusive, and both sides of it are pinned.
+
+        The clip index and the detection log are separate lookups that need
+        not agree to the second, so a clip is matched to a detection within
+        MATCH_SECONDS. Nothing tested the edge: narrowing `<=` to `<` left
+        every test green, which means the width of that window was free to
+        drift. A clip exactly MATCH_SECONDS out is the one a drifting bound
+        silently stops classifying, and an unclassified clip is the case that
+        already cost a missed notification.
+        """
+        edge = clips.MATCH_SECONDS
+        detection = [{"start_time": 1_000_000, "alarm_type": 6}]
+
+        at_the_edge = [{"startTime": 1_000_000 + edge, "endTime": 0}]
+        clips.attach_detections(at_the_edge, detection)
+        self.assertEqual(at_the_edge[0].get("alarm_type"), 6,
+                         "exactly MATCH_SECONDS out must still match")
+
+        past_it = [{"startTime": 1_000_000 + edge + 1, "endTime": 0}]
+        clips.attach_detections(past_it, detection)
+        self.assertNotIn("alarm_type", past_it[0],
+                         "one second beyond must not match")
+
     def test_a_clip_with_no_detection_is_left_alone(self):
         clip_list = [{"startTime": 1, "endTime": 2}]
         clips.attach_detections(clip_list, self.REAL)
