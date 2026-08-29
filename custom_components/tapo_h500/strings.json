@@ -126,6 +126,9 @@
       "media_healthy_for": {
         "name": "Media healthy for"
       },
+      "media_sessions": {
+        "name": "Media sessions"
+      },
       "visits_24h": {
         "name": "Visits (24h)"
       },

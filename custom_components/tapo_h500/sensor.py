@@ -279,6 +279,7 @@ async def async_setup_entry(
     ]
     entities.append(H500StorageForecast(coordinator, entry))
     entities.append(H500WedgeClock(coordinator, entry))
+    entities.append(H500MediaSessions(coordinator, entry))
     entities.append(H500Household(coordinator, entry))
     async_add_entities(entities)
 
@@ -583,6 +584,61 @@ class H500WedgeClock(CoordinatorEntity[H500Coordinator], SensorEntity):
                 dt_util.utc_from_timestamp(
                     coordinator.wedges[-1]["at"]).isoformat()
                 if coordinator.wedges else None),
+        }
+
+
+class H500MediaSessions(CoordinatorEntity[H500Coordinator], SensorEntity):
+    """How many recordings have been fetched off the hub, and how that went.
+
+    Every download and every preview is a whole media session of its own: TCP
+    connect, digest challenge, key exchange. How they are going was only ever
+    visible by grepping the debug log, which requires debug logging to have
+    been turned on before the trouble started -- so in practice the answer was
+    unavailable exactly when it was wanted.
+
+    The count is the state, because "it wedges after about N sessions" is a
+    thing worth graphing and the recorder keeps it. How the last fifty went is
+    beside it: served, empty, failed. Empty is the one that matters most and
+    the one a log line hides best -- it looks like a clean success everywhere
+    except the byte count.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "media_sessions"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "sessions"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:download-network-outline"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_media_sessions"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    def _health(self) -> dict:
+        # A client without the counters is a test double or an older process
+        # mid-upgrade; neither should take the sensor down.
+        return getattr(self.coordinator.client, "session_health", None) or {}
+
+    @property
+    def native_value(self):
+        return self._health().get("sessions")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        health = self._health()
+        recent = health.get("recent") or 0
+        bad = (health.get("empty") or 0) + (health.get("failed") or 0)
+        return {
+            "served": health.get("served"),
+            "empty": health.get("empty"),
+            "failed": health.get("failed"),
+            "recent": recent,
+            # None rather than zero before anything has been fetched: no
+            # sessions is not the same as no failures, and a flat 0% on a
+            # hub nobody has asked for a recording reads as an all-clear.
+            "failure_percent": (None if not recent
+                                else round(bad / recent * 100, 1)),
         }
 
 

@@ -197,6 +197,14 @@ paired-device record to read instead -- the simultaneity is the whole signal.
 Its attributes say how long, and whether the hub's own media path went at the
 same moment, which is what separates a hub problem from a camera one.
 
+"Media sessions" counts every recording fetched off the hub, with how the
+last fifty went beside it: served, empty, failed. That was previously only in
+the debug log, which has to have been turned on before the trouble started.
+Empty is the one that matters and the one a log line hides best -- a session
+that connected, authenticated, streamed and closed cleanly while carrying no
+video looks like a success everywhere except the byte count, and it is the
+failure this hub actually has.
+
 "Recordings today" is a per-camera daily count that Home Assistant keeps in
 long-term statistics for good, so a camera that went dark on a Tuesday shows
 it as a column that stops. The hub's own index reaches back a day and its

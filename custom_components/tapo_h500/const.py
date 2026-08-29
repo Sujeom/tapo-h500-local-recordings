@@ -179,6 +179,16 @@ POLL_IDLE_INTERVAL = 6
 # timestamps is a few hundred floats at the observed rate.
 WEDGE_HISTORY_SECONDS = 90 * 86400
 
+# How many media session outcomes to keep for the health figure.
+#
+# A ring rather than a running total since startup, because the
+# question is how the hub is doing lately. A hub that wedged this
+# morning and has served everything since would otherwise read as half
+# broken for the rest of the week, which is the reading nobody can act
+# on. Fifty covers several hours of ordinary use and a whole wedge
+# episode.
+SESSION_HISTORY = 50
+
 STATUS_MAX_AGE = 60
 CAMERAS_MAX_AGE = 300
 # An H500 with TD21 doorbells labels every clip video_type "2", so ring-only

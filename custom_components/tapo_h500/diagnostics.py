@@ -159,6 +159,12 @@ async def async_get_config_entry_diagnostics(
             "media_status": getattr(coordinator, "media_status", None),
             "media_sessions": getattr(
                 coordinator.client, "_sessions", None),
+            # How the last few went, so a report says whether the hub was
+            # refusing sessions or answering them with nothing -- which are
+            # different failures with different cures and read identically
+            # from a session count alone.
+            "session_health": getattr(
+                coordinator.client, "session_health", None),
             "download_failures": dict(getattr(
                 coordinator, "_download_failures", {}) or {}),
             # Every outage this process has seen, newest first, with what was
