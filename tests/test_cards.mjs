@@ -360,6 +360,116 @@ test("a button that threw still re-enables", async () => {
   assert.equal(card._error, "hub not answering");
 });
 
+// --- nothing from the hub reaches markup unescaped -------------------------
+
+/** The source with every `esc(...)` call cut out, parens matched.
+ *
+ * An interpolation inside an escaped expression is already safe, and there is
+ * no way to tell that from a regex over the raw text.
+ */
+const withoutEscaped = (source) => {
+  let out = "";
+  for (let i = 0; i < source.length; i += 1) {
+    if (source.startsWith("esc(", i)) {
+      let depth = 0;
+      let j = i + 3;
+      for (; j < source.length; j += 1) {
+        if (source[j] === "(") depth += 1;
+        else if (source[j] === ")") { depth -= 1; if (!depth) break; }
+      }
+      i = j;
+      continue;
+    }
+    out += source[i];
+  }
+  return out;
+};
+
+/** Interpolations that are safe by their shape, whatever they hold.
+ *
+ * A cast, a padded or fixed number, a length, a comparison, a choice between
+ * literals, or a call into another render function whose own output is
+ * checked by this same test.
+ */
+const SAFE_SHAPE = /^(Number|String|pad)\(|\.length\b|\.toFixed\(|===|\?|=>|this\._/;
+
+/** Names inspected once and found safe, with why.
+ *
+ * Default-deny, the same way the diagnostics allow-list works and for the
+ * same reason: a rule that lists what is dangerous leaks whatever gets added
+ * next. A new interpolation fails this test until somebody has looked at it.
+ */
+const SAFE_NAMES = new Set([
+  // Markup built by another function in this file, already escaped there.
+  "bars", "body", "grid", "picker", "rows", "strip", "tiles", "ticks",
+  "frame", "mark", "hit", "live", "row", "tooltip",
+  // Layout arithmetic. Chart geometry, never anything anybody typed.
+  "H", "L", "T", "W", "H - 4", "H - 6", "W - R", "barH", "plotH", "y", "d",
+  "value", "total", "count", "date.getUTCFullYear()",
+  // Stylesheets, which are this file's own constants.
+  "BASE_STYLE", "this.constructor.style",
+  // A CSS class name chosen by the caller, from a literal in this file.
+  "className",
+  // The unit word in a relative time -- "minute", "hour" -- from a constant.
+  "name",
+  // A face id in a browser prompt, which is not markup at all.
+  "faceId",
+]);
+
+test("no value reaches markup unescaped", async () => {
+  // Camera aliases, face names and detection labels are the hub's words or
+  // the owner's, and they land in markup built by hand. "We remembered every
+  // time" is not a property anybody keeps across 1,350 lines, so it is
+  // checked instead -- including for values that took a turn through a local
+  // on the way, which is how the first version of this test missed the card
+  // title.
+  const { readFileSync } = await import("node:fs");
+  const source = withoutEscaped(readFileSync(
+    "custom_components/tapo_h500/www/tapo-h500-card.js", "utf8"));
+  const unsafe = [];
+  for (const [, expression] of source.matchAll(/\$\{([^{}]*)\}/g)) {
+    const text = expression.trim();
+    // Empty is what an entirely escaped interpolation leaves behind.
+    if (!text || SAFE_SHAPE.test(text) || SAFE_NAMES.has(text)) continue;
+    unsafe.push(text);
+  }
+  assert.deepEqual([...new Set(unsafe)].sort(), [],
+    "wrap in esc() for text, Number() for a number, or add to SAFE_NAMES "
+    + "once you have checked what it holds");
+});
+
+test("the check would catch one", () => {
+  // A guard nobody has seen fail is a guard nobody should trust. Both shapes
+  // that have slipped past a version of this test: a property read straight
+  // into markup, and a hub value that went through a local first.
+  const source = withoutEscaped(
+    'const heading = camera.alias;'
+    + 'html = `<b title="${item.alias}">${esc(item.name)}</b>'
+    + '<h2>${heading}</h2>`;');
+  const found = [];
+  for (const [, expression] of source.matchAll(/\$\{([^{}]*)\}/g)) {
+    const text = expression.trim();
+    // Empty is what an entirely escaped interpolation leaves behind.
+    if (!text || SAFE_SHAPE.test(text) || SAFE_NAMES.has(text)) continue;
+    found.push(text);
+  }
+  assert.deepEqual(found.sort(), ["heading", "item.alias"],
+    "the escaped one is ignored; the raw property and the raw local are not");
+});
+
+test("clip times go out as numbers, which is the escape and the assertion", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(
+    "custom_components/tapo_h500/www/tapo-h500-card.js", "utf8");
+  for (const attribute of ["data-start", "data-end"]) {
+    for (const [, expression] of
+         source.matchAll(new RegExp(`${attribute}="\\$\\{([^}]*)\\}"`, "g"))) {
+      assert.match(expression, /^(Number|esc)\(/,
+        `${attribute}="\${${expression}}" is neither cast nor escaped`);
+    }
+  }
+});
+
 // --- one request at a time, and none dropped -------------------------------
 
 /** Let every pending microtask and timer callback run. */

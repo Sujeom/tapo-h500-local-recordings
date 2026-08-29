@@ -29,7 +29,14 @@ const pad = (value) => String(value).padStart(2, "0");
 export const utcDay = (date) =>
   `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}`;
 
-// Camera aliases and hub-supplied labels reach innerHTML, so they are escaped.
+// Nothing from the hub reaches innerHTML unescaped.
+//
+// Camera aliases, face names and detection labels are all the hub's words or
+// the owner's, and they land in markup built by hand. Text goes through
+// `esc`; anything that is a number goes through `Number`, which is both the
+// escape and the assertion that it was one. A test walks this file and fails
+// on an interpolation that is neither, because "we remembered every time" is
+// not a property anybody can keep by hand across 1,350 lines.
 export const esc = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -662,14 +669,14 @@ class H500Base extends HTMLElement {
   /** Play when the clip is on disk, otherwise offer to fetch it. */
   _actions(item) {
     return item.downloaded
-      ? `<button data-action="play" data-start="${item.start_time}">
+      ? `<button data-action="play" data-start="${Number(item.start_time)}">
            ${this._isPlaying(item) ? "Hide" : "Play"}
          </button>
-         <button class="danger" data-action="delete" data-start="${item.start_time}">
+         <button class="danger" data-action="delete" data-start="${Number(item.start_time)}">
            Delete
          </button>`
-      : `<button data-action="download" data-start="${item.start_time}"
-           data-end="${item.end_time}">Download</button>`;
+      : `<button data-action="download" data-start="${Number(item.start_time)}"
+           data-end="${Number(item.end_time)}">Download</button>`;
   }
 
   _maxHeight() {
@@ -892,7 +899,7 @@ class TapoH500HeroCard extends H500Base {
     // meant to be one thing, not a stack.
     const frame = this._isPlaying(item)
       ? this._player(item)
-      : `<button class="frame" data-action="play" data-start="${item.start_time}"
+      : `<button class="frame" data-action="play" data-start="${Number(item.start_time)}"
            ${item.downloaded ? "" : "disabled"}>
            ${this._image(item)}
            ${item.downloaded ? `<span class="play">&#9654;</span>` : ""}
@@ -940,7 +947,7 @@ class TapoH500GridCard extends H500Base {
   _tile(item) {
     const when = new Date(item.start_time * 1000);
     return `
-      <button class="tile" data-action="play" data-start="${item.start_time}"
+      <button class="tile" data-action="play" data-start="${Number(item.start_time)}"
         aria-pressed="${this._isPlaying(item)}" ${item.downloaded ? "" : "disabled"}>
         ${this._image(item)}
         <span class="when">${esc(when.toLocaleTimeString())}</span>
@@ -1194,7 +1201,7 @@ class TapoH500FacesCard extends H500Base {
       return `
         <div class="facewrap">
         <button class="face" data-action="play"
-          data-start="${face.newest.start_time}"
+          data-start="${Number(face.newest.start_time)}"
           ${face.newest.downloaded ? "" : "disabled"}>
           ${this._image(face.newest)}
           <span class="who${named ? "" : " unnamed"}">${
@@ -1245,9 +1252,16 @@ class TapoH500FaceSummaryCard extends H500Base {
     return 2 + Math.ceil((this._faces || []).length / 2);
   }
 
+  /** What to call this face: the owner's name for it, or its hub id.
+   *
+   * The id is cast rather than escaped. Its callers escape what comes back,
+   * and escaping it here too would turn an ampersand into `&amp;amp;` on the
+   * way through -- while leaving it raw would be the one value in this file
+   * that reaches markup on trust.
+   */
   _label(face) {
     const named = face.name !== undefined && face.name !== null;
-    return { named, text: named ? String(face.name) : `Face ${face.id}` };
+    return { named, text: named ? String(face.name) : `Face ${Number(face.id)}` };
   }
 
   _table(faces) {
@@ -1283,11 +1297,16 @@ class TapoH500FaceSummaryCard extends H500Base {
       const mid = y + row / 2;
       const { named, text } = this._label(face);
       const count = Number(face.sightings);
-      const title = `${text} — seen ${count} time${count === 1 ? "" : "s"}`;
+      // Escaped here rather than at the point it is used, so what leaves
+      // this line is markup and nothing downstream has to remember. Named
+      // apart from the card's own `title`, which is a raw camera alias: one
+      // name for both would make "is this escaped?" unanswerable by anything
+      // that reads the file, this file's own guard included.
+      const tooltip = `${esc(text)} — seen ${count} time${count === 1 ? "" : "s"}`;
       const width = Math.max(2, x(count) - L);
       return `
         <rect class="hit" x="0" y="${y}" width="${W}" height="${row}">
-          <title>${esc(title)}</title></rect>
+          <title>${tooltip}</title></rect>
         <text class="who${named ? "" : " unnamed"}" x="0" y="${(mid + 3).toFixed(1)}"
           >${esc(text.length > 16 ? `${text.slice(0, 15)}…` : text)}</text>
         <rect class="bar" x="${L}" y="${(mid - barH / 2).toFixed(1)}"
@@ -1360,7 +1379,7 @@ class TapoH500PeopleCard extends H500Base {
     const rows = this._people.map((person) => {
       const named = person.name !== undefined && person.name !== null;
       const strip = person.items.map((item) => `
-        <button data-action="play" data-start="${item.start_time}"
+        <button data-action="play" data-start="${Number(item.start_time)}"
           ${item.downloaded ? "" : "disabled"}>
           ${this._image(item)}
           <span class="stamp">${esc(ago(item.start_time))}</span>
