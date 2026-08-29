@@ -27,7 +27,7 @@ from .const import (
     CONF_DOWNLOAD_TYPES, CONF_NIGHT_END, CONF_NIGHT_START,
     DEFAULT_NIGHT_END, DEFAULT_NIGHT_START,
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
-    DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
+    DIRECTION_WINDOW, DOWNLOAD_RETRY_LIMIT, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
     AUTO_RESTART_COOLDOWN, AUTO_RESTART_CURE_WINDOW, AUTO_RESTART_RECHECK,
     CONF_AUTO_RESTART,
@@ -136,6 +136,10 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # full, media service refusing -- and repairs.py turns it into a
         # notice instead of a warning in a log nobody reads.
         self._download_failures: dict[int, int] = {}
+        # Clips that did not download, and how many times each was tried.
+        # Retried when the hub recovers, not on the next poll -- see
+        # _remember_failed_clip.
+        self._failed_clips: dict[int, dict[int, int]] = {}
         # Consecutive downloads that completed cleanly with zero video --
         # the hub's second media failure (2026-08-18): every session works
         # and carries nothing, for every clip, until a reboot. Hub state,
@@ -1051,6 +1055,45 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             # routine download clearing them would invite a redundant
             # refetch per clip.
             self._frame_attempts.clear()
+            self._retry_failed_clips()
+
+    def _remember_failed_clip(self, index: int, start_time: int) -> None:
+        """Remember a clip that did not download, for one more try later.
+
+        Not retried on the next poll. The failure that causes this in bulk is
+        the media service wedging, and then every clip in the window has
+        failed -- retrying them two seconds later means the whole window
+        hammering a device that is already refusing, which is how this hub
+        gets worse rather than better.
+
+        So the retry rides the recovery signal instead: the moment bytes
+        provably flow again, everything that failed during the outage is put
+        back in the queue. Until then the clips stay on the hub, which holds
+        about a fortnight of them, so waiting costs nothing and asking costs
+        the one thing that is scarce.
+        """
+        attempts = self._failed_clips.setdefault(index, {})
+        attempts[start_time] = attempts.get(start_time, 0) + 1
+
+    def _retry_failed_clips(self) -> None:
+        """Un-mark everything that failed during the outage just ended.
+
+        A clip is skipped because its start time is in `_seen_clips`, so
+        forgetting it there is what puts it back in the download queue -- the
+        same move the does-not-decode path already makes for the same reason.
+
+        Capped: a clip that has failed DOWNLOAD_RETRY_LIMIT times is failing
+        for its own reason rather than the hub's, and retrying it forever
+        would spend a media session per poll on a recording that will never
+        arrive. The repairs notice already names a pipeline failing this way.
+        """
+        for index, attempts in self._failed_clips.items():
+            seen = self._seen_clips.get(index)
+            if not seen:
+                continue
+            for start_time, count in attempts.items():
+                if count < DOWNLOAD_RETRY_LIMIT:
+                    seen.discard((start_time,))
 
     def note_media_status(self, status: str) -> None:
         """Record the sentinel's verdict, noticing recovery on the way."""
@@ -1156,6 +1199,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                             start_time, err)
             self._download_failures[index] = (
                 self._download_failures.get(index, 0) + 1)
+            self._remember_failed_clip(index, start_time)
             self.note_empty_download()
             return
         except HomeAssistantError as err:
@@ -1163,6 +1207,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                             start_time, err)
             self._download_failures[index] = (
                 self._download_failures.get(index, 0) + 1)
+            self._remember_failed_clip(index, start_time)
             return
         _LOGGER.debug("Downloaded %s (%s bytes)", result["path"], result["bytes"])
         # Verified now, while the hub still holds the original. A truncated
@@ -1180,6 +1225,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 self._download_failures.get(index, 0) + 1)
             return
         self._download_failures.pop(index, None)
+        self._failed_clips.get(index, {}).pop(start_time, None)
         self.note_served_download()
         # Only automatic downloads are pruned. A manual download is a
         # deliberate choice and is left alone.

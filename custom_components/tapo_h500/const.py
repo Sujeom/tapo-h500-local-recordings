@@ -168,6 +168,12 @@ DEFAULT_KEEP_DOWNLOADS = 0
 # without it those sensors would be blank whenever nothing happened recently.
 LOOKBACK_SECONDS = 86400
 
+# How many times one clip may be re-attempted after a failed download.
+# Three, matching the repair notice's own threshold: past that the pipeline is
+# failing for its own reason rather than the hub's, and each further attempt
+# spends a whole media session on a recording that will not arrive.
+DOWNLOAD_RETRY_LIMIT = 3
+
 # How often the media port's handshake is checked. The known failure takes
 # hours to develop, so fifteen minutes hears about it long before anyone
 # misses a photograph, at a cost of one unauthenticated TCP exchange.
