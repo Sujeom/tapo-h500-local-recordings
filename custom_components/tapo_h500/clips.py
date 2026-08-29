@@ -56,8 +56,9 @@ def clashing_names(every_camera: list[dict], mine: list[dict]) -> list[str]:
     for one camera by the other's recording. Two hubs make that likely rather
     than theoretical.
 
-    Compared as slugs, not aliases: "Front Door" and "front-door" look
-    different in the app and are the same directory on disk.
+    Compared as slugs, not aliases: "Front Door" and "front door" look
+    different in the app and are the same directory on disk. A hyphen is NOT
+    one of those -- camera_slug keeps it, so "front-door" is its own folder.
 
     Limited to `mine` so a warning names something the person reading it can
     actually find.

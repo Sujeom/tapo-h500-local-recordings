@@ -47,6 +47,7 @@ _registry.IssueSeverity = types.SimpleNamespace(WARNING="warning",
                                                ERROR="error")
 sys.modules.setdefault("homeassistant.helpers.issue_registry", _registry)
 repairs = importlib.import_module("tapo_h500.repairs")
+const = importlib.import_module("tapo_h500.const")
 
 
 class Diagnostics(unittest.TestCase):
@@ -331,3 +332,171 @@ class DevicePageTidiness(unittest.TestCase):
         for key in ("storage_used", "hub_health", "last_activity",
                     "recordings_24h"):
             self.assertNotIn("EntityCategory", self._block(key), key)
+
+
+class _FakeCoordinator:
+    """Only what the repair checks actually read.
+
+    A real coordinator would drag a poll loop into a test about whether a
+    notice is raised. Every attribute below is one a check reaches for, so a
+    check growing a new dependency fails here loudly rather than silently
+    reading a default that flatters it.
+    """
+
+    def __init__(self, **overrides):
+        self.last_update_success = True
+        self.readings = {}
+        self.cameras = []
+        self.media_status = "healthy"
+        self.media_serving_empty = False
+        self.download_failures = {}
+        self.auto_restart_broken = False
+        self.face_names = {}
+        self.entry = types.SimpleNamespace(options={})
+        self._tampered = []
+        self._silent = []
+        self._faces = {}
+        self.__dict__.update(overrides)
+
+    def tampered(self, within):
+        return list(self._tampered)
+
+    def silent_cameras(self, threshold):
+        return list(self._silent)
+
+    def faces_seen(self, *args, **kwargs):
+        return dict(self._faces)
+
+
+def run_check(check, **overrides):
+    """Run one real repair check and return what it did to the registry."""
+    ISSUES.clear()
+    hass = types.SimpleNamespace(data={})
+    getattr(repairs, check)(hass, "e1", _FakeCoordinator(**overrides))
+    return ISSUES[0] if ISSUES else None
+
+
+class RepairChecksActuallyRun(unittest.TestCase):
+    """Every check called for real, not matched as text.
+
+    Eight of the nine were guarded only by asserting that the words
+    "async_create_issue" and "async_delete_issue" appeared somewhere in the
+    function body. That passes whether or not either branch can be reached --
+    which is exactly how the storage warning stayed dead for months while its
+    test went green. These call the function and read the registry.
+    """
+
+    def test_an_unreachable_hub_raises_and_a_reachable_one_clears(self):
+        action, issue, kwargs = run_check("_reachable", last_update_success=False)
+        self.assertEqual(action, "create")
+        self.assertEqual(issue, "hub_unreachable_e1")
+        self.assertEqual(kwargs["severity"], "error")
+        self.assertEqual(run_check("_reachable", last_update_success=True)[0],
+                         "delete")
+
+    def test_a_wedged_media_service_raises(self):
+        self.assertEqual(run_check("_media", media_status="wedged")[0], "create")
+
+    def test_sessions_that_answer_with_nothing_also_raise(self):
+        """The 2026-08-18 variant: the handshake is fine and the bytes are
+        not, so the wedge check alone would call this healthy."""
+        self.assertEqual(
+            run_check("_media", media_serving_empty=True)[0], "create")
+
+    def test_a_healthy_media_service_clears(self):
+        self.assertEqual(run_check("_media")[0], "delete")
+
+    def test_downloads_raise_only_after_the_third_failure(self):
+        """One is a blip, two is a bad evening. Three in a row with no
+        success between them is a pipeline that will fail the fourth time."""
+        self.assertEqual(
+            run_check("_downloads_failing",
+                      download_failures={"Front": 2})[0], "delete")
+        action, _, kwargs = run_check("_downloads_failing",
+                                      download_failures={"Front": 3})
+        self.assertEqual(action, "create")
+        self.assertEqual(kwargs["translation_placeholders"]["cameras"], "Front")
+
+    def test_a_paused_auto_restart_is_visible(self):
+        self.assertEqual(
+            run_check("_restart_ineffective", auto_restart_broken=True)[0],
+            "create")
+        self.assertEqual(run_check("_restart_ineffective")[0], "delete")
+
+    def test_tampering_names_the_camera_and_counts_it(self):
+        """Once is a knock; repeatedly is not."""
+        action, _, kwargs = run_check(
+            "_tampered", _tampered=[("Front", 1_786_600_000),
+                                    ("Front", 1_786_599_000)])
+        self.assertEqual(action, "create")
+        self.assertEqual(kwargs["translation_placeholders"]["camera"], "Front")
+        self.assertEqual(kwargs["translation_placeholders"]["count"], "2")
+        self.assertEqual(run_check("_tampered")[0], "delete")
+
+    def test_a_silent_camera_is_named(self):
+        action, _, kwargs = run_check("_silent_cameras", _silent=["Front"])
+        self.assertEqual(action, "create")
+        self.assertEqual(kwargs["translation_placeholders"]["cameras"], "Front")
+        self.assertEqual(run_check("_silent_cameras")[0], "delete")
+
+    def test_an_unnamed_face_is_offered_for_naming(self):
+        """Fixable, because the notice takes the name itself rather than
+        pointing at a settings page."""
+        faces = {"77": {"id": "77", "sightings": const.NAME_PROMPT_SIGHTINGS,
+                        "cameras": ["Front"]}}
+        action, _, kwargs = run_check("_unnamed_faces", _faces=faces)
+        self.assertEqual(action, "create")
+        self.assertTrue(kwargs["is_fixable"])
+        self.assertEqual(kwargs["data"]["face_id"], "77")
+
+    def test_a_face_already_named_is_not_offered(self):
+        faces = {"77": {"id": "77", "sightings": const.NAME_PROMPT_SIGHTINGS}}
+        self.assertEqual(
+            run_check("_unnamed_faces", _faces=faces,
+                      face_names={"77": "Alice"})[0], "delete")
+
+    def test_a_rarely_seen_face_is_not_offered(self):
+        faces = {"77": {"id": "77",
+                        "sightings": const.NAME_PROMPT_SIGHTINGS - 1}}
+        self.assertEqual(run_check("_unnamed_faces", _faces=faces)[0], "delete")
+
+    def test_two_cameras_sharing_a_folder_are_named(self):
+        """Compared as slugs: "Front Door" and "front door" look different in
+        the app and are the same directory on disk, where one camera's
+        recording answers "already downloaded" for the other.
+
+        Case and spacing collapse; a hyphen does not. Writing this test is
+        what caught the docstring next door claiming "front-door" collides
+        with "Front Door", which camera_slug has never done.
+        """
+        mine = [{"alias": "Front Door"}, {"alias": "front door"}]
+        coordinator = _FakeCoordinator(cameras=mine)
+        ISSUES.clear()
+        # The check gathers every camera across every hub, so the hub has to
+        # be registered -- that is the whole point of it: two hubs is when
+        # sharing a folder stops being theoretical.
+        hass = types.SimpleNamespace(
+            data={repairs.DOMAIN: {repairs.DATA_HUBS: {"e1": coordinator}}})
+        repairs._clashing_names(hass, "e1", coordinator)
+        action, issue, kwargs = ISSUES[0]
+        self.assertEqual(action, "create")
+        self.assertEqual(issue, "clashing_camera_names_e1")
+        self.assertIn("front", kwargs["translation_placeholders"]["cameras"])
+
+    def test_distinct_names_clear_the_notice(self):
+        coordinator = _FakeCoordinator(
+            cameras=[{"alias": "Front"}, {"alias": "Side"}])
+        ISSUES.clear()
+        hass = types.SimpleNamespace(
+            data={repairs.DOMAIN: {repairs.DATA_HUBS: {"e1": coordinator}}})
+        repairs._clashing_names(hass, "e1", coordinator)
+        self.assertEqual(ISSUES[0][0], "delete")
+
+    def test_every_check_is_dispatched_by_async_check(self):
+        """A check nothing calls is a check that never runs."""
+        dispatch = REPAIRS.split("def async_check", 1)[1].split("\ndef ", 1)[0]
+        for name in ("_storage", "_reachable", "_unnamed_faces",
+                     "_silent_cameras", "_clashing_names", "_media",
+                     "_downloads_failing", "_restart_ineffective",
+                     "_tampered"):
+            self.assertIn(f"{name}(hass, entry_id, coordinator)", dispatch)
