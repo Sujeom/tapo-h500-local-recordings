@@ -40,6 +40,11 @@ class EmptyRecordingError(HomeAssistantError):
 
 URL_LIFETIME = timedelta(hours=12)
 
+# Appended to the second pass through a repeated daylight-saving hour.
+# A letter, so it can never be confused with a digit of the clock, and
+# one that sorts after nothing so the newest file stays last.
+AMBIGUOUS_HOUR = "b"
+
 
 def media_root(hass: HomeAssistant) -> Path:
     try:
@@ -56,8 +61,20 @@ def camera_dir(hass: HomeAssistant, camera) -> Path:
 
 def clip_path(hass: HomeAssistant, camera, start_time: int, suffix: str) -> Path:
     moment = dt_util.as_local(dt_util.utc_from_timestamp(int(start_time)))
+    name = moment.strftime("%H%M%S")
+    # The hour that repeats when daylight saving ends maps two different
+    # recordings onto one wall clock, and without this the second silently
+    # overwrites the first -- once a year, discovered only by needing the
+    # footage that is no longer there.
+    #
+    # `fold` is 1 only on that second pass, so every other recording keeps the
+    # name it has always had and nothing already on disk is orphaned. Sorting
+    # inside that one hour is no longer chronological, which the contact sheet
+    # shows and nothing else reads; losing a recording is the worse trade.
+    if moment.fold:
+        name += AMBIGUOUS_HOUR
     path = (camera_dir(hass, camera) / moment.strftime("%Y-%m-%d")
-            / f"{moment.strftime('%H%M%S')}{suffix}")
+            / f"{name}{suffix}")
     root = media_root(hass)
     # camera_slug and strftime cannot produce traversal, but the whole point of
     # a trust boundary is not taking that on faith.
@@ -503,9 +520,15 @@ def _start_from_path(path: Path) -> int | None:
     makes "already downloaded" a path check. Reading the time back out of the
     name avoids a second index that could disagree with the files on disk.
     """
+    stem, fold = path.stem, 0
+    if stem.endswith(AMBIGUOUS_HOUR) and stem[:-len(AMBIGUOUS_HOUR)].isdigit():
+        # The daylight-saving second pass; see clip_path. Read back with the
+        # same fold it was written with, or the roundtrip returns the FIRST
+        # pass's instant and "already downloaded" answers for the wrong clip.
+        stem, fold = stem[:-len(AMBIGUOUS_HOUR)], 1
     try:
-        stamp = datetime.strptime(f"{path.parent.name} {path.stem}",
-                                  "%Y-%m-%d %H%M%S")
+        stamp = datetime.strptime(f"{path.parent.name} {stem}",
+                                  "%Y-%m-%d %H%M%S").replace(fold=fold)
     except (ValueError, TypeError):
         return None
     # Through dt_util's zone, not the process's. clip_path writes these
