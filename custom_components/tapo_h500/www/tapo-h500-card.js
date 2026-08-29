@@ -417,6 +417,10 @@ class H500Base extends HTMLElement {
       this._card.addEventListener("click", (event) => this._onClick(event));
     }
     this._recordings = null;
+    // What was last written into the card, so an unchanged render can be
+    // skipped. Cleared here because a reconfigure changes the styles and the
+    // shape, and the old markup is no longer what is on screen.
+    this._markup = null;
     this._sharedNames = {};
     this._cameras = null;
     this._error = null;
@@ -579,6 +583,14 @@ class H500Base extends HTMLElement {
     } catch (err) {
       this._error = err.message || String(err);
       this._render();
+    } finally {
+      // Re-enabled here rather than left to the rebuild. It used to be
+      // cleared as a side effect of innerHTML replacing the button, which
+      // stopped being true the moment an unchanged render skipped the
+      // rebuild -- and that left Refresh dead after one press on a camera
+      // with nothing new. Setting it on a button the rebuild has already
+      // replaced is harmless.
+      button.disabled = false;
     }
   }
 
@@ -675,13 +687,45 @@ class H500Base extends HTMLElement {
         this._render();
       }, RECORDING_NOW_SECONDS * 1000);
     }
-    this._card.innerHTML = `
+    const markup = `
       <div class="head">
         <h2>${esc(title)}</h2>${live}
         <button data-action="refresh">Refresh</button>
       </div>
       ${picker}
       ${body}`;
+    // Nothing changed, so nothing is rebuilt.
+    //
+    // Replacing innerHTML destroys and remakes every node under it: an open
+    // recording restarts from zero with autoplay, keyboard focus falls back
+    // to the document, a half-typed name in the editor is gone and the
+    // scroll position with it. The poll runs every minute whether or not the
+    // hub had anything to say, so on a quiet camera all of that happened
+    // once a minute, forever, for no change at all.
+    if (markup === this._markup) return;
+    this._markup = markup;
+    // A clip somebody is watching keeps its place across a rebuild it did
+    // not ask for -- a new recording arriving is not a reason to send the
+    // one on screen back to the beginning.
+    const playing = this._card.querySelector && this._card.querySelector("video");
+    const resume = playing && playing.currentTime
+      ? { time: playing.currentTime, paused: playing.paused } : null;
+    this._card.innerHTML = markup;
+    if (resume) this._resume(resume);
+  }
+
+  /** Put a rebuilt player back where the old one was.
+   *
+   * On `loadedmetadata`, because seeking a media element that has not read
+   * its duration yet is either ignored or an error depending on the browser.
+   */
+  _resume(state) {
+    const video = this._card.querySelector && this._card.querySelector("video");
+    if (!video) return;
+    video.addEventListener("loadedmetadata", () => {
+      video.currentTime = state.time;
+      if (state.paused) video.pause();
+    }, { once: true });
   }
 }
 

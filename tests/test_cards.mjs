@@ -18,8 +18,31 @@ class FakeElement {
     return this.shadowRoot;
   }
 }
-class FakeCard { constructor() { this.innerHTML = ""; }
-  addEventListener() {} }
+class FakeVideo {
+  constructor() {
+    this.currentTime = 0; this.paused = false; this._listeners = {};
+  }
+  addEventListener(type, fn) { (this._listeners[type] ||= []).push(fn); }
+  pause() { this.paused = true; }
+  /** What the browser does once the media has read its duration. */
+  loadedmetadata() { (this._listeners.loadedmetadata || []).forEach(fn => fn()); }
+}
+class FakeCard {
+  constructor() { this.innerHTML = ""; this.writes = 0; this.video = null; }
+  addEventListener() {}
+  querySelector(selector) { return selector === "video" ? this.video : null; }
+}
+// The card writes innerHTML; counting the writes is how "it did not rebuild"
+// is checked. Writing it also replaces any player, which is what the browser
+// does and the whole reason an unchanged render must not write.
+Object.defineProperty(FakeCard.prototype, "innerHTML", {
+  get() { return this._html || ""; },
+  set(value) {
+    this._html = value;
+    this.writes = (this.writes || 0) + 1;
+    this.video = value.includes("<video") ? new FakeVideo() : null;
+  },
+});
 
 globalThis.HTMLElement = FakeElement;
 globalThis.customElements = { _defined: new Map(),
@@ -217,6 +240,125 @@ const build = (Cls, config = {}) => {
   card._camera = { alias: "Front Doorbell" };
   return card;
 };
+
+// --- rebuilding only when something changed --------------------------------
+
+test("a poll that found nothing new does not rebuild the card", () => {
+  // Replacing innerHTML destroys and remakes every node under it: an open
+  // recording restarts from zero with autoplay, keyboard focus falls back to
+  // the document, and the scroll position goes. The poll runs every minute
+  // whether or not the hub had anything to say.
+  const card = build(TapoH500Card, {});
+  card._render();
+  const first = card._card.writes;
+  card._render();
+  card._render();
+  assert.equal(card._card.writes, first, "three identical renders, one write");
+});
+
+test("a new recording does rebuild it", () => {
+  const card = build(TapoH500Card, {});
+  card._render();
+  const before = card._card.writes;
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  assert.equal(card._card.writes, before + 1);
+});
+
+test("switching camera rebuilds even if the list looks the same", () => {
+  const card = build(TapoH500Card, {});
+  card._cameras = [{ index: 0, alias: "Front" }, { index: 1, alias: "Side" }];
+  card._render();
+  const before = card._card.writes;
+  card._index = 1;
+  card._render();
+  assert.equal(card._card.writes, before + 1,
+    "the picker's pressed state is part of the markup");
+});
+
+test("a reconfigure forgets what was on screen", () => {
+  // Otherwise the first render after a config change compares against markup
+  // that belonged to the old styles and shape, and skips.
+  const card = build(TapoH500Card, {});
+  card._render();
+  const before = card._card.writes;
+  card.setConfig({});
+  card._recordings = CLIPS;
+  card._camera = { alias: "Front Doorbell" };
+  card._render();
+  assert.equal(card._card.writes, before + 1);
+});
+
+test("a clip being watched keeps its place across a rebuild", () => {
+  // A new recording arriving is not a reason to send the one on screen back
+  // to the beginning. The fake card replaces its player on every write, the
+  // way a browser does.
+  const card = build(TapoH500Card, {});
+  card._playing = String(CLIPS[0].start_time);
+  card._render();
+  assert.ok(card._card.video, "the clip being played has a player");
+  card._card.video.currentTime = 42;
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  const fresh = card._card.video;
+  fresh.loadedmetadata();
+  assert.equal(fresh.currentTime, 42);
+  assert.equal(fresh.paused, false, "it was playing, so it plays on");
+});
+
+test("a paused clip comes back paused across a rebuild", () => {
+  const card = build(TapoH500Card, {});
+  card._playing = String(CLIPS[0].start_time);
+  card._render();
+  card._card.video.currentTime = 12;
+  card._card.video.paused = true;
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  card._card.video.loadedmetadata();
+  assert.equal(card._card.video.currentTime, 12);
+  assert.equal(card._card.video.paused, true);
+});
+
+test("a clip at the very start is not treated as one to restore", () => {
+  // currentTime 0 is where a fresh autoplay starts anyway, and seeking back
+  // to 0 would only fight the autoplay attribute.
+  const card = build(TapoH500Card, {});
+  card._playing = String(CLIPS[0].start_time);
+  card._render();
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  assert.equal(card._card.video._listeners.loadedmetadata, undefined);
+});
+
+test("a button re-enables itself instead of waiting for the rebuild", async () => {
+  // It used to be cleared as a side effect of innerHTML replacing the button.
+  // That stopped being true the moment an unchanged render skipped the
+  // rebuild, and left Refresh dead after one press on a quiet camera.
+  const card = build(TapoH500Card, {});
+  card._hass = { connection: { sendMessagePromise: async () => ({
+    response: { recordings: [], camera: { alias: "Front" } } }) } };
+  card._config.entry_id = "abc";
+  const button = { dataset: { action: "refresh" }, disabled: false,
+                   closest() { return button; } };
+  await card._onClick({ target: button });
+  assert.equal(button.disabled, false);
+});
+
+test("a button that threw still re-enables", async () => {
+  const card = build(TapoH500Card, {});
+  card._hass = { connection: { sendMessagePromise: async () => {
+    throw new Error("hub not answering"); } } };
+  card._config.entry_id = "abc";
+  const button = { dataset: { action: "refresh" }, disabled: false,
+                   closest() { return button; } };
+  await card._onClick({ target: button });
+  assert.equal(button.disabled, false);
+  assert.equal(card._error, "hub not answering");
+});
 
 test("the summary chart reserves room for its own x-axis labels", () => {
   // Anti-pattern: a fixed height that fits the plot but clips the axis band,
