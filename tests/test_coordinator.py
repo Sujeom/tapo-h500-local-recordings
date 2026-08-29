@@ -44,6 +44,12 @@ class _Hass:
     async def async_add_executor_job(self, fn, *args):
         return fn(*args)
 
+    def async_create_task(self, target, name=None, eager_start=True):
+        """Home Assistant's own signature. Real one is eager by default, so
+        the coroutine runs up to its first suspension before this returns."""
+        return asyncio.get_running_loop().create_task(target, name=name,
+                                                      eager_start=eager_start)
+
 
 class _Entry:
     entry_id = "test"

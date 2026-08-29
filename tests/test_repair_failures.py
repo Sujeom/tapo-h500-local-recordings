@@ -8,7 +8,6 @@ reads. That is exactly how the storage warning stayed dead for months.
 """
 import asyncio
 import importlib
-import logging
 import sys
 import unittest
 from pathlib import Path

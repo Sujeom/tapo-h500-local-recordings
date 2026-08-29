@@ -83,9 +83,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self.readings: dict = {}
         self._seen_events: dict[int, set[int]] = {}
         self._seen_clips: dict[int, set[int]] = {}
-        # Newest clip start each camera has had a frame fetched for; see
-        # async_latest_frame.
-        self._frame_attempts: dict[int, int] = {}
+        # Per camera, the newest clip start a frame fetch was begun for and
+        # the task doing it; see async_latest_frame.
+        self._frame_attempts: dict[int, tuple[int, asyncio.Task]] = {}
         self._primed = False
         self._polls = 0
         # Set by a write so the next poll reads status even when the modulo
@@ -581,6 +581,13 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         against a device that is easy to overload. The next clip gets its own
         attempt, so a refusal does not stick.
 
+        Marking alone is not enough, because the frontend asks the camera and
+        the latest-event picture at the same moment. The second one would find
+        the clip already marked, skip the fetch and read the file while the
+        first was still writing it -- served the old frame by the very
+        bookkeeping meant to stop it. So the fetch is shared: whoever arrives
+        during one waits for it and sees what it produced.
+
         While the hub is still recording there is no indexed clip and no
         frame of it exists anywhere, so nothing is asked for and the previous
         event is served -- that part is physics.
@@ -589,9 +596,17 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                   if (start := start_of(clip)) is not None
                   and (end_of(clip) or 0) > start]
         newest = max(starts, default=None)
-        if newest is not None and self._frame_attempts.get(index) != newest:
-            self._frame_attempts[index] = newest
-            await async_preview_clip(self.hass, self.client, camera, newest)
+        if newest is not None:
+            attempted, fetch = self._frame_attempts.get(index, (None, None))
+            if attempted != newest:
+                fetch = self.hass.async_create_task(async_preview_clip(
+                    self.hass, self.client, camera, newest))
+                self._frame_attempts[index] = (newest, fetch)
+            # Shielded, so a viewer closing the tab mid-fetch cancels its own
+            # wait and not the fetch: the attempt is already marked, so a
+            # cancelled fetch would leave this clip marked as tried and never
+            # tried, and the old frame would stay until the next event.
+            await asyncio.shield(fetch)
         return await async_latest_image(self.hass, camera)
 
     def last_activity(self, index: int) -> int | None:

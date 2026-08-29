@@ -184,36 +184,40 @@ class HealsWithTheHub(unittest.TestCase):
     download must not, or every download would invite a redundant refetch.
     """
 
+    # A stand-in for a real (start time, fetch task) mark. Nothing here runs
+    # the fetch; only whether the mark survives is under test.
+    MARK = (NOW - 30, None)
+
     def _flagged(self, coord):
         coord.note_empty_download()
         coord.note_empty_download()
 
     def test_recovery_from_hollow_sessions_clears_the_marks(self):
         coord, _ = harness._build()
-        coord._frame_attempts[0] = 123
+        coord._frame_attempts[0] = self.MARK
         self._flagged(coord)
         coord.note_served_download()
         self.assertEqual(coord._frame_attempts, {})
 
     def test_recovery_from_the_wedge_clears_the_marks(self):
         coord, _ = harness._build()
-        coord._frame_attempts[0] = 123
+        coord._frame_attempts[0] = self.MARK
         coord.media_status = "wedged"
         coord.note_media_status("healthy")
         self.assertEqual(coord._frame_attempts, {})
 
     def test_a_routine_download_does_not(self):
         coord, _ = harness._build()
-        coord._frame_attempts[0] = 123
+        coord._frame_attempts[0] = self.MARK
         coord.note_served_download()
-        self.assertEqual(coord._frame_attempts, {0: 123})
+        self.assertEqual(coord._frame_attempts, {0: self.MARK})
 
     def test_staying_healthy_does_not_either(self):
         coord, _ = harness._build()
-        coord._frame_attempts[0] = 123
+        coord._frame_attempts[0] = self.MARK
         coord.media_status = "healthy"
         coord.note_media_status("healthy")
-        self.assertEqual(coord._frame_attempts, {0: 123})
+        self.assertEqual(coord._frame_attempts, {0: self.MARK})
 
 
 IMAGE_SOURCE = (COMPONENT / "image.py").read_text()
@@ -272,3 +276,71 @@ class ThePictureSaysHowOldItIs(unittest.TestCase):
         self.assertEqual(coord.last_activity(0), NOW - 600)
         coord.clips_for = lambda index: []
         self.assertIsNone(coord.last_activity(0))
+
+
+class SharedFetch(unittest.TestCase):
+    """The frontend asks for both pictures at once.
+
+    `camera.<doorbell>` and the latest-event image both promise the newest
+    clip's frame, and a dashboard showing both asks for both together. One
+    attempt per clip is right, but a second look that merely *skips* the fetch
+    reads the file while the first is still writing it -- and gets the old
+    frame, from the bookkeeping that exists to prevent exactly that.
+    """
+
+    def setUp(self):
+        self.coord, _ = harness._build()
+        self.clips = [clip(NOW - 30)]
+        self.coord.clips_for = lambda index: list(self.clips)
+        self.on_disk = b"the previous event"
+        self.finished: list[int] = []
+
+        async def read(hass, camera):
+            return self.on_disk
+
+        LatestFrame._patch(self, "async_latest_image", read)
+
+    _patch = LatestFrame._patch
+
+    def test_a_look_arriving_mid_fetch_waits_for_it(self):
+        async def slow_preview(hass, client, camera, start_time):
+            await asyncio.sleep(0)
+            self.on_disk = b"this event"
+            self.finished.append(start_time)
+            return None
+
+        self._patch("async_preview_clip", slow_preview)
+
+        async def both():
+            return await asyncio.gather(
+                self.coord.async_latest_frame(0, CAMERA),
+                self.coord.async_latest_frame(0, CAMERA))
+
+        self.assertEqual(asyncio.run(both()),
+                         [b"this event", b"this event"])
+        self.assertEqual(self.finished, [NOW - 30], "still one fetch")
+
+    def test_a_viewer_going_away_does_not_cancel_the_fetch(self):
+        """Cancelling the fetch would be worse than not starting it: the
+        attempt is already marked, so the clip would be recorded as tried and
+        never actually tried, and the old frame would stay until the next
+        event."""
+        async def slow_preview(hass, client, camera, start_time):
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            self.finished.append(start_time)
+            return None
+
+        self._patch("async_preview_clip", slow_preview)
+
+        async def scenario():
+            looker = asyncio.ensure_future(
+                self.coord.async_latest_frame(0, CAMERA))
+            await asyncio.sleep(0)
+            looker.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await looker
+            await self.coord._frame_attempts[0][1]
+
+        asyncio.run(scenario())
+        self.assertEqual(self.finished, [NOW - 30])
