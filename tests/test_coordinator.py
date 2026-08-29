@@ -40,6 +40,11 @@ class _Bus:
 class _Hass:
     def __init__(self):
         self.bus = _Bus()
+        # The repair checks read the hub registry through here. Empty is a
+        # true state -- one hub, nothing else paired -- and giving them a
+        # real dict lets them actually run during a poll rather than raise
+        # and be skipped.
+        self.data = {}
 
     async def async_add_executor_job(self, fn, *args):
         return fn(*args)

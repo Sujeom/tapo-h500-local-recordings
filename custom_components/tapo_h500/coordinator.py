@@ -784,11 +784,23 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         return data
 
     async def _poll(self) -> dict:
+        # Counted up front, not on the way out.
+        #
+        # Every cadence below is `poll % every == 0`, and the counter used to
+        # advance only where a poll finished. So it froze the moment the hub
+        # stopped answering -- and whichever gates happened to be open at that
+        # instant stayed open for the whole outage. A hub that was already
+        # failing got its camera list re-fetched, its status read and its
+        # media port handshaken on every single retry, which is the opposite
+        # of what a struggling device needs. Reading the old value keeps poll
+        # zero doing everything, which is what leaves nothing blank on startup.
+        poll, self._polls = self._polls, self._polls + 1
+
         # The paired camera list changes only when a camera is added or
         # removed, and costs 58ms -- more than the detection lookups it used to
         # precede. Fetch it on the first poll and then rarely, but never leave
         # it empty: a failure with nothing cached is still fatal to the poll.
-        if not self.cameras or self._polls % self._cameras_every == 0:
+        if not self.cameras or poll % self._cameras_every == 0:
             try:
                 self.cameras = await self.hass.async_add_executor_job(
                     self.client.cameras)
@@ -837,7 +849,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # lookups, so every notification waited on a round trip fetching LED
         # state and storage figures. Poll 0 still fetches it, so nothing is
         # blank on startup.
-        if self._force_status or self._polls % self._status_every == 0:
+        if self._force_status or poll % self._status_every == 0:
             self._force_status = False
             try:
                 self.readings = hub_readings(
@@ -857,7 +869,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # is a variable the wedge investigation does not need.
         check = getattr(self.client, "check_media", None)
         lock = getattr(self.client, "_lock", None)
-        if (check is not None and self._polls % self._media_every == 0
+        if (check is not None and poll % self._media_every == 0
                 and not (lock is not None and lock.locked())):
             try:
                 self.note_media_status(
@@ -960,7 +972,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # day. A local read of its cached block -- nothing commands it to
         # contact TP-Link; see H500Client.firmware_update.
         firmware = getattr(self.client, "firmware_update", None)
-        if firmware is not None and self._polls % self._firmware_every == 0:
+        if firmware is not None and poll % self._firmware_every == 0:
             try:
                 self.firmware_info = await self.hass.async_add_executor_job(
                     firmware)
@@ -977,7 +989,6 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             self._note_visits(clips_by_camera)
         except Exception as err:  # noqa: BLE001 - never fail a poll over this
             _LOGGER.debug("Could not check visits: %s", err)
-        self._polls += 1
         self._primed = True
         # Raise or clear the repair issues. Called every poll rather than only
         # on failure, because an issue that never clears is worse than none.

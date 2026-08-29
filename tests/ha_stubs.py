@@ -164,6 +164,10 @@ class _StubCoordinatorBase:
         # it defensively must be exercised against None rather than a missing
         # attribute -- those fail differently.
         self.data = None
+        # The real one starts true and is set from each refresh. Without it
+        # the repair checks raised on every poll and were skipped, silently
+        # until the failure was made audible.
+        self.last_update_success = True
 
     def __class_getitem__(cls, item):
         return cls
