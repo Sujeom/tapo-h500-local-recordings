@@ -57,8 +57,14 @@ class LatestFrame(unittest.TestCase):
             self.served += 1
             return b"newest-on-disk"
 
+        async def fake_sweep(hass, camera):
+            self.swept.append(camera["device_id"])
+            return []
+
+        self.swept: list[str] = []
         self._patch("async_preview_clip", fake_preview)
         self._patch("async_latest_image", fake_scan)
+        self._patch("async_prune_previews", fake_sweep)
 
     def _patch(self, name, value):
         self.addCleanup(setattr, coordinator_mod, name,
@@ -298,7 +304,11 @@ class SharedFetch(unittest.TestCase):
         async def read(hass, camera):
             return self.on_disk
 
+        async def sweep(hass, camera):
+            return []
+
         LatestFrame._patch(self, "async_latest_image", read)
+        LatestFrame._patch(self, "async_prune_previews", sweep)
 
     _patch = LatestFrame._patch
 

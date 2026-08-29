@@ -371,8 +371,8 @@ def install(component_path=None):
     media.EmptyRecordingError = type(
         "EmptyRecordingError", (errors.HomeAssistantError,), {})
     for name in ("async_download_clip", "async_latest_image",
-                 "async_preview_clip", "async_prune", "async_verify",
-                 "async_export"):
+                 "async_preview_clip", "async_prune", "async_prune_previews",
+                 "async_verify", "async_export"):
         setattr(media, name, None)
     media.existing_clip = lambda *a, **k: None
     # Everything NOT named above comes from the real module. media.py is

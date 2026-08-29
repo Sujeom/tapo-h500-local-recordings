@@ -596,6 +596,22 @@ CONVERT_ARGS = ["-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart",
 PREVIEW_SECONDS = 2
 PREVIEW_MAX_BYTES = 262_144
 
+# How many preview frames per camera to keep once their clip is gone.
+#
+# A preview is written at the path the clip's own thumbnail would use, so a
+# later download finds it already there and retention deletes it alongside the
+# video. When the clip is never downloaded -- rings-only mode, a download-type
+# filter, automatic downloads off entirely -- the frame is all that is left of
+# the event, and nothing else on disk ever removes it: retention walks videos,
+# and these have no video. One per event, for the life of the installation.
+#
+# So they have a ceiling of their own rather than a retention setting. It is
+# not a retention decision to make: a preview is a cache of one frame, and the
+# ceiling only has to be high enough that it never evicts one somebody could
+# still be looking at. At the ~30 KB a 640-wide JPEG runs to, this is about
+# 6 MB per camera, against clips that are megabytes each.
+PREVIEW_KEEP = 200
+
 # One frame, scaled down. A full 2304x1296 frame is ~530 KB, which is absurd
 # for something the card renders at 96x54; 640 wide is ~65 KB and still sharp
 # on a high-DPI screen. Height -2 keeps the aspect ratio even.

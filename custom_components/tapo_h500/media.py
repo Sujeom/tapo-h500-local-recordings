@@ -23,7 +23,8 @@ from homeassistant.util import dt as dt_util
 
 from .clips import camera_slug, surplus
 from .const import (
-    CONVERT_ARGS, MEDIA_DIR, PREVIEW_MAX_BYTES, PREVIEW_SECONDS, THUMBNAIL_ARGS,
+    CONVERT_ARGS, MEDIA_DIR, PREVIEW_KEEP, PREVIEW_MAX_BYTES, PREVIEW_SECONDS,
+    THUMBNAIL_ARGS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -319,6 +320,40 @@ def _videos(directory: Path) -> list[Path]:
     # Names sort chronologically: <date>/<HHMMSS>.<ext>.
     return sorted(path for path in directory.glob("*/*")
                   if path.suffix in (".mp4", ".ts"))
+
+
+def _strays(directory: Path) -> list[Path]:
+    """Thumbnails with no clip beside them, oldest first.
+
+    No is-directory check, the same as `_videos`: glob over a camera that has
+    recorded nothing yields nothing rather than raising.
+    """
+    return sorted(path for path in directory.glob("*/*.jpg")
+                  if not path.with_suffix(".mp4").exists()
+                  and not path.with_suffix(".ts").exists())
+
+
+async def async_prune_previews(hass: HomeAssistant, camera) -> list[str]:
+    """Hold a camera's stray preview frames to `PREVIEW_KEEP`.
+
+    A stray is a thumbnail whose clip was never downloaded, which is most of
+    them: previews exist precisely so the picture shows an event that is only
+    on the hub. `async_prune` walks videos and deletes each one's thumbnail
+    with it, so it never sees these -- they are one file per event, kept for
+    the life of the installation.
+
+    Not the retention number, which defaults to keeping everything and is
+    about recordings. This is a cache of single frames with a ceiling high
+    enough that it cannot evict one somebody could still be looking at; the
+    newest always survives, which is the one the camera entity serves.
+    """
+    strays = await hass.async_add_executor_job(
+        _strays, camera_dir(hass, camera))
+    doomed = surplus(strays, PREVIEW_KEEP)
+    if not doomed:
+        return []
+    removed = await hass.async_add_executor_job(_delete, doomed)
+    return [relative(hass, path) for path in removed]
 
 
 async def async_export(hass: HomeAssistant, camera, start_time: int,

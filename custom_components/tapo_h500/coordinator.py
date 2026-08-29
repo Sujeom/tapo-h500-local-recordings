@@ -41,7 +41,8 @@ from .const import (
 )
 from .media import (
     EmptyRecordingError, async_download_clip, async_latest_image,
-    async_preview_clip, async_prune, async_verify, existing_clip,
+    async_preview_clip, async_prune, async_prune_previews, async_verify,
+    existing_clip,
 )
 from .status import hub_readings, hours_until_full, trend_samples
 
@@ -599,8 +600,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         if newest is not None:
             attempted, fetch = self._frame_attempts.get(index, (None, None))
             if attempted != newest:
-                fetch = self.hass.async_create_task(async_preview_clip(
-                    self.hass, self.client, camera, newest))
+                fetch = self.hass.async_create_task(
+                    self._fetch_frame(camera, newest))
                 self._frame_attempts[index] = (newest, fetch)
             # Shielded, so a viewer closing the tab mid-fetch cancels its own
             # wait and not the fetch: the attempt is already marked, so a
@@ -608,6 +609,17 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             # tried, and the old frame would stay until the next event.
             await asyncio.shield(fetch)
         return await async_latest_image(self.hass, camera)
+
+    async def _fetch_frame(self, camera: dict, start_time: int) -> None:
+        """Fetch one clip's frame, then keep the strays in check.
+
+        Here rather than on a timer because this is the only thing that makes
+        them: one arrives, one is swept, and a camera nobody looks at costs
+        nothing.
+        """
+        await async_preview_clip(self.hass, self.client, camera, start_time)
+        for removed in await async_prune_previews(self.hass, camera):
+            _LOGGER.debug("Pruned stray preview %s", removed)
 
     def last_activity(self, index: int) -> int | None:
         moments = [start_of(clip) for clip in self.clips_for(index)]
