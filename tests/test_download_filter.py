@@ -10,7 +10,6 @@ traffic.
 Driven through the real poll, because the filter has to sit in the same place
 as the mode check or a "rings only" setting and a type filter would fight.
 """
-import asyncio
 import importlib
 import json
 import re

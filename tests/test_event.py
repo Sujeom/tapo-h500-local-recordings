@@ -9,7 +9,6 @@ The distinction is the whole point. A camera entity answering with the newest
 thumbnail is correct for a camera; asking it two minutes after an event, once
 another clip has landed, gives the wrong picture for that event.
 """
-import re
 import unittest
 from pathlib import Path
 

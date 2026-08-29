@@ -6,7 +6,6 @@ restraint: nothing leaves the house unless asked, no digest arrives unrequested,
 and a spoken answer uses the same words as a written one.
 """
 import importlib
-import re
 import sys
 import types
 import unittest

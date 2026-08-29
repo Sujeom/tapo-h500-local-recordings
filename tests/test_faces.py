@@ -7,7 +7,6 @@ reason names moved off the cards -- and that ids compare as strings, since the
 hub reports them as numbers while YAML hands them over as either.
 """
 import importlib
-import re
 import unittest
 from pathlib import Path
 

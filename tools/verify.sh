@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.."
 
 python -B -m unittest discover -s tests -p 'test_*.py' 2>&1 | tail -3
 node tests/test_cards.mjs >/dev/null && echo "card tests OK"
+python -B tools/lint.py
 
 python -B - <<'PY'
 import ast

@@ -10,7 +10,6 @@ described a field nothing produced.
 content of the reading; the count is a summary of them.
 """
 import importlib
-import json
 import sys
 import unittest
 from pathlib import Path

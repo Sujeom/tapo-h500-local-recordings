@@ -6,11 +6,9 @@ being protected here is latency: hub status used to be fetched before the
 detection lookups, which put a round trip in front of every notification.
 """
 import asyncio
-import datetime
 import importlib
 import re
 import sys
-import types
 import unittest
 from pathlib import Path
 
