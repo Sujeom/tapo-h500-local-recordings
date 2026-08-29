@@ -135,6 +135,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # is the hub's known failure mode and this is how it is noticed
         # before anyone misses a photograph; repairs.py reads it.
         self.media_status: str | None = None
+        # The hub's last status answer as it arrived, unparsed.
+        self.raw_status: dict = {}
         # Whether this wedge episode has already had its one player_id
         # rotation; see the case-D note where it happens.
         self._wedge_rotated = False
@@ -888,8 +890,14 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         if self._force_status or poll % self._status_every == 0:
             self._force_status = False
             try:
-                self.readings = hub_readings(
-                    await self.hass.async_add_executor_job(self.client.hub_status))
+                # Kept alongside the parsed readings, for diagnostics. The
+                # parser reads the keys it knows and drops the rest, so a
+                # field a newer firmware added is invisible to everything --
+                # which is how `detect_status` went unnoticed until somebody
+                # dumped the JSON by hand.
+                self.raw_status = await self.hass.async_add_executor_job(
+                    self.client.hub_status)
+                self.readings = hub_readings(self.raw_status)
                 # One sample per status refresh, which is once a minute. The
                 # forecast has nothing else to work from -- the hub reports
                 # how full it is and never how full it was.
