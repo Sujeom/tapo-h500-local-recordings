@@ -30,6 +30,10 @@ NOW = dt_util.utcnow().timestamp()
 HOUR = 3600
 
 
+def wedge(at, tried=(), ended=None):
+    return {"at": at, "tried": list(tried), "ended": ended}
+
+
 class TheRecord(unittest.TestCase):
     def setUp(self):
         self.coord, _ = harness._build()
@@ -121,14 +125,15 @@ class TheRecord(unittest.TestCase):
                                20 * HOUR, places=3)
 
     def test_counts_are_windowed(self):
-        self.coord.wedges = [NOW - 8 * 86400, NOW - 3 * 86400, NOW - 3600]
+        self.coord.wedges = [wedge(NOW - 8 * 86400), wedge(NOW - 3 * 86400),
+                             wedge(NOW - 3600)]
         self.assertEqual(self.coord.wedges_since(7 * 86400), 2)
         self.assertEqual(self.coord.wedges_since(86400), 1)
 
     def test_the_log_does_not_grow_without_end(self):
         """Ninety days of onsets is evidence; a year of them is a leak."""
-        self.coord.wedges = [NOW - const.WEDGE_HISTORY_SECONDS - 1,
-                             NOW - 86400]
+        self.coord.wedges = [wedge(NOW - const.WEDGE_HISTORY_SECONDS - 1),
+                             wedge(NOW - 86400)]
         self.coord.note_media_status("wedged")
         self.assertEqual(len(self.coord.wedges), 2,
                          "the stale one goes, the recent one and the new "
@@ -160,7 +165,8 @@ class TheSensor(unittest.TestCase):
 
     def test_the_attributes_carry_the_counts(self):
         coord, sensor = self._sensor()
-        coord.wedges = [NOW - 8 * 86400, NOW - 2 * 86400, NOW - 600]
+        coord.wedges = [wedge(NOW - 8 * 86400), wedge(NOW - 2 * 86400),
+                        wedge(NOW - 600)]
         coord._longest_healthy = 30 * HOUR
         attributes = sensor.extra_state_attributes
         self.assertEqual(attributes["wedges_7d"], 2)
@@ -187,3 +193,94 @@ class TheSensor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheRecoveryLog(unittest.TestCase):
+    """Every outage used to start the diagnosis from nothing.
+
+    The record said an outage happened and never what was done about it, so
+    "does restarting this hub actually help?" stayed a matter of memory. An
+    attempt now hangs on the episode it was made against, beside when that
+    episode ended.
+    """
+
+    def setUp(self):
+        self.coord, _ = harness._build()
+
+    def _wedge(self):
+        self.coord.note_media_status("wedged")
+
+    def test_an_attempt_hangs_on_the_outage_it_was_made_against(self):
+        self._wedge()
+        self.coord.note_recovery_attempt("hub restart")
+        self.assertEqual(
+            [a["what"] for a in self.coord.wedges[-1]["tried"]],
+            ["hub restart"])
+
+    def test_an_attempt_while_healthy_invents_no_outage(self):
+        """A record of an outage that never happened is worse than no record
+        of the attempt."""
+        self.coord.note_recovery_attempt("hub restart")
+        self.assertEqual(self.coord.wedges, [])
+
+    def test_an_attempt_after_recovery_does_not_reopen_the_last_one(self):
+        self._wedge()
+        self.coord.note_media_status("healthy")
+        self.coord.note_recovery_attempt("hub restart")
+        self.assertEqual(self.coord.wedges[-1]["tried"], [])
+
+    def test_recovery_closes_the_episode(self):
+        self._wedge()
+        self.coord.note_media_status("healthy")
+        self.assertIsNotNone(self.coord.wedges[-1]["ended"])
+
+    def test_the_restart_path_does_not_claim_the_hub_came_back(self):
+        """It borrowed the served-download notification to reset its
+        counters. That one means bytes arrived: it would clear the frame
+        marks, retry the failed clips, and close the outage -- reporting a
+        cure at the moment the cure was only being attempted.
+        """
+        self.coord.note_empty_download()
+        self.coord.note_empty_download()
+        self.assertEqual(len(self.coord.wedges), 1)
+        self.coord.note_restarting()
+        self.assertIsNone(self.coord.wedges[-1]["ended"])
+        self.assertEqual(
+            [a["what"] for a in self.coord.wedges[-1]["tried"]],
+            ["hub restart"])
+        self.assertEqual(self.coord._empty_downloads, 0,
+                         "it still starts counting fresh")
+
+    def test_a_restart_that_did_not_work_reads_differently_from_one_that_did(self):
+        self._wedge()
+        self.coord.note_restarting()
+        self.coord.note_media_status("healthy")
+        cured = self.coord.recovery_log()[0]
+        self._wedge()
+        self.coord.note_restarting()
+        still_broken = self.coord.recovery_log()[0]
+        self.assertIsNotNone(cured["lasted_minutes"])
+        self.assertIsNone(still_broken["lasted_minutes"])
+        self.assertEqual(len(self.coord.recovery_log()), 2)
+
+    def test_the_log_reads_as_times_and_minutes(self):
+        """The audience is somebody reading a diagnostics file or a support
+        thread, not code."""
+        self._wedge()
+        self.coord.note_recovery_attempt("player id rotated")
+        entry = self.coord.recovery_log()[0]
+        self.assertTrue(entry["at"].startswith("20"))
+        self.assertEqual(entry["tried"][0]["what"], "player id rotated")
+        self.assertIsInstance(entry["tried"][0]["after_minutes"], float)
+
+    def test_it_is_newest_first_and_bounded(self):
+        for _ in range(12):
+            self._wedge()
+            self.coord.note_media_status("healthy")
+        log = self.coord.recovery_log(limit=5)
+        self.assertEqual(len(log), 5)
+        self.assertGreaterEqual(log[0]["at"], log[-1]["at"])
+
+    def test_diagnostics_carry_it(self):
+        source = (COMPONENT / "diagnostics.py").read_text()
+        self.assertIn("coordinator.recovery_log()", source)

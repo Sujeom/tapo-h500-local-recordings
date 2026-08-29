@@ -197,6 +197,14 @@ paired-device record to read instead -- the simultaneity is the whole signal.
 Its attributes say how long, and whether the hub's own media path went at the
 same moment, which is what separates a hub problem from a camera one.
 
+Each outage keeps a record of what was tried against it. The diagnostics
+download carries the last ten, newest first: when each started, how long it
+lasted, and every automatic restart or player-id rotation made during it, with
+how far into the outage each one came. An outage with no end time is one still
+running or one nothing cured. "We restarted it and it came back in four
+minutes" and "we restarted it and nothing changed" are different reports, and
+neither survives being remembered a week later.
+
 The wedge is also a number, not only a binary sensor. "Media healthy for"
 counts the hours since the media path last stopped serving, climbing while it
 does and zero while it does not, so the recorder keeps it in long-term

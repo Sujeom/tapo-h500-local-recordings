@@ -560,7 +560,8 @@ class H500WedgeClock(CoordinatorEntity[H500Coordinator], SensorEntity):
             "longest_healthy_hours":
                 round(coordinator.longest_healthy_seconds / 3600, 1),
             "last_wedge": (
-                dt_util.utc_from_timestamp(coordinator.wedges[-1]).isoformat()
+                dt_util.utc_from_timestamp(
+                    coordinator.wedges[-1]["at"]).isoformat()
                 if coordinator.wedges else None),
         }
 

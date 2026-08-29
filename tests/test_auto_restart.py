@@ -237,3 +237,63 @@ class PostRestartRecheck(unittest.TestCase):
         coord, client = _build(auto=False)
         _poll(coord, 3)
         self.assertIsNone(coord._recheck_at)
+
+
+class WhatTheRestartTellsTheLog(unittest.TestCase):
+    """A restart is a treatment, not a recovery.
+
+    The path used to reset its counters by announcing a served download,
+    which means bytes arrived. That clears the frame marks, retries the
+    failed clips and closes the outage in the wedge log -- reporting a cure
+    at the exact moment the cure was only being attempted, and leaving the
+    record unable to answer the question it exists for: did restarting help?
+    """
+
+    def test_the_outage_stays_open_across_the_restart(self):
+        coord, client = _build()
+        coord.note_empty_download()
+        coord.note_empty_download()
+        self.assertEqual(len(coord.wedges), 1)
+        _poll(coord)
+        self.assertEqual(client.reboots, 1)
+        self.assertIsNone(coord.wedges[-1]["ended"],
+                          "the hub is rebooting, not serving")
+
+    def test_the_restart_is_written_down(self):
+        coord, _ = _build()
+        coord.note_empty_download()
+        coord.note_empty_download()
+        _poll(coord)
+        self.assertEqual([a["what"] for a in coord.wedges[-1]["tried"]],
+                         ["hub restart"])
+
+    def test_the_counters_still_start_fresh(self):
+        """Sessions from before a reboot say nothing about the hub after
+        it, which is why the path resets them at all."""
+        coord, _ = _build()
+        coord.note_empty_download()
+        coord.note_empty_download()
+        _poll(coord)
+        self.assertEqual(coord._empty_downloads, 0)
+
+    def test_recovery_afterwards_closes_it_and_reads_as_a_cure(self):
+        coord, _ = _build()
+        coord.note_empty_download()
+        coord.note_empty_download()
+        _poll(coord)
+        coord.note_served_download()
+        entry = coord.recovery_log()[0]
+        self.assertIsNotNone(entry["lasted_minutes"])
+        self.assertEqual([a["what"] for a in entry["tried"]], ["hub restart"])
+
+    def test_the_player_id_rotation_is_written_down_too(self):
+        """The case-D experiment ran in the coordinator and its result was
+        recorded nowhere at all."""
+        coord, client = _build()
+        client.check_media = lambda: "wedged"
+        rotations = []
+        client.rotate_player_id = lambda: rotations.append(1)
+        _poll(coord)
+        self.assertEqual(rotations, [1])
+        self.assertIn("player id rotated",
+                      [a["what"] for a in coord.wedges[-1]["tried"]])

@@ -120,5 +120,12 @@ async def async_get_config_entry_diagnostics(
                 coordinator.client, "_sessions", None),
             "download_failures": dict(getattr(
                 coordinator, "_download_failures", {}) or {}),
+            # Every outage this process has seen, newest first, with what was
+            # tried against it and how long it lasted. The whole point of a
+            # bug report is the second half of that: "we restarted it and it
+            # came back in four minutes" and "we restarted it and nothing
+            # changed" are different reports, and neither survives being
+            # remembered a week later.
+            "wedge_log": coordinator.recovery_log(),
         },
     }
