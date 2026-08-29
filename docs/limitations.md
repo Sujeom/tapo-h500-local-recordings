@@ -188,6 +188,15 @@ Measured against the hub on a held session, median of five calls: a detection
 lookup is 19ms per camera, the clip index 17ms, the camera list 58ms, and the
 14-request batched hub status 430ms. Those numbers set the poll interval.
 
+"Cameras not recording" is on when every camera has gone quiet at the same
+time on a hub that is still answering. One quiet camera is a quiet back gate;
+all of them at once is the failure this project exists around, where the
+cameras keep their radio link and still answer live view and record nothing.
+There is no online flag, signal strength or battery in the hub's
+paired-device record to read instead -- the simultaneity is the whole signal.
+Its attributes say how long, and whether the hub's own media path went at the
+same moment, which is what separates a hub problem from a camera one.
+
 The wedge is also a number, not only a binary sensor. "Media healthy for"
 counts the hours since the media path last stopped serving, climbing while it
 does and zero while it does not, so the recorder keeps it in long-term

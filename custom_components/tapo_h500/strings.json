@@ -170,6 +170,9 @@
       "camera_silent": {
         "name": "Silent"
       },
+      "cameras_dark": {
+        "name": "Cameras not recording"
+      },
       "prowling": {
         "name": "Prowling"
       },

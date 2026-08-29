@@ -289,6 +289,9 @@
       },
       "media_problem": {
         "name": "Recording service problem"
+      },
+      "cameras_dark": {
+        "name": "Cameras not recording"
       }
     },
     "siren": {

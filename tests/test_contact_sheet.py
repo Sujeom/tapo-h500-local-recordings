@@ -27,10 +27,25 @@ FFMPEG = shutil.which("ffmpeg")
 
 
 def _stub_ffmpeg():
+    """Install the only ffmpeg stub that can actually run ffmpeg.
+
+    Assignment, not `setdefault`. The general harness manufactures a name for
+    anything it is asked for, so whether this file wins came down to whether
+    something else imported ffmpeg first -- which is decided by test file
+    names, and quietly changed every time one is added. It broke twice. This
+    stub is a strict superset of the manufactured one, so taking the name
+    outright costs nothing and stops the ordering mattering.
+    """
     module = types.ModuleType("homeassistant.components.ffmpeg")
     module.get_ffmpeg_manager = lambda hass: types.SimpleNamespace(
         binary=FFMPEG or "ffmpeg")
-    sys.modules.setdefault("homeassistant.components.ffmpeg", module)
+    sys.modules["homeassistant.components.ffmpeg"] = module
+    # Both users bind the name at import, so a module already loaded is
+    # holding whatever was there first and will not see this.
+    for name in ("tapo_h500.contact_sheet", "tapo_h500._real_media"):
+        loaded = sys.modules.get(name)
+        if loaded is not None:
+            loaded.get_ffmpeg_manager = module.get_ffmpeg_manager
     # contact_sheet asks media where a camera's folder is; the test lays the
     # folder out itself and points this at it.
     media = sys.modules["tapo_h500.media"]
