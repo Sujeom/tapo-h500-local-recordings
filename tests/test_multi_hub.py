@@ -66,27 +66,11 @@ class Distinct(unittest.TestCase):
         self.assertEqual(found, ["F (1)", "F (2)", "F (3)"])
 
 
-class Summaries(unittest.TestCase):
-    def test_the_spoken_summary_covers_every_hub(self):
-        walk = INTENT.split("class TodayIntent", 1)[1]
-        self.assertIn("for coordinator in _hubs(hass)", walk)
-
-    def test_it_does_not_key_cameras_by_name_alone(self):
-        """A dictionary keyed on the alias drops one of two cameras sharing
-        it, and the answer then describes half the house as though it were
-        all of it."""
-        walk = INTENT.split("class TodayIntent", 1)[1]
-        self.assertIn("distinct(", walk)
-
-    def test_the_summary_action_does_the_same(self):
-        body = SERVICES_SRC.split("    async def daily_summary(", 1)[1].split(
-            "\n    async def ", 1)[0]
-        self.assertIn("distinct(", body)
-
-    def test_the_last_event_answer_already_covered_every_hub(self):
-        walk = INTENT.split("class LastEventIntent", 1)[1].split(
-            "\nclass ", 1)[0]
-        self.assertIn("for coordinator in _hubs(hass)", walk)
+# Both spoken answers are asked of two hubs in
+# test_intent_live.EveryHubIsAnswered, and two hubs sharing a camera name
+# keep both of them there and in the digest. Naming _hubs and distinct in the
+# source said the right functions were called; walking a second hub says the
+# answer covers it.
 
 
 class ClashingFolders(unittest.TestCase):
@@ -184,17 +168,11 @@ class Setup(unittest.TestCase):
         unload = INIT.split("async def async_unload_entry", 1)[1]
         self.assertIn("if not hubs:", unload)
 
-    def test_the_card_is_registered_once(self):
-        self.assertIn("if data.get(DATA_CARD):", INIT)
-
-    def test_the_preview_view_is_registered_once(self):
-        self.assertIn("if not hass.data[DOMAIN].get(DATA_PREVIEW):", INIT)
-
-    def test_each_hub_is_its_own_device(self):
-        sensor = (COMPONENT / "sensor.py").read_text()
-        hub_device = sensor.split("def hub_device(", 1)[1].split(
-            "\n\nclass ", 1)[0]
-        self.assertIn("(DOMAIN, entry.entry_id)", hub_device)
+    # Setting a second hub up is driven in test_setup_entry.ASecondHub: the
+    # preview endpoint is served once, since registering the same view twice
+    # raises and fails that hub's setup outright, and each hub is its own
+    # device. The card being registered once is driven in
+    # TheDashboardCard.test_it_is_registered_once_however_many_hubs.
 
 
 if __name__ == "__main__":

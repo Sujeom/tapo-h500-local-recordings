@@ -141,8 +141,8 @@ class _World(unittest.TestCase):
         self.hass = _hass()
         self.entry = _Entry()
 
-    def _setup(self):
-        return run(component.async_setup_entry(self.hass, self.entry))
+    def _setup(self, entry=None):
+        return run(component.async_setup_entry(self.hass, entry or self.entry))
 
 
 class FailurePaths(_World):
@@ -301,6 +301,33 @@ class TheResourceList(_World):
         dies."""
         self.hass.data.pop("lovelace", None)
         self.assertFalse(self._register())
+
+
+class ASecondHub(_World):
+    """One installation, two hubs. Everything registered once has to stay
+    registered once, and everything shared has to survive one of them going.
+    """
+
+    def test_the_preview_endpoint_is_served_once(self):
+        """Registering the same view twice raises, which fails the second
+        hub's setup entirely."""
+        self._setup()
+        served = len(self.hass.http.views)
+        second = _Entry()
+        second.entry_id = "second"
+        self._setup(entry=second)
+        self.assertEqual(len(self.hass.http.views), served)
+
+    def test_each_hub_is_its_own_device(self):
+        """Sharing an identifier would put both hubs' entities on one device
+        page and make the second one's unavailable when the first unloads."""
+        sensor_mod = importlib.import_module("tapo_h500.sensor")
+        coord, _ = harness._build()
+        first = sensor_mod.hub_device(coord, harness._Entry(20))
+        other = harness._Entry(20)
+        other.entry_id = "other"
+        second = sensor_mod.hub_device(coord, other)
+        self.assertNotEqual(first["identifiers"], second["identifiers"])
 
 
 class VoiceIsABonus(_World):

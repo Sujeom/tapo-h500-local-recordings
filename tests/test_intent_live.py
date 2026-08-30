@@ -221,5 +221,29 @@ class TheDigestIsAskedFor(unittest.TestCase):
                       "it exists, it just waits to be called")
 
 
+class EveryHubIsAnswered(unittest.TestCase):
+    """Every spoken answer walks all the hubs. One that reads only the first
+    describes half the house as though it were all of it -- and it reads as
+    correct on a single-hub installation, which is most of them."""
+
+    def test_the_last_event_answer_looks_at_all_of_them(self):
+        quiet = _hub({"Shed": [clip(NOW - 7200)]}, title="Annex")
+        recent = _hub({"Front": [clip(NOW - 120)]}, title="House")
+        spoken = ask(intent_mod.LastEventIntent(), quiet, recent)
+        self.assertIn("Front", spoken, "the newest wins across hubs")
+
+    def test_it_finds_the_newest_even_when_it_is_on_the_second_hub(self):
+        older = _hub({"Front": [clip(NOW - 3600)]}, title="House")
+        newer = _hub({"Gate": [clip(NOW - 60)]}, title="Annex")
+        self.assertIn("Gate", ask(intent_mod.LastEventIntent(), older, newer))
+
+    def test_the_summary_counts_both_hubs_cameras(self):
+        one = _hub({"Front": [clip(NOW - 600)]}, title="House")
+        two = _hub({"Shed": [clip(NOW - 300)]}, title="Annex")
+        spoken = ask(intent_mod.TodayIntent(), one, two)
+        self.assertIn("Front", spoken)
+        self.assertIn("Shed", spoken)
+
+
 if __name__ == "__main__":
     unittest.main()
