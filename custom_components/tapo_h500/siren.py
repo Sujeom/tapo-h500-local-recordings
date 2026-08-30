@@ -20,6 +20,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 
+from .const import DOMAIN
 from .coordinator import H500Coordinator
 from .sensor import hub_device
 from .status import hub_volume
@@ -98,4 +99,7 @@ class H500Siren(CoordinatorEntity[H500Coordinator], SirenEntity):
         try:
             await self.hass.async_add_executor_job(action)
         except Exception as err:
-            raise HomeAssistantError(f"The H500 refused the siren call: {err}") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="siren_refused",
+                translation_placeholders={"error": str(err)}) from err

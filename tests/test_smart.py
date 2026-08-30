@@ -113,9 +113,9 @@ class Captioning(unittest.TestCase):
         body = SERVICES_SRC.split("async def describe_recording", 1)[1][:1200]
         self.assertIn("ServiceValidationError", body)
 
-    def test_no_ai_configured_says_so(self):
-        body = SERVICES_SRC.split("async def describe_recording", 1)[1][:2500]
-        self.assertIn("No AI service is available", body)
+    # That an unconfigured installation is told so is driven in
+    # test_services_live, which calls the action with no agent available and
+    # reads the key off the exception. The wording lives in strings.json now.
 
 
 class Digest(unittest.TestCase):
@@ -196,9 +196,8 @@ class Export(unittest.TestCase):
         self.assertIn("shutil.copy2", body)
         self.assertNotIn("shutil.move", body)
 
-    def test_an_undownloaded_clip_is_refused_clearly(self):
-        body = MEDIA.split("async def async_export", 1)[1]
-        self.assertIn("has not been downloaded", body)
+    # Exporting something that was never downloaded is driven in
+    # test_media_live against a real disk.
 
     def test_the_thumbnail_goes_with_it(self):
         body = MEDIA.split("async def async_export", 1)[1].split("async def", 1)[0]

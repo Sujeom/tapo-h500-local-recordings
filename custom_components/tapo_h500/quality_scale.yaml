@@ -141,7 +141,13 @@ rules:
   entity-device-class: done
   entity-disabled-by-default: todo
   entity-translations: done
-  exception-translations: todo
+  exception-translations:
+    status: done
+    comment: |
+      All twenty-two, including the two config-entry failures shown on the
+      integration page. Where a message carries a value -- the host, the
+      refused directory, the hub's own bound on a camera index -- it goes
+      through a placeholder rather than an f-string.
   icon-translations:
     status: done
     comment: |

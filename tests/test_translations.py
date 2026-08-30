@@ -11,6 +11,7 @@ raw key, and a repair notice reading `component.tapo_h500.issues.media_wedged`
 is a notice nobody acts on.
 """
 import json
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -18,6 +19,49 @@ from pathlib import Path
 COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
 STRINGS = json.loads((COMPONENT / "strings.json").read_text())
 EN = json.loads((COMPONENT / "translations" / "en.json").read_text())
+
+
+TRANSLATIONS = {path.stem: json.loads(path.read_text())
+                for path in sorted((COMPONENT / "translations").glob("*.json"))}
+SOURCE = {path.name: path.read_text()
+          for path in sorted(COMPONENT.glob("*.py"))}
+
+
+def _named(text: str) -> set[str]:
+    """The {placeholders} a message asks to be given."""
+    return set(re.findall(r"\{(\w+)\}", text))
+
+
+def _exception_raises():
+    """Every raise that names a translation key, with the placeholders it
+    supplies. Parsed from the syntax tree rather than matched by regex: the
+    placeholders are a dict literal spread over several lines."""
+    keys, supplied = set(), {}
+    for source in SOURCE.values():
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise) or not isinstance(node.exc, ast.Call):
+                continue
+            found = {kw.arg: kw.value for kw in node.exc.keywords}
+            key = found.get("translation_key")
+            if not isinstance(key, ast.Constant):
+                continue
+            keys.add(key.value)
+            holder = found.get("translation_placeholders")
+            names = set()
+            if isinstance(holder, ast.Dict):
+                names = {k.value for k in holder.keys
+                         if isinstance(k, ast.Constant)}
+            supplied[key.value] = names
+    return keys, supplied
+
+
+_RAISED_KEYS, _PLACEHOLDERS_AT_RAISE = _exception_raises()
+_PLACEHOLDERS_IN_MESSAGES = {
+    key: _named(body["message"])
+    for key, body in EN.get("exceptions", {}).items()
+    if key in _RAISED_KEYS
+}
 
 
 def _leaves(node, prefix=""):
@@ -150,7 +194,11 @@ class EverythingShownHasWords(unittest.TestCase):
         `component.tapo_h500.entity.sensor.hub_health` is one nobody finds."""
         worded = ({key for table in EN.get("entity", {}).values()
                    for key in table}
-                  | set(EN.get("issues", {})) | set(EN.get("selector", {})))
+                  | set(EN.get("issues", {})) | set(EN.get("selector", {}))
+                  # Exceptions carry a key the same way, and one that does
+                  # not resolve puts a raw key in front of somebody at the
+                  # moment something has already gone wrong.
+                  | set(EN.get("exceptions", {})))
         declared = self._all(r'translation_key="(\w+)"')
         self.assertTrue(declared)
         self.assertEqual(sorted(declared - worded), [])
@@ -174,6 +222,51 @@ class EverythingShownHasWords(unittest.TestCase):
                     self.assertTrue(
                         (body.get("description") or body.get("title") or ""
                          ).strip())
+
+
+
+class EveryExceptionSaysSomething(unittest.TestCase):
+    """The messages people see when something has already gone wrong.
+
+    The German translation is complete for everything else; before this,
+    every error a German user actually hit arrived in English.
+    """
+
+    def test_every_exception_key_is_worded_in_english(self):
+        raised = {key for key in _RAISED_KEYS}
+        self.assertTrue(raised)
+        self.assertEqual(sorted(raised - set(EN.get("exceptions", {}))), [])
+
+    def test_and_in_german(self):
+        """A missing key falls back silently, so nothing says the German
+        user is reading English."""
+        for language, table in TRANSLATIONS.items():
+            with self.subTest(language=language):
+                self.assertEqual(
+                    sorted(set(_RAISED_KEYS) - set(table.get("exceptions", {}))),
+                    [])
+
+    def test_no_message_is_left_empty(self):
+        for language, table in TRANSLATIONS.items():
+            for key, body in table.get("exceptions", {}).items():
+                with self.subTest(language=language, key=key):
+                    self.assertTrue(str(body.get("message", "")).strip())
+
+    def test_every_placeholder_is_supplied_where_it_is_raised(self):
+        """A message with {host} and no placeholder renders the braces."""
+        for key, needed in _PLACEHOLDERS_IN_MESSAGES.items():
+            with self.subTest(key=key):
+                self.assertEqual(needed, _PLACEHOLDERS_AT_RAISE.get(key, set()))
+
+    def test_the_languages_ask_for_the_same_placeholders(self):
+        """A translation that invents one renders empty braces in that
+        language only, which is the hardest kind to notice."""
+        english = {key: _named(body["message"])
+                   for key, body in EN.get("exceptions", {}).items()}
+        for language, table in TRANSLATIONS.items():
+            for key, body in table.get("exceptions", {}).items():
+                with self.subTest(language=language, key=key):
+                    self.assertEqual(_named(body["message"]), english[key])
 
 
 if __name__ == "__main__":

@@ -162,7 +162,8 @@ class Exporting(_World):
         with self.assertRaises(HomeAssistantError) as caught:
             asyncio.run(media.async_export(
                 self.hass, CAMERA, NOW, str(self.keep)))
-        self.assertIn("Download it first", str(caught.exception))
+        self.assertEqual(caught.exception.translation_key,
+                         "export_not_downloaded")
 
     def test_a_disallowed_destination_is_refused_by_name(self):
         """A service call must not reach the whole filesystem."""
@@ -170,7 +171,11 @@ class Exporting(_World):
         with self.assertRaises(HomeAssistantError) as caught:
             asyncio.run(media.async_export(
                 self.hass, CAMERA, NOW, "/etc"))
-        self.assertIn("allowlist_external_dirs", str(caught.exception))
+        self.assertEqual(caught.exception.translation_key,
+                         "destination_not_allowed")
+        self.assertEqual(
+            caught.exception.translation_placeholders["destination"], "/etc",
+            "the message has to name the directory that was refused")
 
 
 class Pruning(_World):
@@ -342,7 +347,8 @@ class TheTrustBoundary(_World):
                 media.clip_path(self.hass, CAMERA, NOW, ".ts")
         finally:
             media.camera_dir = original
-        self.assertIn("Refusing", str(caught.exception))
+        self.assertEqual(caught.exception.translation_key,
+                         "outside_media_directory")
 
     def test_an_ordinary_name_stays_inside_it(self):
         path = media.clip_path(self.hass, CAMERA, NOW, ".ts")

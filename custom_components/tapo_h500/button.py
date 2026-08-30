@@ -24,6 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 
+from .const import DOMAIN
 from .coordinator import H500Coordinator
 from .sensor import hub_device
 
@@ -70,7 +71,9 @@ class H500RestartButton(CoordinatorEntity[H500Coordinator], ButtonEntity):
         except Exception as err:  # noqa: BLE001 - the shapes differ, see above
             if "-40" in str(err):
                 raise HomeAssistantError(
-                    f"The hub refused the restart: {err}") from err
+                    translation_domain=DOMAIN,
+                    translation_key="restart_refused",
+                    translation_placeholders={"error": str(err)}) from err
             _LOGGER.info(
                 "Hub restart requested; the connection dropped while it "
                 "acknowledged, which is what a reboot looks like (%s)",

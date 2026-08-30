@@ -217,6 +217,32 @@ class _ImageEntity(_Entity):
         self.hass = hass
 
 
+class _HomeAssistantError(Exception):
+    """Real enough to carry a translation key.
+
+    The manufactured version took no keyword arguments, so every raise that
+    names a key raised TypeError instead -- and a test asserting on the
+    message text would have gone on passing while the message the user sees
+    came from a key nothing had checked existed.
+    """
+
+    def __init__(self, *args, translation_domain=None, translation_key=None,
+                 translation_placeholders=None) -> None:
+        super().__init__(*args)
+        self.translation_domain = translation_domain
+        self.translation_key = translation_key
+        self.translation_placeholders = translation_placeholders or {}
+
+    def __str__(self) -> str:
+        """What a test reads. The real one renders the key against the
+        loaded translations; here the key stands in for it, so an assertion
+        about which failure happened still works and one about the English
+        wording correctly stops working."""
+        if self.args:
+            return super().__str__()
+        return self.translation_key or ""
+
+
 class _Marker(str):
     """A voluptuous key. It is the key's own string, with its default on it.
 
@@ -499,11 +525,10 @@ def install(component_path=None):
             CALLBACK_TYPE=object,
             callback=lambda fn: fn)
     errors = _module("homeassistant.exceptions",
-                     HomeAssistantError=type("HomeAssistantError",
-                                             (Exception,), {}))
+                     HomeAssistantError=_HomeAssistantError)
     for name in ("ConfigEntryNotReady", "ConfigEntryAuthFailed",
                  "ServiceValidationError"):
-        setattr(errors, name, type(name, (errors.HomeAssistantError,), {}))
+        setattr(errors, name, type(name, (_HomeAssistantError,), {}))
 
     # intent.py registers Assist handlers; bare bases are enough here.
     _module("homeassistant.helpers.intent",

@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .const import DOMAIN
 from .coordinator import H500Coordinator
 from .sensor import hub_device
 
@@ -33,7 +34,10 @@ class H500HubControl(CoordinatorEntity[H500Coordinator]):
         try:
             await self.hass.async_add_executor_job(action)
         except Exception as err:
-            raise HomeAssistantError(f"The H500 refused the change: {err}") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="change_refused",
+                translation_placeholders={"error": str(err)}) from err
         # One poll after the write, not one per call: this hub is easy to
         # overload and the readings all arrive in a single round trip anyway.
         await self.coordinator.async_refresh_after_write()

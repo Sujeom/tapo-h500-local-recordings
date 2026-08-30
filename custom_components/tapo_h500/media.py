@@ -23,6 +23,7 @@ from homeassistant.util import dt as dt_util
 
 from .clips import camera_slug, surplus
 from .const import (
+    DOMAIN,
     CONVERT_ARGS, MEDIA_DIR, PREVIEW_KEEP, PREVIEW_MAX_BYTES, PREVIEW_SECONDS,
     THUMBNAIL_ARGS,
 )
@@ -52,8 +53,8 @@ def media_root(hass: HomeAssistant) -> Path:
         return Path(hass.config.media_dirs["local"]).resolve()
     except KeyError as err:
         raise HomeAssistantError(
-            "Tapo H500 requires a Home Assistant media directory named 'local'"
-        ) from err
+            translation_domain=DOMAIN,
+            translation_key="no_local_media_directory") from err
 
 
 def camera_dir(hass: HomeAssistant, camera) -> Path:
@@ -80,7 +81,9 @@ def clip_path(hass: HomeAssistant, camera, start_time: int, suffix: str) -> Path
     # camera_slug and strftime cannot produce traversal, but the whole point of
     # a trust boundary is not taking that on faith.
     if not path.is_relative_to(root):
-        raise HomeAssistantError("Refusing to write outside the media directory")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="outside_media_directory")
     return path
 
 
@@ -282,7 +285,9 @@ async def async_download_clip(
                 "-y", "-f", "mpegts", "-i", str(temporary),
                 *CONVERT_ARGS, str(remuxed),
             ]):
-                raise HomeAssistantError("Could not convert the clip to MP4")
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="convert_failed")
             await hass.async_add_executor_job(os.replace, remuxed, target)
             remuxed = None
         else:
@@ -298,7 +303,9 @@ async def async_download_clip(
     except Exception as err:
         if isinstance(err, HomeAssistantError):
             raise
-        raise HomeAssistantError("H500 recording download did not complete") from err
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="download_incomplete") from err
     finally:
         if stream is not None:
             await hass.async_add_executor_job(stream.close)
@@ -390,12 +397,13 @@ async def async_export(hass: HomeAssistant, camera, start_time: int,
     source = await async_existing_clip(hass, camera, start_time)
     if source is None:
         raise HomeAssistantError(
-            "That recording has not been downloaded, so there is nothing to "
-            "export. Download it first.")
+            translation_domain=DOMAIN,
+            translation_key="export_not_downloaded")
     if not hass.config.is_allowed_path(destination):
         raise HomeAssistantError(
-            f"{destination} is not an allowed directory. Add it to "
-            "allowlist_external_dirs in configuration.yaml.")
+            translation_domain=DOMAIN,
+            translation_key="destination_not_allowed",
+            translation_placeholders={"destination": str(destination)})
 
     def _copy() -> list[str]:
         # camera_slug is what the media directory already uses, so an

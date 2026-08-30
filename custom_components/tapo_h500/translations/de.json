@@ -439,5 +439,73 @@
       "title": "Der Neustart der Basis hat ihren Aufnahmedienst nicht repariert",
       "description": "Die Basis wurde automatisch neu gestartet und der Fehler war sofort wieder da – das ist bisher nie vorgekommen, es ist also etwas Neues und nicht der bekannte Aussetzer. Automatische Neustarts sind angehalten, bis wieder Aufnahmen geliefert werden, damit die Spuren nicht weggestartet werden. Laden Sie die Diagnose aus dem Menü der Integration herunter und eröffnen Sie damit einen Fehlerbericht; ein Trennen vom Strom (ausstecken, warten, wieder einstecken) ist einen Versuch wert, und falls Aufnahmen, die während des Fehlers entstanden sind, leer abspielen, erwähnen Sie das – dann wurde das Video nie geschrieben."
     }
+  },
+  "exceptions": {
+    "cannot_list_cameras": {
+      "message": "Die H500-Kameras konnten nicht aufgelistet werden."
+    },
+    "cannot_list_recordings": {
+      "message": "Die H500-Aufnahmen konnten nicht aufgelistet werden."
+    },
+    "cannot_reach": {
+      "message": "Der H500 unter {host} ist nicht erreichbar: {error}"
+    },
+    "change_refused": {
+      "message": "Der H500 hat die Änderung abgelehnt: {error}"
+    },
+    "convert_failed": {
+      "message": "Der Clip konnte nicht in MP4 umgewandelt werden."
+    },
+    "destination_not_allowed": {
+      "message": "{destination} ist kein zulässiges Verzeichnis. Füge es in der configuration.yaml unter allowlist_external_dirs hinzu."
+    },
+    "download_incomplete": {
+      "message": "Der Download der H500-Aufnahme wurde nicht abgeschlossen."
+    },
+    "end_before_start": {
+      "message": "Die Endzeit muss nach der Startzeit liegen."
+    },
+    "export_not_downloaded": {
+      "message": "Diese Aufnahme wurde nicht heruntergeladen, es gibt also nichts zu exportieren. Lade sie zuerst herunter."
+    },
+    "format_refused": {
+      "message": "Der H500 hat das Formatieren seines Speichers abgelehnt: {error}"
+    },
+    "invalid_camera_index": {
+      "message": "{detail}"
+    },
+    "invalid_recording_request": {
+      "message": "{detail}"
+    },
+    "no_ai_service": {
+      "message": "Es ist kein KI-Dienst verfügbar. Richte einen Konversationsagenten oder eine KI-Aufgaben-Entität ein und übergib deren Entitäts-ID als agent_id."
+    },
+    "no_downloaded_copy": {
+      "message": "Es wurde keine heruntergeladene Kopie dieser Aufnahme gefunden."
+    },
+    "no_hub_for_entry": {
+      "message": "Für den Konfigurationseintrag {entry_id} ist kein Tapo-H500-Hub eingerichtet."
+    },
+    "no_local_media_directory": {
+      "message": "Tapo H500 benötigt ein Home-Assistant-Medienverzeichnis namens „local“."
+    },
+    "no_recording_at_that_time": {
+      "message": "Zu diesem Zeitpunkt beginnt keine indizierte Aufnahme. Wenn es gerade erst passiert ist, nimmt der Hub möglicherweise noch auf."
+    },
+    "no_thumbnail_yet": {
+      "message": "Für diese Aufnahme gibt es noch kein Vorschaubild. Der Hub indiziert einen Clip erst, wenn er beendet ist, und das Vorschaubild entsteht beim Herunterladen."
+    },
+    "outside_media_directory": {
+      "message": "Schreiben außerhalb des Medienverzeichnisses wird verweigert."
+    },
+    "refused_credentials": {
+      "message": "Der H500 hat die gespeicherten Zugangsdaten abgelehnt."
+    },
+    "restart_refused": {
+      "message": "Der Hub hat den Neustart abgelehnt: {error}"
+    },
+    "siren_refused": {
+      "message": "Der H500 hat den Sirenenbefehl abgelehnt: {error}"
+    }
   }
 }

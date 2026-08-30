@@ -60,12 +60,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # This asks for a new password instead of hammering the hub forever.
         await hass.async_add_executor_job(client.close)
         raise ConfigEntryAuthFailed(
-            "The H500 refused the stored credentials") from err
+            translation_domain=DOMAIN,
+            translation_key="refused_credentials") from err
     except Exception as err:
         # Everything else, the wedge included, still schedules a retry.
         await hass.async_add_executor_job(client.close)
         raise ConfigEntryNotReady(
-            f"Cannot reach the H500 at {entry.data[CONF_HOST]}: {err}") from err
+            translation_domain=DOMAIN,
+            translation_key="cannot_reach",
+            translation_placeholders={
+                "host": entry.data[CONF_HOST], "error": str(err)}) from err
 
     coordinator = H500Coordinator(hass, entry, client)
     try:

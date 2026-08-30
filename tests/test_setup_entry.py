@@ -173,7 +173,10 @@ class FailurePaths(_World):
         _FailingConnect.instances = []
         with self.assertRaises(ConfigEntryNotReady) as caught:
             self._setup()
-        self.assertIn("192.168.11.5", str(caught.exception))
+        self.assertEqual(caught.exception.translation_key, "cannot_reach")
+        self.assertEqual(caught.exception.translation_placeholders["host"],
+                         "192.168.11.5",
+                         "the message has to name the hub it could not reach")
         self.assertEqual(_FailingConnect.instances[0].closes, 1)
 
     def test_no_other_failure_gives_up_on_the_entry(self):
@@ -242,7 +245,11 @@ class TheHappyPath(_World):
             with self.subTest(action=name):
                 with self.assertRaises(ServiceValidationError) as caught:
                     run(handler(call))
-                self.assertIn("nothing", str(caught.exception))
+                self.assertEqual(caught.exception.translation_key,
+                                 "no_hub_for_entry")
+                self.assertEqual(
+                    caught.exception.translation_placeholders["entry_id"],
+                    "nothing")
 
     def test_the_coordinator_lives_on_the_entry_and_nowhere_else(self):
         """Home Assistant clears runtime_data when the entry unloads, so

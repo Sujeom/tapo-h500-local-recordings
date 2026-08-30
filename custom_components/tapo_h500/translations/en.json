@@ -439,5 +439,73 @@
       "title": "Restarting the hub did not fix its recording service",
       "description": "The hub was restarted automatically and the failure came straight back — which has never happened before, so this is something new rather than the known wedge. Automatic restarts are paused until recordings serve again, so the evidence is not rebooted away. Download diagnostics from the integration's menu and open an issue with it; a power cycle (unplug, wait, replug) is worth one try, and if recordings recorded during the failure play as empty, say so — it means the video was never written."
     }
+  },
+  "exceptions": {
+    "cannot_list_cameras": {
+      "message": "Unable to list H500 cameras."
+    },
+    "cannot_list_recordings": {
+      "message": "Unable to list H500 recordings."
+    },
+    "cannot_reach": {
+      "message": "Cannot reach the H500 at {host}: {error}"
+    },
+    "change_refused": {
+      "message": "The H500 refused the change: {error}"
+    },
+    "convert_failed": {
+      "message": "Could not convert the clip to MP4."
+    },
+    "destination_not_allowed": {
+      "message": "{destination} is not an allowed directory. Add it to allowlist_external_dirs in configuration.yaml."
+    },
+    "download_incomplete": {
+      "message": "The H500 recording download did not complete."
+    },
+    "end_before_start": {
+      "message": "The end time must be after the start time."
+    },
+    "export_not_downloaded": {
+      "message": "That recording has not been downloaded, so there is nothing to export. Download it first."
+    },
+    "format_refused": {
+      "message": "The H500 refused to format its storage: {error}"
+    },
+    "invalid_camera_index": {
+      "message": "{detail}"
+    },
+    "invalid_recording_request": {
+      "message": "{detail}"
+    },
+    "no_ai_service": {
+      "message": "No AI service is available. Configure a conversation agent or an AI task entity, then pass its entity id as agent_id."
+    },
+    "no_downloaded_copy": {
+      "message": "No downloaded copy of that recording was found."
+    },
+    "no_hub_for_entry": {
+      "message": "No Tapo H500 hub is set up for config entry {entry_id}."
+    },
+    "no_local_media_directory": {
+      "message": "Tapo H500 requires a Home Assistant media directory named 'local'."
+    },
+    "no_recording_at_that_time": {
+      "message": "No indexed recording starts at that time. If it has just happened, the hub may still be recording it."
+    },
+    "no_thumbnail_yet": {
+      "message": "No thumbnail for that recording yet. The hub indexes a clip only once it has finished, and the thumbnail is written when it downloads."
+    },
+    "outside_media_directory": {
+      "message": "Refusing to write outside the media directory."
+    },
+    "refused_credentials": {
+      "message": "The H500 refused the stored credentials."
+    },
+    "restart_refused": {
+      "message": "The hub refused the restart: {error}"
+    },
+    "siren_refused": {
+      "message": "The H500 refused the siren call: {error}"
+    }
   }
 }

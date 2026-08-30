@@ -186,7 +186,9 @@ def _coordinator(hass, entry_id) -> H500Coordinator:
     coordinator = getattr(entry, "runtime_data", None) if entry else None
     if coordinator is None:
         raise ServiceValidationError(
-            f"No Tapo H500 hub is set up for config entry {entry_id}")
+            translation_domain=DOMAIN,
+            translation_key="no_hub_for_entry",
+            translation_placeholders={"entry_id": str(entry_id)})
     return coordinator
 
 
@@ -197,9 +199,16 @@ async def _resolve(hass, call: ServiceCall):
         camera = await hass.async_add_executor_job(
             coordinator.client.camera_at, call.data["camera_index"])
     except ValueError as err:
-        raise ServiceValidationError(str(err)) from err
+        # The bound comes from the hub's own paired list, so the detail is
+        # carried rather than restated.
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="invalid_camera_index",
+            translation_placeholders={"detail": str(err)}) from err
     except Exception as err:
-        raise HomeAssistantError("Unable to list H500 cameras") from err
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="cannot_list_cameras") from err
     return coordinator, camera
 
 
@@ -223,9 +232,14 @@ def async_register(hass: HomeAssistant) -> None:
                 coordinator.client.recordings, call.data["camera_index"],
                 start_date, end_date)
         except ValueError as err:
-            raise ServiceValidationError(str(err)) from err
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_recording_request",
+                translation_placeholders={"detail": str(err)}) from err
         except Exception as err:
-            raise HomeAssistantError("Unable to list H500 recordings") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="cannot_list_recordings") from err
 
         clips = [
             (start_of(clip), end_of(clip), clip) for clip in recordings
@@ -288,15 +302,17 @@ def async_register(hass: HomeAssistant) -> None:
             end_time = end_for_start(clips, start_time)
             if end_time is None:
                 raise ServiceValidationError(
-                    "No indexed recording starts at that time -- if it just "
-                    "happened, the hub may still be recording it")
+                    translation_domain=DOMAIN,
+                    translation_key="no_recording_at_that_time")
             # The lookup answered with the whole clip record, so its
             # classification rides along to the sidecar for free.
             detected = next(
                 (detection_types(clip) for clip in clips
                  if abs((start_of(clip) or 0) - start_time) <= 1), [])
         if end_time <= start_time:
-            raise ServiceValidationError("end_time must be after start_time")
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="end_before_start")
         convert = call.data.get(
             "convert_to_mp4",
             coordinator.entry.options.get(CONF_CONVERT_MP4, DEFAULT_CONVERT_MP4),
@@ -312,7 +328,8 @@ def async_register(hass: HomeAssistant) -> None:
         removed = await async_delete_clip(hass, camera, call.data["start_time"])
         if not removed:
             raise ServiceValidationError(
-                "No downloaded copy of that recording was found")
+                translation_domain=DOMAIN,
+                translation_key="no_downloaded_copy")
         return {"removed": removed}
 
     async def format_hub_storage(call: ServiceCall):
@@ -323,7 +340,9 @@ def async_register(hass: HomeAssistant) -> None:
             await hass.async_add_executor_job(coordinator.client.format_storage)
         except Exception as err:
             raise HomeAssistantError(
-                f"The H500 refused to format its storage: {err}") from err
+                translation_domain=DOMAIN,
+                translation_key="format_refused",
+                translation_placeholders={"error": str(err)}) from err
         return {"formatted": True}
 
     async def name_face(call: ServiceCall):
@@ -360,9 +379,8 @@ def async_register(hass: HomeAssistant) -> None:
         thumbnail = clip_path(hass, camera, start_time, ".jpg")
         if not await hass.async_add_executor_job(thumbnail.is_file):
             raise ServiceValidationError(
-                "No thumbnail for that recording yet. The hub indexes a clip "
-                "only once it has finished, and the thumbnail is written when "
-                "it downloads.")
+                translation_domain=DOMAIN,
+                translation_key="no_thumbnail_yet")
 
         agent_id = call.data["agent_id"]
         prompt = call.data["prompt"]
@@ -390,8 +408,8 @@ def async_register(hass: HomeAssistant) -> None:
                            .get("speech", {}).get("plain", {}).get("speech"))
         else:
             raise HomeAssistantError(
-                "No AI service is available. Configure a conversation agent or "
-                "an AI task entity, then pass its entity id as agent_id.")
+                translation_domain=DOMAIN,
+                translation_key="no_ai_service")
 
         return {"start_time": start_time, "description": description,
                 "agent_id": agent_id}

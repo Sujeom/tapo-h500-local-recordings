@@ -254,7 +254,8 @@ class DownloadRecording(_World):
         self.client.recent = lambda camera, start, end: []
         with self.assertRaises(ServiceValidationError) as caught:
             self.call("download_recording", camera_index=0, start_time=NOW)
-        self.assertIn("still be recording", str(caught.exception))
+        self.assertEqual(caught.exception.translation_key,
+                         "no_recording_at_that_time")
 
     def test_a_backwards_window_is_refused(self):
         with self.assertRaises(ServiceValidationError):
@@ -312,7 +313,7 @@ class DescribeRecording(_World):
         with self.assertRaises(HomeAssistantError) as caught:
             self.call("describe_recording", camera_index=0, start_time=NOW,
                       agent_id="ai_task.gpt", prompt="x")
-        self.assertIn("No AI service", str(caught.exception))
+        self.assertEqual(caught.exception.translation_key, "no_ai_service")
 
 
 class DailySummary(_World):
@@ -451,7 +452,11 @@ class WhenTheHubSaysNo(_World):
         with self.assertRaises(services.ServiceValidationError) as caught:
             self.call("describe_recording", camera_index=9,
                       start_time=NOW, end_time=NOW + 15)
-        self.assertIn("between 0 and 1", str(caught.exception))
+        self.assertEqual(caught.exception.translation_key,
+                         "invalid_camera_index")
+        self.assertIn("between 0 and 1",
+                      caught.exception.translation_placeholders["detail"],
+                      "the hub's own bound rides along in the message")
 
     def test_a_hub_that_will_not_answer_is_not_the_callers_mistake(self):
         def wedged(index):
@@ -463,7 +468,8 @@ class WhenTheHubSaysNo(_World):
                       start_time=NOW, end_time=NOW + 15)
         self.assertNotIsInstance(caught.exception,
                                  services.ServiceValidationError)
-        self.assertIn("Unable to list H500 cameras", str(caught.exception))
+        self.assertEqual(caught.exception.translation_key,
+                         "cannot_list_cameras")
 
     def test_a_bad_date_reaching_the_hub_is_the_callers_mistake(self):
         def refuse(index, start_date, end_date):
@@ -483,7 +489,8 @@ class WhenTheHubSaysNo(_World):
             self.call("list_recordings", camera_index=0)
         self.assertNotIsInstance(caught.exception,
                                  services.ServiceValidationError)
-        self.assertIn("Unable to list H500 recordings", str(caught.exception))
+        self.assertEqual(caught.exception.translation_key,
+                         "cannot_list_recordings")
 
 
 class TheConfiguredWindow(ListRecordings):
