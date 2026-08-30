@@ -37,9 +37,32 @@ class _Bus:
         self.fired.append((event_type, data or {}))
 
 
+class _Services:
+    """hass.services, recorded. Handlers land in `registered` by name."""
+
+    def __init__(self):
+        self.registered: dict[str, object] = {}
+        self.available: set[tuple[str, str]] = set()
+        self.calls: list[tuple] = []
+        self.responses: dict[tuple[str, str], object] = {}
+
+    def async_register(self, domain, service, handler, schema=None,
+                       supports_response=None):
+        self.registered[service] = handler
+
+    def has_service(self, domain, service):
+        return (domain, service) in self.available
+
+    async def async_call(self, domain, service, data, blocking=False,
+                         return_response=False):
+        self.calls.append((domain, service, data))
+        return self.responses.get((domain, service))
+
+
 class _Hass:
     def __init__(self):
         self.bus = _Bus()
+        self.services = _Services()
         # The repair checks read the hub registry through here. Empty is a
         # true state -- one hub, nothing else paired -- and giving them a
         # real dict lets them actually run during a poll rather than raise
@@ -66,6 +89,15 @@ class _ConfigEntries:
 
     def async_entries(self, domain=None):
         return list(self.entries)
+
+    def async_update_entry(self, entry, options=None, **kwargs):
+        # Applied, not merely recorded: the handlers read the entry back to
+        # build their responses, and a recorder that does not apply would
+        # pass a handler that saves nothing.
+        self.updates = getattr(self, "updates", [])
+        self.updates.append((entry, options))
+        if options is not None:
+            entry.options = options
 
 
 class _Entry:
