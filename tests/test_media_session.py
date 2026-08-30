@@ -419,20 +419,22 @@ class Backfill(unittest.TestCase):
 
 class BackfillService(unittest.TestCase):
     INIT = (COMPONENT / "__init__.py").read_text()
+    # The thirteen service handlers moved out of the package body.
+    SERVICES_SRC = (COMPONENT / "services.py").read_text()
     SERVICES_YAML = (COMPONENT / "services.yaml").read_text()
 
     def test_the_service_walks_every_camera(self):
-        body = self.INIT.split("async def classify_downloads", 1)[1].split(
+        body = self.SERVICES_SRC.split("async def classify_downloads", 1)[1].split(
             "\n    async def ", 1)[0]
         self.assertIn("for camera in coordinator.cameras", body)
         self.assertIn("async_classify_downloads", body)
 
     def test_it_is_registered_and_documented(self):
-        self.assertIn("SERVICE_CLASSIFY_DOWNLOADS", self.INIT)
+        self.assertIn("SERVICE_CLASSIFY_DOWNLOADS", self.SERVICES_SRC)
         self.assertIn("classify_downloads:", self.SERVICES_YAML)
 
     def test_days_are_bounded_to_what_was_verified(self):
-        self.assertIn("vol.Range(min=1, max=31)", self.INIT.split(
+        self.assertIn("vol.Range(min=1, max=31)", self.SERVICES_SRC.split(
             "CLASSIFY_SCHEMA", 1)[1][:400])
 
 

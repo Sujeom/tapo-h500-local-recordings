@@ -15,6 +15,8 @@ from pathlib import Path
 
 COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
 INIT = (COMPONENT / "__init__.py").read_text()
+# The thirteen service handlers moved out of the package body.
+SERVICES_SRC = (COMPONENT / "services.py").read_text()
 INTENT = (COMPONENT / "intent.py").read_text()
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -194,11 +196,11 @@ class Tampering(unittest.TestCase):
 
 class Wiring(unittest.TestCase):
     def test_the_digest_returns_them(self):
-        body = INIT.split("async def daily_summary", 1)[1].split("async def ", 1)[0]
+        body = SERVICES_SRC.split("async def daily_summary", 1)[1].split("async def ", 1)[0]
         self.assertIn('"highlights": highlights(', body)
 
     def test_the_digest_uses_the_configured_night_window(self):
-        body = INIT.split("async def daily_summary", 1)[1].split("async def ", 1)[0]
+        body = SERVICES_SRC.split("async def daily_summary", 1)[1].split("async def ", 1)[0]
         self.assertIn("CONF_NIGHT_START", body)
 
     def test_the_spoken_answer_leads_with_them(self):

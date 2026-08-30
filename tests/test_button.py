@@ -17,6 +17,8 @@ from pathlib import Path
 COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
 BUTTON = (COMPONENT / "button.py").read_text()
 INIT = (COMPONENT / "__init__.py").read_text()
+# The thirteen service handlers moved out of the package body.
+SERVICES_SRC = (COMPONENT / "services.py").read_text()
 
 sys.path.insert(0, str(Path(__file__).parent))
 import test_coordinator as harness  # noqa: E402,F401  (installs the HA stubs)

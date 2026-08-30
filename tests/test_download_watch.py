@@ -145,6 +145,8 @@ if __name__ == "__main__":
 
 clips_mod = importlib.import_module("tapo_h500.clips")
 INIT = (COMPONENT / "__init__.py").read_text()
+# The thirteen service handlers moved out of the package body.
+SERVICES_SRC = (COMPONENT / "services.py").read_text()
 SERVICES = (COMPONENT / "services.yaml").read_text()
 
 
@@ -180,20 +182,20 @@ class EndForStart(unittest.TestCase):
 
 class SaveFromTheService(unittest.TestCase):
     def test_end_time_is_optional_now(self):
-        self.assertIn('vol.Optional("end_time")', INIT)
+        self.assertIn('vol.Optional("end_time")', SERVICES_SRC)
         body = SERVICES.split("download_recording:", 1)[1].split(
             "\ndelete_recording:", 1)[0]
         end = body.split("end_time:", 1)[1].split("convert_to_mp4:", 1)[0]
         self.assertNotIn("required: true", end)
 
     def test_a_missing_end_is_looked_up_in_the_index(self):
-        body = INIT.split("async def download_recording", 1)[1].split(
+        body = SERVICES_SRC.split("async def download_recording", 1)[1].split(
             "\n    async def ", 1)[0]
         self.assertIn("end_for_start", body)
         self.assertIn("recent", body)
 
     def test_an_unindexed_clip_is_a_clear_refusal(self):
-        body = INIT.split("async def download_recording", 1)[1].split(
+        body = SERVICES_SRC.split("async def download_recording", 1)[1].split(
             "\n    async def ", 1)[0]
         self.assertIn("ServiceValidationError", body)
 
@@ -240,7 +242,7 @@ class GlobalDays(unittest.TestCase):
     """
 
     def test_the_service_fills_missing_dates_from_the_option(self):
-        body = INIT.split("async def list_recordings", 1)[1].split(
+        body = SERVICES_SRC.split("async def list_recordings", 1)[1].split(
             "\n    async def ", 1)[0]
         self.assertIn("CONF_CARD_DAYS", body)
         self.assertIn("window_dates", body)

@@ -18,6 +18,8 @@ from test_coordinator import _build  # noqa: E402
 
 COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
 INIT = (COMPONENT / "__init__.py").read_text()
+# The thirteen service handlers moved out of the package body.
+SERVICES_SRC = (COMPONENT / "services.py").read_text()
 SENSOR = (COMPONENT / "sensor.py").read_text()
 
 
@@ -283,16 +285,16 @@ class NamingDoesNotReload(unittest.TestCase):
 class Service(unittest.TestCase):
     def test_naming_writes_to_the_entry_not_a_card(self):
         """The point of the change: one place, read by everything."""
-        self.assertIn("async_update_entry", INIT)
-        self.assertIn("CONF_FACE_NAMES: names", INIT)
+        self.assertIn("async_update_entry", SERVICES_SRC)
+        self.assertIn("CONF_FACE_NAMES: names", SERVICES_SRC)
 
     def test_an_empty_name_clears_rather_than_storing_a_blank(self):
-        body = INIT.split("async def name_face", 1)[1].split("for service,", 1)[0]
+        body = SERVICES_SRC.split("async def name_face", 1)[1].split("for service,", 1)[0]
         self.assertIn("names.pop(face_id, None)", body)
 
     def test_the_shared_map_is_published_to_callers(self):
         """So a card shows names without being configured with them."""
-        self.assertIn('"face_names": coordinator.face_names', INIT)
+        self.assertIn('"face_names": coordinator.face_names', SERVICES_SRC)
 
     def test_a_sensor_exists_per_named_person(self):
         # The name is no longer passed in: it is read live off the coordinator

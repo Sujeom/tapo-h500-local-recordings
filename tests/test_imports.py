@@ -12,6 +12,7 @@ own.
 """
 import ast
 import builtins
+import re
 import unittest
 from pathlib import Path
 
@@ -64,3 +65,44 @@ class Resolvable(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheServicesLiveInTheirOwnModule(unittest.TestCase):
+    """`__init__.py` is where an entry is set up and taken down.
+
+    540 lines of request handling in the middle of that made both harder to
+    find, and Home Assistant only ever looks for three names in the package
+    body: setup, unload, and whether a device may be removed.
+    """
+
+    ROOT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
+    INIT = (ROOT / "__init__.py").read_text()
+    SERVICES = (ROOT / "services.py").read_text()
+
+    def test_the_package_body_is_about_setting_up_and_tearing_down(self):
+        self.assertLess(len(self.INIT.splitlines()), 260)
+        for name in ("async_setup_entry", "async_unload_entry",
+                     "async_remove_config_entry_device"):
+            with self.subTest(name):
+                self.assertIn(f"async def {name}", self.INIT)
+
+    def test_no_handler_is_left_behind(self):
+        for name in ("list_recordings", "download_recording", "name_face",
+                     "daily_summary", "snooze", "backup_names"):
+            with self.subTest(name):
+                self.assertIn(f"async def {name}", self.SERVICES)
+                self.assertNotIn(f"async def {name}", self.INIT)
+
+    def test_all_thirteen_are_registered_and_all_thirteen_are_removed(self):
+        registered = set(re.findall(r"\(SERVICE_(\w+), \w+, \w+_SCHEMA\)",
+                                    self.SERVICES))
+        listed = set(re.findall(r"\n    SERVICE_(\w+),",
+                                self.SERVICES.split("SERVICES = (", 1)[1]
+                                .split("\n)", 1)[0]))
+        self.assertEqual(len(registered), 13)
+        self.assertEqual(registered, listed,
+                         "one registered and not listed never gets removed")
+
+    def test_the_package_body_reaches_them_through_one_call(self):
+        self.assertIn("services.async_register(hass)", self.INIT)
+        self.assertIn("from .services import SERVICES", self.INIT)

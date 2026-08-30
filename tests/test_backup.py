@@ -18,6 +18,8 @@ from pathlib import Path
 
 COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
 INIT = (COMPONENT / "__init__.py").read_text()
+# The thirteen service handlers moved out of the package body.
+SERVICES_SRC = (COMPONENT / "services.py").read_text()
 ACTIONS = (COMPONENT / "services.yaml").read_text()
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -26,7 +28,7 @@ import test_coordinator  # noqa: E402,F401  (installs the HA stubs)
 backup = importlib.import_module("tapo_h500.backup")
 const = importlib.import_module("tapo_h500.const")
 
-RESTORE_SCHEMA = INIT.split("RESTORE_SCHEMA = vol.Schema(", 1)[1].split(
+RESTORE_SCHEMA = SERVICES_SRC.split("RESTORE_SCHEMA = vol.Schema(", 1)[1].split(
     "\n})", 1)[0]
 
 
@@ -170,12 +172,12 @@ class Validation(unittest.TestCase):
 class Registration(unittest.TestCase):
     def test_both_are_registered(self):
         self.assertIn("(SERVICE_BACKUP_NAMES, backup_names, BACKUP_SCHEMA)",
-                      INIT)
+                      SERVICES_SRC)
         self.assertIn("(SERVICE_RESTORE_NAMES, restore_names, RESTORE_SCHEMA)",
-                      INIT)
+                      SERVICES_SRC)
 
     def test_the_backup_action_writes_nothing(self):
-        body = INIT.split("    async def backup_names(", 1)[1].split(
+        body = SERVICES_SRC.split("    async def backup_names(", 1)[1].split(
             "\n    async def ", 1)[0]
         self.assertNotIn("async_update_entry", body)
 
@@ -183,7 +185,7 @@ class Registration(unittest.TestCase):
         registered = set(re.findall(r"\(SERVICE_(\w+), \w+, \w+_SCHEMA\)", INIT))
         listed = set(re.findall(
             r"SERVICE_(\w+)",
-            INIT.split("SERVICES = (", 1)[1].split("\n)", 1)[0]))
+            SERVICES_SRC.split("SERVICES = (", 1)[1].split("\n)", 1)[0]))
         self.assertEqual(registered - listed, set())
 
     def test_the_removal_list_names_only_services(self):
@@ -191,7 +193,7 @@ class Registration(unittest.TestCase):
         broke -- has_service simply answered no -- which is why nobody
         noticed, and it made the list useless as a statement of intent."""
         listed = [name for name in re.findall(
-            r"\n    (\w+),", INIT.split("SERVICES = (", 1)[1].split("\n)", 1)[0])]
+            r"\n    (\w+),", SERVICES_SRC.split("SERVICES = (", 1)[1].split("\n)", 1)[0])]
         self.assertTrue(listed)
         for name in listed:
             self.assertTrue(name.startswith("SERVICE_"), name)
