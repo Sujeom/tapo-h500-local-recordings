@@ -145,3 +145,81 @@ class Registration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheSpokenAndTheWrittenAnswer(unittest.TestCase):
+    """The digest service and the voice answer describe the same day.
+
+    They are separate code paths reading the same clips, and the point of
+    routing both through summarise() is that a household hears the sentence
+    it would have read. Two phrasings drifting apart is exactly the failure
+    that reads as fine in review -- both look correct on their own.
+    """
+
+    def setUp(self):
+        self.services = importlib.import_module("tapo_h500.services")
+        self.clips = {"Front": [clip(NOW - 600), clip(NOW - 300)],
+                      "Side": []}
+        self.coord = _hub(self.clips)
+
+    def _spoken(self):
+        return ask(intent_mod.TodayIntent(), self.coord)
+
+    def _digest(self):
+        hass = harness._Hass()
+        hass.data = {"tapo_h500": {"hubs": {"test": self.coord}}}
+        hass.config_entries = harness._ConfigEntries([self.coord.entry])
+        self.services.async_register(hass)
+        # The spoken answer takes summarise()'s default window, so the
+        # written one is asked for the same day rather than a different one.
+        call = type("C", (), {"data": {"config_entry_id": "test",
+                                       "hours": 24}})()
+        return asyncio.run(hass.services.registered["daily_summary"](call))
+
+    def test_the_written_summary_is_the_sentence_that_is_spoken(self):
+        """Both go through summarise(), and this is what that buys: the
+        household hears the sentence it would have read, word for word."""
+        self.assertTrue(self._spoken().endswith(self._digest()["summary"]),
+                        f"{self._spoken()!r} vs {self._digest()['summary']!r}")
+
+    def test_what_is_said_first_is_what_the_digest_lists_as_a_highlight(self):
+        """The two present it differently on purpose -- speech leads with it
+        because a bare list of totals is the same sentence every day, while a
+        digest hands the highlights back as their own list for a caller to
+        lay out. They must still be the same fact."""
+        spoken, digest = self._spoken(), self._digest()
+        self.assertEqual(len(digest["highlights"]), 1)
+        highlight = digest["highlights"][0]
+        self.assertTrue(spoken.startswith(highlight),
+                        f"{spoken!r} does not lead with {highlight!r}")
+
+    def test_a_day_with_nothing_to_single_out_says_only_the_counts(self):
+        """Usually empty, and that is the point: a list that always has
+        something in it says nothing."""
+        self.clips["Side"] = [clip(NOW - 900)]
+        digest = self._digest()
+        self.assertEqual(digest["highlights"], [])
+        self.assertEqual(self._spoken(), digest["summary"])
+
+
+class TheDigestIsAskedFor(unittest.TestCase):
+    """Off unless something calls it. A summary nobody asked for is what
+    makes people mute an integration."""
+
+    def test_registering_the_services_schedules_nothing(self):
+        helper = sys.modules["homeassistant.helpers.event"]
+        scheduled = []
+        for name in ("async_track_time_change",
+                     "async_track_utc_time_change"):
+            original = getattr(helper, name, None)
+            setattr(helper, name,
+                    lambda *a, _name=name, **k: scheduled.append(_name))
+            self.addCleanup(setattr, helper, name, original)
+        services = importlib.import_module("tapo_h500.services")
+        hass = harness._Hass()
+        hass.data = {"tapo_h500": {"hubs": {}}}
+        hass.config_entries = harness._ConfigEntries([])
+        services.async_register(hass)
+        self.assertEqual(scheduled, [], "nothing is put on a timer")
+        self.assertIn("daily_summary", hass.services.registered,
+                      "it exists, it just waits to be called")

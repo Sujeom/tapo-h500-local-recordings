@@ -282,6 +282,24 @@ class TheResourceList(_World):
         self.assertFalse(self._register())
 
 
+class VoiceIsABonus(_World):
+    """Assist may not be installed, its intent API has changed shape before,
+    and neither is a reason a doorbell stops working."""
+
+    def test_intents_that_will_not_register_do_not_fail_setup(self):
+        intent_mod = sys.modules["tapo_h500.intent"]
+        original = intent_mod.async_setup_intents
+
+        async def refuse(hass):
+            raise RuntimeError("no intent component here")
+
+        intent_mod.async_setup_intents = refuse
+        self.addCleanup(setattr, intent_mod, "async_setup_intents", original)
+        self.assertTrue(self._setup())
+        self.assertIn("test", self.hass.data["tapo_h500"]["hubs"],
+                      "the hub is set up regardless")
+
+
 class Unload(_World):
     def test_platforms_that_will_not_unload_stop_the_unload(self):
         """Closing the login under entities still holding it would strand

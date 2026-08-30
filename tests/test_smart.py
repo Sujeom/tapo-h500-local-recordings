@@ -119,17 +119,19 @@ class Captioning(unittest.TestCase):
 
 
 class Digest(unittest.TestCase):
-    def test_it_is_a_service_not_a_schedule(self):
-        """Off unless something calls it: a summary nobody asked for is what
-        makes people mute an integration."""
-        self.assertIn("SERVICE_DAILY_SUMMARY", SERVICES_SRC)
-        for scheduler in ("async_track_time_change", "async_track_utc_time_change"):
-            self.assertNotIn(scheduler, SERVICES_SRC)
-            self.assertNotIn(scheduler, INIT)
+    # Both claims are driven in test_intent_live.TheDigestIsAskedFor and
+    # .TheSpokenAndTheWrittenAnswer: registering the services puts nothing on
+    # a timer, and the written summary is word for word the sentence the
+    # spoken answer ends with. Checking that both files contain the word
+    # "summarise" cannot show they still agree.
 
-    def test_it_shares_its_phrasing_with_the_voice_answer(self):
-        self.assertIn("summarise(", SERVICES_SRC)
-        self.assertIn("summarise(", INTENT)
+    def test_the_scheduler_stays_out_of_the_package_body(self):
+        """Off unless something calls it: a summary nobody asked for is what
+        makes people mute an integration. Registration is covered live; this
+        is the other half, where a timer would be easy to add by habit."""
+        for scheduler in ("async_track_time_change",
+                          "async_track_utc_time_change"):
+            self.assertNotIn(scheduler, INIT)
 
 
 class Voice(unittest.TestCase):
@@ -148,16 +150,9 @@ class Voice(unittest.TestCase):
         self.assertEqual(intent_mod._ago(3600 * 5), "5 hours ago")
         self.assertEqual(intent_mod._ago(86400), "1 day ago")
 
-    def test_nothing_recorded_is_an_answer(self):
-        self.assertIn("Nothing has been recorded", INTENT)
-
-    def test_voice_never_breaks_setup(self):
-        block = INIT.split("from .intent import async_setup_intents", 1)[1][:200]
-        self.assertIn("except Exception", block)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    # "Nothing has been recorded" is asserted against the spoken answer
+    # itself in test_intent_live, and voice failing without failing setup is
+    # driven in test_setup_entry.
 
 
 class Verification(unittest.TestCase):
@@ -212,3 +207,7 @@ class Export(unittest.TestCase):
     def test_there_is_no_default_destination(self):
         """Copying files somewhere is not a thing to guess at."""
         self.assertIn('vol.Required("destination")', SERVICES_SRC)
+
+
+if __name__ == "__main__":
+    unittest.main()
