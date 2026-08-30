@@ -297,3 +297,45 @@ class Setup(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheDetectionFlagsWiring(unittest.TestCase):
+    """What a flag subscribes to, and what it lets go of."""
+
+    def _added(self, code=6):
+        coord, _ = harness._build()
+        entity = _wire(binary.H500DetectionFlag(coord, 1, CAMERA, code))
+        self.removals = []
+        entity.async_on_remove = self.removals.append
+        signals = []
+        original = binary.async_dispatcher_connect
+        binary.async_dispatcher_connect = (
+            lambda hass, signal, target: signals.append(signal) or (lambda: None))
+        try:
+            asyncio.run(entity.async_added_to_hass())
+        finally:
+            binary.async_dispatcher_connect = original
+        return entity, signals
+
+    def test_it_listens_to_its_own_cameras_events(self):
+        _, signals = self._added()
+        self.assertEqual(len(signals), 1)
+        self.assertTrue(signals[0].endswith("_1"),
+                        "camera 1's signal, not camera 0's")
+
+    def test_removal_cancels_a_pending_hold(self):
+        """A timer firing against a removed entity raises, and the hold can
+        outlive the entity by minutes."""
+        event_helper.timers.clear()
+        entity, _ = self._added()
+        entity._handle("motion", {"events_1": 1 << 5})
+        pending = event_helper.timers[-1]
+        for unsubscribe in self.removals:
+            unsubscribe()
+        self.assertTrue(pending["cancelled"])
+
+    def test_removing_one_that_never_fired_is_harmless(self):
+        entity, _ = self._added()
+        for unsubscribe in self.removals:
+            unsubscribe()
+        self.assertIsNone(entity._clear_timer)

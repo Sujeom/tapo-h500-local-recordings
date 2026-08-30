@@ -158,8 +158,8 @@ class Staging(unittest.TestCase):
 
 
 @unittest.skipIf(FFMPEG is None, "ffmpeg is not installed")
-class Built(unittest.TestCase):
-    """The real thing, run and measured."""
+class _SheetWorld(unittest.TestCase):
+    """A day's worth of thumbnails on a real disk, and the real ffmpeg."""
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -192,6 +192,10 @@ class Built(unittest.TestCase):
         finally:
             sheet._stage = real
         return seen
+
+
+class Built(_SheetWorld):
+    """The real thing, run and measured."""
 
     def test_a_quiet_day_has_no_sheet(self):
         self.assertIsNone(self._build())
@@ -279,3 +283,43 @@ class Entity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhenFfmpegWillNotFinish(_SheetWorld):
+    """A sheet is decoration. Nothing about it may hold up a camera entity.
+
+    The tile filter has to decode every thumbnail of the day, so one corrupt
+    frame is enough for ffmpeg to sit there -- and this runs on request, on
+    the event loop, behind whatever asked for the picture.
+    """
+
+    def _with_timeout(self, seconds):
+        original = sheet.TIMEOUT
+        sheet.TIMEOUT = seconds
+        self.addCleanup(setattr, sheet, "TIMEOUT", original)
+
+    def test_a_run_that_does_not_finish_gives_up_and_returns_nothing(self):
+        self._clips(2)
+        self._with_timeout(0)
+        self.assertIsNone(self._build())
+
+    def test_the_process_is_killed_rather_than_left_running(self):
+        """Abandoning it would leave an ffmpeg per timed-out sheet, and the
+        camera rebuilds this every time a clip arrives."""
+        self._clips(2)
+        self._with_timeout(0)
+        killed = []
+        original = asyncio.create_subprocess_exec
+
+        async def watched(*args, **kwargs):
+            process = await original(*args, **kwargs)
+            real_kill = process.kill
+            process.kill = lambda: (killed.append(True), real_kill())[1]
+            return process
+
+        asyncio.create_subprocess_exec = watched
+        try:
+            self._build()
+        finally:
+            asyncio.create_subprocess_exec = original
+        self.assertEqual(killed, [True])
