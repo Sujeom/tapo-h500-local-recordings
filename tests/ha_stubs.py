@@ -418,8 +418,16 @@ def real_module(name: str):
     if loaded is not None:
         return loaded
     filename = "__init__.py" if name == "init" else f"{name}.py"
+    # Loaded as a plain module, never a package. `spec_from_file_location`
+    # sees an `__init__.py` and makes the result a package, which changes what
+    # `from .api import ...` inside it resolves against: `tapo_h500._real_init`
+    # rather than `tapo_h500`. Every module it touched was then executed a
+    # second time under a second name, and two classes that should have been
+    # one stopped comparing equal -- which is how an unrelated identity test
+    # in test_api started failing.
     spec = importlib.util.spec_from_file_location(
-        private, str(pathlib.Path(COMPONENT_PATH) / filename))
+        private, str(pathlib.Path(COMPONENT_PATH) / filename),
+        submodule_search_locations=None)
     module = importlib.util.module_from_spec(spec)
     sys.modules[private] = module
     spec.loader.exec_module(module)

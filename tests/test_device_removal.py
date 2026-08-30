@@ -90,6 +90,25 @@ class WhatCanBeDeleted(unittest.TestCase):
         self.assertTrue(_may_remove(_hass(coord), _Device((DOMAIN, "cam0"))))
 
 
+class TheRealModuleIsTheRealOne(unittest.TestCase):
+    """Loading the package body must not fork the component in two.
+
+    An `__init__.py` loaded as a package makes `from .api import ...` inside
+    it resolve against the private name, so every module it touches is
+    executed a second time and two classes that should be one stop comparing
+    equal. It broke an identity assertion in a completely unrelated test file.
+    """
+
+    def test_it_shares_its_modules_with_everybody_else(self):
+        self.assertIs(component.H500Client,
+                      importlib.import_module("tapo_h500.api").H500Client)
+
+    def test_it_did_not_leave_a_second_package_behind(self):
+        forked = [name for name in sys.modules
+                  if name.startswith("tapo_h500._real_init.")]
+        self.assertEqual(forked, [])
+
+
 class TheHookIsFound(unittest.TestCase):
     """Home Assistant looks it up by name on the component module. A typo
     means the delete button silently never appears."""
