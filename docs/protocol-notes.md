@@ -791,6 +791,53 @@ A delete verb was deliberately **not** brute-forced. Any probe specific enough
 to prove one exists is specific enough to erase a recording, and hub footage
 cannot be recovered.
 
+### `subg` has never been asked
+
+The component list advertises it and no probe has ever touched it. It is the
+sub-GHz link between the hub and the TD21 doorbells, which is to say it is the
+layer the failure this project exists around lives in: the cameras keep their
+radio link, still answer live view, and record nothing, and nothing on the LAN
+can see that link's state at all.
+
+`tools/probe_subg.py` asks, in one login: the five section spellings that work
+for `app_component` and `general_camera_manage`, ten more from a radio's own
+vocabulary, and ten method names. Read-only by construction, and not by
+convention -- every request is walked before it is sent, and any `method` that
+is not a getter or any key that is a write verb refuses the run. `do` is
+checked as a key rather than a method name, because that is how Tapo's write
+verb travels, and the walk goes into lists because sub-requests arrive in one.
+
+It has not been run. It touches a hub that stops responding under repeated
+authentication, so it is somebody's decision to make and not a script's.
+
+Any section that does not answer `-40106` would be the first LAN-visible fact
+about the camera radio anybody has had. Signal strength or a last-heard time
+per camera would turn "the cameras are dark" from an inference drawn from
+silence into a reading -- and would say whether a dark camera has lost the
+radio or is holding it and refusing to record. Those are different faults with
+different cures, and today they are indistinguishable.
+
+### What cannot be answered from the LAN at all
+
+Three questions are left, and none of them can be settled by asking the hub.
+
+- **A faster event source.** `eventCenter` and `ringLog` are advertised and
+  every namespace and method route returns `-40106`. If the app reaches them
+  it does so by a shape no amount of guessing here has found, and the way to
+  learn it is a capture of the app's own traffic -- a proxy between the phone
+  and the hub, with the app's certificate pinning dealt with.
+- **Live view.** The session opens, authenticates, is acknowledged, and no
+  video arrives. Every step this end can perform has been performed. What is
+  missing is whatever the app sends that this does not, which is the same
+  capture.
+- **The radio itself.** If `subg` turns out to be unreachable too, what is
+  left is listening to the link rather than asking about it: a software-defined
+  radio at 868 or 915MHz, which is a different project with different
+  equipment.
+
+None of that is a matter of more probing. It is a matter of instruments this
+repository does not have.
+
 ## What has not worked
 
 - Bare method names with `{}` params: envelope rejected, `40210`, method never
