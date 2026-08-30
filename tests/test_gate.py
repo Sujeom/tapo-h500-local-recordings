@@ -113,3 +113,41 @@ class TheCheckoutHasWhatTheTestsRead(unittest.TestCase):
         source = (ROOT / "tests" / "test_release_tool.py").read_text()
         self.assertIn("skipTest", source)
         self.assertIn("CalledProcessError", source)
+
+
+class TheCoverageFloorIsARatchet(unittest.TestCase):
+    """Nine modules shipped at 0.0% coverage and nothing said so.
+
+    The floors are ratchets, not targets: the total sits just under where the
+    suite actually is, so improvement is kept rather than demanded, and the
+    per-module floor exists so a NEW untested module fails the build instead
+    of waiting for somebody to go looking.
+    """
+
+    COVERAGE = (ROOT / "tools" / "coverage.py").read_text()
+
+    def test_ci_runs_the_gate_not_the_report(self):
+        workflow = (ROOT / ".github" / "workflows" / "verify.yml").read_text()
+        self.assertIn("tools/coverage.py --gate", workflow)
+
+    def test_the_floors_exist_and_are_sane(self):
+        import re
+        total = float(re.search(r"FLOOR_TOTAL = ([\d.]+)", self.COVERAGE)[1])
+        module = float(re.search(r"FLOOR_MODULE = ([\d.]+)", self.COVERAGE)[1])
+        self.assertGreaterEqual(total, 70.0)
+        self.assertGreaterEqual(module, 10.0)
+        self.assertLess(module, total,
+                        "the module floor is the tripwire, not the bar")
+
+    def test_a_module_under_the_floor_fails_the_gate(self):
+        """Driven, not read: the gate function itself, fed a failing row."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "coverage_tool", ROOT / "tools" / "coverage.py")
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        bad = [("new_module.py", 0, 50, [])]
+        self.assertEqual(tool._gate(bad, 90.0), 2)
+        good = [("new_module.py", 45, 50, [])]
+        self.assertEqual(tool._gate(good, tool.FLOOR_TOTAL + 1), 0)
+        self.assertEqual(tool._gate(good, tool.FLOOR_TOTAL - 1), 2)

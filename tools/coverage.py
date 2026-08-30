@@ -12,6 +12,7 @@ so "which file should get the next behavioural test" stops being a guess.
 
     tools/coverage.py            # summary, worst first
     tools/coverage.py --missing  # and the unexecuted line numbers
+    tools/coverage.py --gate     # exit nonzero below the floors
 """
 import sys
 import types
@@ -45,6 +46,7 @@ def executable_lines(path: Path) -> set[int]:
 
 def main() -> int:
     show_missing = "--missing" in sys.argv
+    gate = "--gate" in sys.argv
     files = {str(path): path for path in sorted(COMPONENT.glob("*.py"))}
     seen: dict[str, set[int]] = {name: set() for name in files}
 
@@ -96,7 +98,38 @@ def main() -> int:
           f"{100 * total_covered / total_runnable:5.1f}%")
     print(f"\n{result.testsRun} tests ran; "
           f"{len(result.failures)} failed, {len(result.errors)} errored")
-    return 0 if result.wasSuccessful() else 1
+    if not result.wasSuccessful():
+        return 1
+    if gate:
+        return _gate(rows, 100 * total_covered / total_runnable)
+    return 0
+
+
+# The floors --gate holds. Ratchets, not targets: TOTAL sits just under where
+# the suite actually is, so improvement is kept rather than demanded, and the
+# per-module floor exists to make a NEW untested module fail the build -- nine
+# shipped at 0.0% and nothing said so until somebody went looking.
+FLOOR_TOTAL = 75.0
+FLOOR_MODULE = 20.0
+
+
+def _gate(rows: list, total: float) -> int:
+    failed = False
+    for name, covered, runnable, _missing in sorted(rows):
+        pct = 100 * covered / runnable if runnable else 100.0
+        if pct < FLOOR_MODULE:
+            print(f"GATE: {name} is {pct:.1f}% covered, "
+                  f"floor {FLOOR_MODULE:.0f}%")
+            failed = True
+    if total < FLOOR_TOTAL:
+        print(f"GATE: total {total:.1f}% is under the floor "
+              f"{FLOOR_TOTAL:.0f}%")
+        failed = True
+    if failed:
+        return 2
+    print(f"coverage gate OK (total {total:.1f}%, floors "
+          f"{FLOOR_TOTAL:.0f}/{FLOOR_MODULE:.0f})")
+    return 0
 
 
 def _ranges(numbers: list[int]) -> str:

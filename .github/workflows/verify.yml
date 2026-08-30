@@ -64,10 +64,12 @@ jobs:
         run: bash tools/verify.sh
 
       - name: Coverage
-        # Reported, not gated. A threshold picked today would either sit below
-        # where the code already is, and gate nothing, or above it, and block
-        # every unrelated change until somebody games it.
-        run: python -B tools/coverage.py
+        # Gated on ratchets, not targets: the total floor sits just under
+        # where the suite actually is, so improvement is kept rather than
+        # demanded, and the per-module floor makes a NEW untested module fail
+        # the build -- nine shipped at 0.0% and nothing said so until
+        # somebody went looking.
+        run: python -B tools/coverage.py --gate
 
   # Home Assistant's own manifest validator, and HACS's. Both need the network
   # and a checkout, so they cannot run in tools/verify.sh -- tests/test_manifest.py
