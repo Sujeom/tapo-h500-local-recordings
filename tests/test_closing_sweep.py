@@ -580,6 +580,150 @@ class TheDownloadsTwoSkips(unittest.TestCase):
         self.assertEqual(len(self._attempt(clip)), 1)
 
 
+class AClipThatDoesNotDecode(unittest.TestCase):
+    """Verified now, while the hub still holds the original.
+
+    A truncated file looks identical to a good one on disk -- same name, same
+    place, plausible size -- and the only moment it can be fetched again is
+    before retention evicts the source. Discovering it later means the
+    recording is simply gone.
+    """
+
+    def _download(self, decodes, failures_before=0):
+        coord, _ = harness._build()
+        if failures_before:
+            coord._download_failures[0] = failures_before
+        module = sys.modules["tapo_h500.coordinator"]
+        removed = []
+
+        class Stored:
+            name = "224640.ts"
+
+            @staticmethod
+            def unlink(missing_ok=False):
+                removed.append(True)
+
+        async def download(*args, **kwargs):
+            return {"path": "/x.ts", "bytes": 4096}
+
+        async def verify(hass, path):
+            return decodes
+
+        async def pruned(*args, **kwargs):
+            return []
+
+        for name, value in (("existing_clip",
+                             lambda hass, camera, start: Stored()),
+                            ("async_download_clip", download),
+                            ("async_verify", verify),
+                            ("async_prune", pruned)):
+            self.addCleanup(setattr, module, name, getattr(module, name, None))
+            setattr(module, name, value)
+        # existing_clip answers for the check after the download as well as
+        # the one before it, so the skip has to be stepped over deliberately.
+        coord._seen_clips[0] = {(NOW,)}
+        original_skip = module.existing_clip
+        calls = {"n": 0}
+
+        def once(hass, camera, start):
+            calls["n"] += 1
+            return None if calls["n"] == 1 else Stored()
+
+        module.existing_clip = once
+        run(coord._download(0, {"device_id": "cam0", "alias": "F"},
+                            {"startTime": NOW, "endTime": NOW + 15}))
+        module.existing_clip = original_skip
+        return coord, removed
+
+    def test_a_file_that_does_not_decode_is_removed_so_it_can_be_refetched(self):
+        coord, removed = self._download(decodes=False)
+        self.assertEqual(removed, [True])
+        self.assertNotIn((NOW,), coord._seen_clips.get(0, set()),
+                         "forgotten, so the next poll fetches it again")
+
+    def test_it_counts_as_the_pipeline_failing(self):
+        """Bytes arrived and did not decode. The media-problem sensor has to
+        see that, or a camera writing rubbish reads as working."""
+        coord, _ = self._download(decodes=False)
+        self.assertEqual(coord._download_failures.get(0), 1)
+
+    def test_a_file_that_decodes_is_kept(self):
+        coord, removed = self._download(decodes=True)
+        self.assertEqual(removed, [])
+
+    def test_one_good_download_clears_the_run_of_failures(self):
+        """The media-problem sensor reads this count, so a camera that has
+        started working again has to stop being reported as broken."""
+        coord, _ = self._download(decodes=True, failures_before=3)
+        self.assertNotIn(0, coord._download_failures)
+
+    def test_a_decode_failure_adds_to_the_run_rather_than_resetting_it(self):
+        coord, _ = self._download(decodes=False, failures_before=3)
+        self.assertEqual(coord._download_failures.get(0), 4)
+
+
+class AClipTheHubWillNotServe(unittest.TestCase):
+    """Indexed but empty: the hub lists a recording and then streams nothing.
+
+    Its own bookkeeping, separate from a transport failure, because it is not
+    a broken pipeline -- it is one clip the hub cannot produce, and retrying
+    it forever costs a media session each time on a device that wedges.
+    """
+
+    def _download(self, error):
+        coord, _ = harness._build()
+        module = sys.modules["tapo_h500.coordinator"]
+
+        async def refuse(*args, **kwargs):
+            raise error
+
+        for name, value in (("existing_clip",
+                             lambda hass, camera, start: None),
+                            ("async_download_clip", refuse)):
+            self.addCleanup(setattr, module, name, getattr(module, name, None))
+            setattr(module, name, value)
+        run(coord._download(0, {"device_id": "cam0", "alias": "F"},
+                            {"startTime": NOW, "endTime": NOW + 15}))
+        return coord
+
+    def test_an_empty_recording_is_remembered_so_it_is_not_retried_forever(self):
+        coord = self._download(
+            sys.modules["tapo_h500.media"].EmptyRecordingError("no bytes"))
+        self.assertIn(NOW, coord._failed_clips.get(0, {}))
+
+    def test_an_empty_recording_counts_against_the_camera(self):
+        coord = self._download(
+            sys.modules["tapo_h500.media"].EmptyRecordingError("no bytes"))
+        self.assertEqual(coord._download_failures.get(0), 1)
+
+    def test_only_an_empty_recording_is_logged_as_an_empty_one(self):
+        """EmptyRecordingError is a HomeAssistantError, so both land in the
+        same shape of handler. What separates them is the media log: a hub
+        that answers every session and carries no video is a different
+        problem from one that will not answer, and the health sensor is how
+        anybody sees which is happening."""
+        media = sys.modules["tapo_h500.media"]
+        from homeassistant.exceptions import HomeAssistantError
+        empty = self._download(media.EmptyRecordingError("no bytes"))
+        self.assertEqual(empty.media._empty, 1)
+        stalled = self._download(HomeAssistantError("stream stalled"))
+        self.assertEqual(stalled.media._empty, 0)
+
+    def test_a_transport_failure_is_recorded_the_same_way(self):
+        from homeassistant.exceptions import HomeAssistantError
+        coord = self._download(HomeAssistantError("stream stalled"))
+        self.assertEqual(coord._download_failures.get(0), 1)
+        self.assertIn(NOW, coord._failed_clips.get(0, {}))
+
+    def test_neither_takes_the_poll_down_with_it(self):
+        """One clip failing must not stop the others being fetched."""
+        from homeassistant.exceptions import HomeAssistantError
+        for error in (HomeAssistantError("stalled"),
+                      sys.modules["tapo_h500.media"].EmptyRecordingError("x")):
+            with self.subTest(error=type(error).__name__):
+                self._download(error)  # returns rather than raising
+
+
 class TheContactSheetEntity(unittest.TestCase):
     def _sheet(self):
         image_mod = importlib.import_module("tapo_h500.image")
