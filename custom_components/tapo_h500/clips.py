@@ -828,9 +828,28 @@ def longest_visit(clips: list[dict], gap: int) -> int:
     return max((end - start for start, end, _ in visits), default=0)
 
 
+# Home Assistant's date helpers, found once and kept. Not imported at module
+# scope: this file is deliberately importable without Home Assistant, which is
+# what lets the clip logic be tested as the arithmetic it is.
+_DT = None
+
+
 def _local(moment: int):
-    from homeassistant.util import dt as dt_util
-    return dt_util.as_local(dt_util.utc_from_timestamp(moment))
+    """`moment` in Home Assistant's configured zone.
+
+    The module lookup is a third of what this function costs, and it is called
+    once per clip, by several sensors, for every camera, on every poll. A day
+    of a busy doorbell is 860 of them.
+
+    The zone itself is deliberately not cached. It can be changed in settings
+    while Home Assistant is running, and a cached one would put every
+    recording an hour out with nothing to say why.
+    """
+    global _DT
+    if _DT is None:
+        from homeassistant.util import dt as dt_util
+        _DT = dt_util
+    return _DT.as_local(_DT.utc_from_timestamp(moment))
 
 
 def window_dates(days: int, now: int) -> tuple[str, str]:

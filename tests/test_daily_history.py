@@ -13,7 +13,7 @@ import importlib
 import json
 import sys
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
@@ -121,3 +121,44 @@ class TheDailyCount(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheZoneIsNeverCached(unittest.TestCase):
+    """Home Assistant's date helpers are found once and kept. The zone they
+    resolve is looked up every time.
+
+    It can be changed in settings while Home Assistant is running, and a
+    cached one would put every recording an hour out with nothing on screen
+    to say why.
+    """
+
+    def setUp(self):
+        self.original = dt_util.LOCAL
+        self.addCleanup(setattr, dt_util, "LOCAL", self.original)
+
+    def test_changing_the_zone_changes_the_answer_at_once(self):
+        moment = int(datetime(2026, 8, 29, 12, 0,
+                              tzinfo=timezone.utc).timestamp())
+        clips_mod.local_hour(moment)          # warm whatever is kept
+        dt_util.LOCAL = timezone(timedelta(hours=-7))
+        west = clips_mod.local_hour(moment)
+        dt_util.LOCAL = timezone(timedelta(hours=2))
+        east = clips_mod.local_hour(moment)
+        self.assertEqual((west, east), (5, 14))
+
+    def test_the_date_follows_it_too(self):
+        """Not only the hour: a zone change can move a recording to another
+        day, which is what the daily count is built on."""
+        late = int(datetime(2026, 8, 29, 23, 30,
+                            tzinfo=timezone.utc).timestamp())
+        dt_util.LOCAL = timezone(timedelta(hours=2))
+        self.assertEqual(clips_mod.local_date(late), "2026-08-30")
+        dt_util.LOCAL = timezone(timedelta(hours=-7))
+        self.assertEqual(clips_mod.local_date(late), "2026-08-29")
+
+    def test_the_helpers_are_kept_rather_than_looked_up_each_time(self):
+        """A third of what the call costs, for something called once per
+        clip, per sensor, per camera, per poll."""
+        clips_mod.local_hour(0)
+        self.assertIsNotNone(clips_mod._DT)
+        self.assertIs(clips_mod._DT, dt_util)
