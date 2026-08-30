@@ -583,6 +583,15 @@ def install(component_path=None):
             SirenEntityFeature=_SirenFeature)
     # config_flow raises and catches this by type; a manufactured class is
     # not a BaseException and cannot be raised at all.
+    # A working ffmpeg manager, pointing at the machine's real binary. The
+    # manufactured module handed back a class where the binary path belongs,
+    # so every convert, verify and thumbnail died in create_subprocess_exec.
+    # test_contact_sheet still assigns its own copy over this; both behave
+    # the same, so whichever loads first no longer matters.
+    import shutil as _shutil
+    _module("homeassistant.components.ffmpeg",
+            get_ffmpeg_manager=lambda hass: types.SimpleNamespace(
+                binary=_shutil.which("ffmpeg") or "ffmpeg"))
     _module("homeassistant.helpers.network",
             NoURLAvailableError=type("NoURLAvailableError", (Exception,), {}),
             get_url=lambda hass, **kwargs: "http://stub.local:8123")
