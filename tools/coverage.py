@@ -146,8 +146,8 @@ def main() -> int:
 # the suite actually is, so improvement is kept rather than demanded, and the
 # per-module floor exists to make a NEW untested module fail the build -- nine
 # shipped at 0.0% and nothing said so until somebody went looking.
-FLOOR_TOTAL = 96.0
-FLOOR_MODULE = 80.0
+FLOOR_TOTAL = 99.0
+FLOOR_MODULE = 90.0
 
 
 def _gate(rows: list, total: float) -> int:
