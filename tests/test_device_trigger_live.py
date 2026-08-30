@@ -232,3 +232,53 @@ class AttachingABusEvent(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EverySlugCanBeAttached(unittest.TestCase):
+    """The editor lists triggers, the owner picks one, and it is saved into
+    their automations file. A slug that can be offered but not attached makes
+    an automation that looks right and never fires -- and detections are the
+    fall-through, so the failure is silent rather than loud.
+    """
+
+    def _attach(self, slug):
+        env = _Harness(self, identifiers={("tapo_h500", HUB_ENTRY)})
+        run(trigger_mod.async_attach_trigger(
+            env.hass, {"type": slug, "entity_id": "reg-x", "device_id": "d"},
+            lambda variables, context=None: None, None))
+        self.assertEqual(len(env.attached), 1, slug)
+        return env.attached[0]
+
+    def test_a_bus_event_slug_attaches_to_the_bus(self):
+        for slug in trigger_mod.EVENT_TRIGGERS:
+            with self.subTest(slug=slug):
+                self.assertEqual(self._attach(slug)[0], "event")
+
+    def test_a_worked_out_state_attaches_watching_for_it_turning_on(self):
+        """These sensors clear by themselves; firing again as somebody walks
+        away is how an automation gets muted."""
+        for slug in trigger_mod.STATE_TRIGGERS:
+            with self.subTest(slug=slug):
+                kind, config, _, _ = self._attach(slug)
+                self.assertEqual(kind, "state")
+                self.assertEqual(config.get("to"), "on")
+
+    def test_a_detection_watches_the_entity_without_a_target_state(self):
+        """Both go through a state watcher, and the filter is what tells them
+        apart: a detection matches on what fired, not on turning on. A slug
+        routed to the wrong one would look attached and never match."""
+        for slug in trigger_mod.TRIGGER_TYPES:
+            with self.subTest(slug=slug):
+                kind, config, _, _ = self._attach(slug)
+                self.assertEqual(kind, "state")
+                self.assertIsNone(config.get("to"))
+
+    def test_the_three_kinds_do_not_overlap(self):
+        """A slug in two tables would attach as whichever branch came first,
+        and the other table's meaning would silently never apply."""
+        tables = (set(trigger_mod.TRIGGER_TYPES),
+                  set(trigger_mod.STATE_TRIGGERS),
+                  set(trigger_mod.EVENT_TRIGGERS))
+        for left in range(len(tables)):
+            for right in range(left + 1, len(tables)):
+                self.assertEqual(tables[left] & tables[right], set())

@@ -81,64 +81,15 @@ class Coverage(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
-    def test_detections_come_from_the_event_entity(self):
-        self.assertIn('if entry.domain == "event":', SOURCE)
-
-    def test_worked_out_states_come_from_binary_sensors(self):
-        self.assertIn('if entry.domain != "binary_sensor":', SOURCE)
-
-    def test_the_unique_id_tails_match_real_sensors(self):
-        """Matched on the unique id rather than the entity id, which the owner
-        can rename to anything -- so the tails have to be the ones the sensors
-        actually use, or the triggers silently never appear."""
-        tails = re.findall(r'"[\w]+": "(_[\w]+)",',
-                           SOURCE.split("STATE_TRIGGERS", 1)[1].split("}", 1)[0])
-        for tail in tails:
-            self.assertIn(f'{tail}"', BINARY, tail)
-
-    def test_it_matches_every_code_that_fired_not_just_the_headline(self):
-        """detection_types lists everything at once. Comparing against
-        alarm_type would miss a person who also tripped motion."""
-        body = SOURCE.split("def _detected", 1)[1].split("state_config =", 1)[0]
-        self.assertIn('state.attributes.get("detection_types")', body)
-        self.assertNotIn("alarm_type", body)
-
-    def test_each_kind_reaches_its_own_attacher(self):
-        """Detections are the fall-through, so a missing branch does not fail
-        loudly -- a loitering trigger would quietly be treated as a detection
-        code, look up TRIGGER_TYPES["loitering"] and never fire."""
-        body = SOURCE.split("async def async_attach_trigger", 1)[1] \
-                     .split("\ndef _entity_id", 1)[0]
-        self.assertLess(body.index("if kind in EVENT_TRIGGERS:"),
-                        body.index("if kind in STATE_TRIGGERS:"))
-        self.assertLess(body.index("_attach_state("),
-                        body.index("_attach_detection("))
-
-    def test_a_state_trigger_fires_on_turning_on_only(self):
-        """These all clear by themselves, and firing again as somebody walks
-        away is how an automation gets muted."""
-        body = SOURCE.split("async def _attach_state", 1)[1].split("\nasync def ", 1)[0]
-        self.assertIn('"to": "on"', body)
-
-    def test_a_bus_event_is_filtered_to_this_hub(self):
-        """Both events are fired by every hub. Unfiltered, a two-hub
-        installation announces the neighbours' front door as well."""
-        body = SOURCE.split("async def _attach_event", 1)[1]
-        self.assertIn('"event_data": {"entry_id"', body)
-
-    def test_the_bus_events_belong_to_the_hub_not_a_camera(self):
-        """An arrival is a person rather than a camera, and a visit can now
-        span two cameras."""
-        body = SOURCE.split("async def async_get_triggers", 1)[1] \
-                     .split("async def async_attach_trigger", 1)[0]
-        self.assertIn("if _hub_entry_id(hass, device_id):", body)
-
-    def test_a_camera_is_not_mistaken_for_the_hub(self):
-        """Both are identified as (DOMAIN, <something>), so the shape cannot
-        tell them apart -- being a loaded hub can."""
-        body = SOURCE.split("def _hub_entry_id", 1)[1].split("\nasync def ", 1)[0]
-        self.assertIn("DATA_HUBS", body)
-        self.assertIn("identifier in hubs", body)
+    # Everything this class used to read out of the source is driven in
+    # test_device_trigger_live: which entity each kind of trigger comes from,
+    # that a sensor is matched on its unique id, that a detection matches
+    # every code that fired rather than the headline one, that each slug
+    # reaches its own attacher, that a state trigger fires only on turning
+    # on, that a bus event is filtered to its own hub, and that a camera is
+    # not mistaken for one. What is left here is the schema, which cannot be
+    # run: voluptuous is stubbed, so nothing can submit a stored automation
+    # to it and see what comes back.
 
     def test_the_entity_id_is_optional(self):
         """The bus events have no entity behind them, and a Required key would
