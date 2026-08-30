@@ -535,7 +535,13 @@ def install(component_path=None):
             UNDEFINED=None)
     _module("homeassistant.const",
             CONF_HOST="host", CONF_USERNAME="username",
-            CONF_PASSWORD="password")
+            CONF_PASSWORD="password",
+            # Used as dictionary keys by device_trigger; a manufactured class
+            # where "type" should be makes every stored automation shape
+            # unreadable to a test.
+            CONF_DEVICE_ID="device_id", CONF_DOMAIN="domain",
+            CONF_ENTITY_ID="entity_id", CONF_PLATFORM="platform",
+            CONF_TYPE="type")
     # The siren platform's constants are read as dictionary keys, so the
     # manufactured module -- whose every attribute is a class -- made
     # `kwargs.get(ATTR_TONE)` a lookup of a class in a dict keyed by "tone":
