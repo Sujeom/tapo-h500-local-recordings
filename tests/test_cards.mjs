@@ -8,13 +8,32 @@
  */
 import assert from "node:assert/strict";
 
+/** A control the card rendered, identified the way the card identifies it. */
+class FakeButton {
+  constructor(dataset) { this.dataset = dataset; this.focused = false; }
+  focus() { this.focused = true; }
+}
 class FakeElement {
   constructor() { this.shadowRoot = null; this.children = []; }
   appendChild(child) { this.children.push(child); }
   addEventListener() {}
   dispatchEvent() {}
   attachShadow() {
-    this.shadowRoot = { innerHTML: "", querySelector: () => new FakeCard() };
+    const card = new FakeCard();
+    // The live region lives beside the card and is made once; the card is
+    // rebuilt. Which is the whole point of it being out here.
+    const status = { textContent: "" };
+    const root = { innerHTML: "", activeElement: null };
+    root.querySelector = (selector) => {
+      if (selector === "ha-card") return card;
+      // Only if the card actually put one there. Handing it back regardless
+      // would hide the case where nobody made a live region at all.
+      if (selector === '[role="status"]') {
+        return root.innerHTML.includes('role="status"') ? status : null;
+      }
+      return null;
+    };
+    this.shadowRoot = root;
     return this.shadowRoot;
   }
 }
@@ -31,6 +50,22 @@ class FakeCard {
   constructor() { this.innerHTML = ""; this.writes = 0; this.video = null; }
   addEventListener() {}
   querySelector(selector) { return selector === "video" ? this.video : null; }
+  /** The buttons in whatever was last written, read out of the markup.
+   *
+   * Built once per write and kept, because the browser's are the same
+   * objects every time you ask -- and focusing a throwaway proves nothing.
+   */
+  querySelectorAll() {
+    if (this._buttons) return this._buttons;
+    this._buttons = [...this.innerHTML.matchAll(/<button([^>]*)>/g)].map(([, attrs]) => {
+      const dataset = {};
+      for (const [, key, value] of attrs.matchAll(/data-([a-z]+)="([^"]*)"/g)) {
+        dataset[key] = value;
+      }
+      return new FakeButton(dataset);
+    }).filter((button) => button.dataset.action);
+    return this._buttons;
+  }
 }
 // The card writes innerHTML; counting the writes is how "it did not rebuild"
 // is checked. Writing it also replaces any player, which is what the browser
@@ -41,6 +76,7 @@ Object.defineProperty(FakeCard.prototype, "innerHTML", {
     this._html = value;
     this.writes = (this.writes || 0) + 1;
     this.video = value.includes("<video") ? new FakeVideo() : null;
+    this._buttons = null;
   },
 });
 
@@ -403,6 +439,9 @@ const SAFE_NAMES = new Set([
   // Markup built by another function in this file, already escaped there.
   "bars", "body", "grid", "picker", "rows", "strip", "tiles", "ticks",
   "frame", "mark", "hit", "live", "row", "tooltip",
+  // Escaped where it is built, so it is markup by the time it is used. Named
+  // apart from the `when` Date objects beside it, so that stays checkable.
+  "spoken",
   // Layout arithmetic. Chart geometry, never anything anybody typed.
   "H", "L", "T", "W", "H - 4", "H - 6", "W - R", "barH", "plotH", "y", "d",
   "value", "total", "count", "date.getUTCFullYear()",
@@ -468,6 +507,113 @@ test("clip times go out as numbers, which is the escape and the assertion", asyn
         `${attribute}="\${${expression}}" is neither cast nor escaped`);
     }
   }
+});
+
+// --- what somebody using a screen reader or a keyboard gets ----------------
+
+test("every recording button says which recording it is for", () => {
+  // Thirty rows read aloud were thirty buttons all called "Play". The
+  // timestamp beside them on screen carries none of that to anybody who
+  // cannot see the row.
+  const card = build(TapoH500Card, {});
+  card._render();
+  const deletes = [...card._card.innerHTML.matchAll(/aria-label="([^"]*)"/g)]
+    .map(([, label]) => label)
+    .filter((label) => label.startsWith("Delete recording"));
+  assert.ok(deletes.length >= 2, "the rows carry labels at all");
+  assert.equal(new Set(deletes).size, deletes.length,
+    "and one row's Delete does not sound like another's");
+});
+
+test("the labels name the action as well as the clip", () => {
+  const card = build(TapoH500Card, {});
+  card._render();
+  const html = card._card.innerHTML;
+  assert.match(html, /aria-label="Play recording from [^"]+"/);
+  assert.match(html, /aria-label="Delete recording from [^"]+"/);
+});
+
+test("a hostile face name cannot escape through a label", () => {
+  const card = build(TapoH500FacesCard, {});
+  card._sharedNames = { "7": `"><img src=x onerror=alert(1)>` };
+  card._recordings = CLIPS.map((clip) => ({ ...clip, face_ids: [7] }));
+  const html = card.body();
+  assert.ok(!html.includes("<img src=x"), "escaped inside the label too");
+});
+
+test("the live region is made once and only its text changes", () => {
+  // A live region only announces changes to a region already there. One
+  // inserted with its text already in it says nothing at all -- and the
+  // card's whole contents are replaced on every real render.
+  const card = build(TapoH500Card, {});
+  const region = card.shadowRoot.querySelector('[role="status"]');
+  assert.equal(region.textContent, "");
+  card._hass = { states: {
+    "event.front_activity": {
+      attributes: { camera_index: 0, detection_types: [2] },
+      state: new Date().toISOString() } } };
+  card._render();
+  assert.equal(region.textContent, "Recording now");
+  card._hass = { states: {} };
+  card._render();
+  assert.equal(region.textContent, "");
+});
+
+test("the visible recording dot is not announced twice", () => {
+  const card = build(TapoH500Card, {});
+  card._hass = { states: {
+    "event.front_activity": {
+      attributes: { camera_index: 0, detection_types: [2] },
+      state: new Date().toISOString() } } };
+  card._render();
+  const html = card._card.innerHTML;
+  assert.match(html, /class="recording-now" aria-hidden="true"/);
+  assert.ok(!html.includes('role="status"'),
+    "the announcing one is outside the part that gets rebuilt");
+});
+
+test("the keyboard stays where it was across a rebuild", () => {
+  // innerHTML replaces every node and the browser drops focus to the
+  // document, which for somebody tabbing through a list means starting again
+  // from the top every time anything changes.
+  const card = build(TapoH500Card, {});
+  card._render();
+  const before = card._card.querySelectorAll();
+  const target = before.find((button) => button.dataset.action === "delete");
+  card.shadowRoot.activeElement = target;
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  const after = card._card.querySelectorAll();
+  const focused = after.filter((button) => button.focused);
+  assert.equal(focused.length, 1, "exactly one control has the keyboard");
+  assert.equal(focused[0].dataset.action, "delete");
+  assert.equal(focused[0].dataset.start, target.dataset.start,
+    "the same row's Delete, not a different row's");
+});
+
+test("focus is not moved when nothing had it", () => {
+  const card = build(TapoH500Card, {});
+  card._render();
+  card.shadowRoot.activeElement = null;
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  assert.equal(card._card.querySelectorAll().filter((b) => b.focused).length, 0);
+});
+
+test("a control that is gone after the rebuild takes nothing with it", () => {
+  // Delete the clip you were on and its buttons do not come back. Focusing
+  // some other row's Delete would be worse than losing it.
+  const card = build(TapoH500Card, {});
+  card._render();
+  const target = card._card.querySelectorAll()
+    .find((button) => button.dataset.action === "delete");
+  card.shadowRoot.activeElement = target;
+  card._recordings = CLIPS.filter(
+    (clip) => String(clip.start_time) !== target.dataset.start);
+  card._render();
+  assert.equal(card._card.querySelectorAll().filter((b) => b.focused).length, 0);
 });
 
 // --- one request at a time, and none dropped -------------------------------
