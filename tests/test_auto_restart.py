@@ -100,15 +100,21 @@ class AutoRestart(unittest.TestCase):
         self.assertEqual(client.reboots, 0)
 
     def test_a_failed_restart_does_not_fail_the_poll(self):
+        """The poll surviving is the assertion, so the attempt is counted as
+        well -- a coordinator that had stopped trying to restart at all would
+        also not raise."""
         coord, client = _build()
+        attempts = []
 
         def boom():
+            attempts.append(True)
             raise OSError("connection dropped")  # what success looks like
 
         client.reboot = boom
         coord.note_empty_download()
         coord.note_empty_download()
-        _poll(coord)  # must not raise
+        _poll(coord)  # the poll completing is half of it
+        self.assertEqual(attempts, [True], "and it did try to restart")
 
     def test_the_option_is_on_the_settings_form(self):
         flow = (COMPONENT / "config_flow.py").read_text()

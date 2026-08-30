@@ -29,7 +29,13 @@ def run(coro):
 class TheRestartButton(unittest.TestCase):
     def _press(self, reboot):
         coord, client = harness._build()
-        client.reboot = reboot
+        self.asked = []
+
+        def watched():
+            self.asked.append(True)
+            return reboot()
+
+        client.reboot = watched
         coord.client = client
         entity = button_mod.H500RestartButton(coord, harness._Entry(20))
         entity.hass = harness._Hass()
@@ -38,14 +44,18 @@ class TheRestartButton(unittest.TestCase):
 
     def test_a_clean_acknowledgement_is_success(self):
         self._press(lambda: {"error_code": 0})
+        self.assertEqual(self.asked, [True], "the hub was actually asked")
 
     def test_the_connection_dying_is_what_success_looks_like(self):
         """The device being asked is the device carrying the answer; the
-        drop IS the reboot, exactly as through the nightly restart."""
+        drop IS the reboot, exactly as through the nightly restart. Passing
+        here means no exception reached the person -- so the call itself is
+        checked too, or a button that quietly asked nothing would pass."""
         def drop():
             raise ConnectionResetError("peer went away")
 
-        self._press(drop)  # no exception reaches the person
+        self._press(drop)
+        self.assertEqual(self.asked, [True])
 
     def test_a_protocol_refusal_reaches_the_person_who_pressed(self):
         def refuse():

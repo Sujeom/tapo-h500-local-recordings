@@ -712,12 +712,16 @@ class AClipTheHubWillNotServe(unittest.TestCase):
         self.assertIn(NOW, coord._failed_clips.get(0, {}))
 
     def test_neither_takes_the_poll_down_with_it(self):
-        """One clip failing must not stop the others being fetched."""
+        """One clip failing must not stop the others being fetched. Returning
+        rather than raising is the whole assertion, so the failure is also
+        counted -- otherwise a download that quietly did nothing at all would
+        satisfy this too."""
         from homeassistant.exceptions import HomeAssistantError
         for error in (HomeAssistantError("stalled"),
                       sys.modules["tapo_h500.media"].EmptyRecordingError("x")):
             with self.subTest(error=type(error).__name__):
-                self._download(error)  # returns rather than raising
+                coord = self._download(error)
+                self.assertEqual(coord._download_failures.get(0), 1)
 
 
 class TheContactSheetEntity(unittest.TestCase):
