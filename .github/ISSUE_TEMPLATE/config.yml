@@ -7,6 +7,12 @@ contact_links:
     about: >
       And several other things the hub cannot be asked to do. Worth reading
       before filing — most of it is the hardware, not the integration.
+  - name: Something stopped working
+    url: https://github.com/Sujeom/tapo-h500-local-recordings/blob/main/docs/troubleshooting.md
+    about: >
+      By symptom, with the entity that already knows the answer. The wedge,
+      a camera gone quiet, clips filed under the wrong day, and the card
+      that says the custom element does not exist.
   - name: A question, or an idea
     url: https://github.com/Sujeom/tapo-h500-local-recordings/discussions
     about: Discussions, rather than an issue.

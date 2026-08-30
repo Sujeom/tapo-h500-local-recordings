@@ -342,5 +342,65 @@ class TheRepositoryRootIsTheFrontDoor(unittest.TestCase):
         self.assertEqual(at_root - self.ALLOWED, set())
 
 
+
+class TheTroubleshootingPage(unittest.TestCase):
+    """Written from what the integration actually reports.
+
+    Every repair notice and entity it names has to exist -- documentation
+    that names something renamed is worse than none, because somebody
+    follows it while already stuck on something else.
+    """
+
+    PATH = ROOT / "docs" / "troubleshooting.md"
+    TEXT = property(lambda self: self.PATH.read_text())
+
+    def test_it_exists(self):
+        self.assertTrue(self.PATH.is_file())
+
+    def test_every_repair_notice_it_names_is_a_real_one(self):
+        """Named in prose rather than by key, so this matches the wording
+        the notice itself uses."""
+        import json
+        issues = json.loads(
+            (ROOT / "custom_components" / "tapo_h500" / "strings.json")
+            .read_text())["issues"]
+        # A title with a placeholder is written in the docs with an ellipsis
+        # where the value goes, so both halves have to match something.
+        titles = [body["title"] for body in issues.values()]
+        quoted = re.findall(r'repair notice \*\*"([^"]+)"\*\*', self.TEXT)
+        quoted += re.findall(r'\*\*"([^"]+)"\*\* appears', self.TEXT)
+        self.assertTrue(quoted, "it should point at some")
+        for phrase in quoted:
+            with self.subTest(notice=phrase):
+                # Markdown wraps, so a quoted title can span two lines.
+                phrase = " ".join(phrase.split())
+                halves = [part.strip() for part in phrase.split("…")]
+                self.assertTrue(
+                    any(all(half in title for half in halves)
+                        for title in titles),
+                    f"no repair notice reads {phrase!r}")
+
+    def test_it_covers_the_failures_this_hub_actually_has(self):
+        """Each of these cost somebody a day at some point, and each has an
+        entity that already knows the answer."""
+        for symptom in ("wedge", "silent", "clock", "Custom element",
+                        "share a folder", "Empty recordings"):
+            with self.subTest(symptom=symptom):
+                self.assertIn(symptom, self.TEXT)
+
+    def test_it_says_the_wedge_recovers_on_a_timeout(self):
+        """The single most useful sentence in the file: everything anybody
+        instinctively tries makes it worse."""
+        self.assertIn("recovers on a timeout", self.TEXT)
+
+    def test_it_tells_people_how_to_get_diagnostics(self):
+        self.assertIn("Download diagnostics", self.TEXT)
+        self.assertIn("allow-list", self.TEXT)
+
+    def test_the_readme_and_the_issue_template_point_at_it(self):
+        """An unlinked troubleshooting page is not a troubleshooting page."""
+        self.assertIn("troubleshooting.md", DOCS["README.md"])
+
+
 if __name__ == "__main__":
     unittest.main()

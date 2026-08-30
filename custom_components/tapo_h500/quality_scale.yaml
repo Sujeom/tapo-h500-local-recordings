@@ -147,7 +147,13 @@ rules:
   docs-known-limitations: done
   docs-supported-devices: done
   docs-supported-functions: done
-  docs-troubleshooting: todo
+  docs-troubleshooting:
+    status: done
+    comment: |
+      docs/troubleshooting.md, by symptom rather than by subsystem, with the
+      entity or repair notice that already knows the answer for each. The
+      names in it are checked against the integration, because documentation
+      naming something renamed is worse than none.
   docs-use-cases: todo
   dynamic-devices:
     status: done
