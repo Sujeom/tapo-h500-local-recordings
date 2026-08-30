@@ -1,0 +1,45 @@
+# A tag with no Release is a tag HACS cannot serve.
+#
+# With no Releases at all, HACS installs the default branch -- so everybody
+# gets whatever was on main the moment they pressed update, with no version to
+# pin to and no notes. The annotations on 126 version tags were already the
+# release notes; nothing had ever published them.
+#
+# Runs on a version tag, and on demand. The tool is idempotent, so the manual
+# run is also the backfill: it needs no personal token, only the one GitHub
+# hands the workflow.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Every tag and its annotation. The annotation IS the release note,
+          # and a shallow checkout has neither.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Show what would be published
+        run: python -B tools/publish-releases.py --dry-run
+
+      - name: Publish
+        run: python -B tools/publish-releases.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

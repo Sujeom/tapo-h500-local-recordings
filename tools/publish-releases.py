@@ -31,8 +31,14 @@ def repo_from_remote(url: str) -> str | None:
     return match.group(1) if match else None
 
 
+# Releases are versions. Not every tag is one: this repository also carries
+# backup/ refs pointing at branch tips, and publishing those as Releases would
+# offer HACS a "version" called backup/origin-main to install.
+VERSION_TAG = re.compile(r"^v\d+\.\d+\.\d+")
+
+
 def local_tags() -> list[tuple[str, str, str]]:
-    """(tag, title, body) per annotated tag, oldest first."""
+    """(tag, title, body) per annotated version tag, oldest first."""
     out = subprocess.run(
         ["git", "for-each-ref", "refs/tags", "--sort=creatordate",
          "--format=%(refname:short)%00%(contents)%01"],
@@ -42,8 +48,11 @@ def local_tags() -> list[tuple[str, str, str]]:
         if "\x00" not in block:
             continue
         name, contents = block.split("\x00", 1)
-        lines = contents.strip().splitlines() or [name.strip()]
-        tags.append((name.strip(), lines[0].strip(),
+        name = name.strip()
+        if not VERSION_TAG.match(name):
+            continue
+        lines = contents.strip().splitlines() or [name]
+        tags.append((name, lines[0].strip(),
                      "\n".join(lines[1:]).strip()))
     return tags
 
