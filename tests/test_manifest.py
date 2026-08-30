@@ -147,5 +147,32 @@ class TheOwner(unittest.TestCase):
                 self.assertGreater(len(owner), 1)
 
 
+
+class TheLoggers(unittest.TestCase):
+    """Which third-party loggers "Enable debug logging" should raise.
+
+    Without this, somebody debugging a hub problem turns debug logging on and
+    gets none of the library's output -- which for this integration is
+    exactly where the interesting failures are, in the session handshake.
+    """
+
+    def test_the_hub_library_is_named(self):
+        self.assertIn("loggers", MANIFEST)
+        self.assertIn("pytapo", MANIFEST["loggers"])
+
+    def test_every_logger_belongs_to_something_installed(self):
+        """A name nothing provides raises nothing and warns about nothing."""
+        packages = {requirement.split("==")[0].split(">=")[0].strip()
+                    for requirement in MANIFEST["requirements"]}
+        for name in MANIFEST["loggers"]:
+            with self.subTest(logger=name):
+                self.assertIn(name.split(".")[0], packages)
+
+    def test_our_own_logger_is_not_listed(self):
+        """Home Assistant raises the integration's own logger by itself, and
+        listing it is a hassfest warning."""
+        self.assertNotIn(MANIFEST["domain"], MANIFEST["loggers"])
+
+
 if __name__ == "__main__":
     unittest.main()
