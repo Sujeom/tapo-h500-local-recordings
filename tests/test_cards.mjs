@@ -88,7 +88,15 @@ globalThis.window = {};
 globalThis.document = {
   hidden: false,
   _listeners: {},
-  createElement: (tag) => ({ tagName: tag, addEventListener() {} }),
+  createElement: (tag) => ({
+    tagName: tag,
+    _listeners: {},
+    addEventListener(type, fn) { (this._listeners[type] ||= []).push(fn); },
+    /** What ha-form does when somebody edits a field. */
+    fire(type, detail) {
+      (this._listeners[type] || []).forEach((fn) => fn({ detail }));
+    },
+  }),
   addEventListener(type, fn) { (this._listeners[type] ||= []).push(fn); },
   removeEventListener(type, fn) {
     this._listeners[type] = (this._listeners[type] || []).filter((f) => f !== fn);
@@ -118,6 +126,7 @@ const { esc, ago, groupByHour, groupByFace, facesByCount, faceNames,
         windowDates, TapoH500Card, TapoH500HeroCard, TapoH500GridCard,
         TapoH500TimelineCard, TapoH500FacesCard, TapoH500SummaryCard,
         TapoH500FaceSummaryCard, TapoH500PeopleCard } = mod;
+const TapoH500CardEditor = customElements.get("tapo-h500-card-editor");
 
 let failures = 0;
 // Async tests are collected and awaited before the summary. Calling fn()
@@ -467,6 +476,68 @@ test("a button that threw still re-enables", async () => {
   await card._onClick({ target: button });
   assert.equal(button.disabled, false);
   assert.equal(card._error, "hub not answering");
+});
+
+// --- the visual editor -----------------------------------------------------
+
+/** An editor with both halves it waits for, and the form it made. */
+const editing = (config = { type: "tapo-h500-card" }) => {
+  const editor = new TapoH500CardEditor();
+  editor.emitted = [];
+  editor.dispatchEvent = (event) => { editor.emitted.push(event); };
+  editor.setConfig(config);
+  editor.hass = { states: {} };
+  return editor;
+};
+
+test("the editor waits for both halves before drawing anything", () => {
+  const early = new TapoH500CardEditor();
+  early.setConfig({ type: "tapo-h500-card" });
+  assert.equal(early.children.length, 0, "a config alone is not enough");
+  const other = new TapoH500CardEditor();
+  other.hass = { states: {} };
+  assert.equal(other.children.length, 0, "and neither is a hass alone");
+});
+
+test("it makes the form once and then updates it", () => {
+  // Remaking it on every hass update would throw away what somebody was
+  // halfway through typing, and hass updates constantly.
+  const editor = editing();
+  const first = editor.children[0];
+  editor.hass = { states: {} };
+  editor.hass = { states: {} };
+  assert.equal(editor.children.length, 1);
+  assert.equal(editor.children[0], first, "the same form throughout");
+});
+
+test("the form is asked for the schema of the card being edited", () => {
+  const editor = editing({ type: "tapo-h500-faces-card" });
+  const form = editor.children[0];
+  assert.deepEqual(form.schema, editorSchema("tapo-h500-faces-card"));
+  assert.equal(form.data.type, "tapo-h500-faces-card");
+});
+
+test("fields are labelled in words rather than by key", () => {
+  const editor = editing();
+  const label = editor.children[0].computeLabel;
+  assert.notEqual(label({ name: "camera_index" }), "camera_index");
+  assert.equal(label({ name: "not_a_real_field" }), "not_a_real_field",
+               "and an unlabelled one falls back to its own name");
+});
+
+test("an edit is announced as a whole config, merged", () => {
+  // Home Assistant replaces the config with whatever this reports, so
+  // reporting only the changed field would drop everything else.
+  const editor = editing({ type: "tapo-h500-card", camera_index: 3 });
+  editor.children[0].fire("value-changed", { value: { title: "Front door" } });
+  assert.equal(editor.emitted.length, 1);
+  const event = editor.emitted[0];
+  assert.equal(event.type, "config-changed");
+  assert.equal(event.detail.config.title, "Front door");
+  assert.equal(event.detail.config.type, "tapo-h500-card",
+               "the card type survives an edit");
+  assert.ok(event.bubbles && event.composed,
+            "it has to cross the shadow boundary to be heard");
 });
 
 // --- every button the card draws ------------------------------------------
