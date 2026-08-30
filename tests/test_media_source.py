@@ -47,7 +47,13 @@ def _stub_browser():
     browser.MediaSource = type("MediaSource", (), {
         "__init__": lambda self, domain: None})
     browser.MediaSourceItem = type("MediaSourceItem", (), {})
-    browser.PlayMedia = type("PlayMedia", (), {})
+    # Real-shaped: the resolver calls PlayMedia(url, mime), and a stub that
+    # takes no arguments made every resolve test patch it back in for itself.
+    browser.PlayMedia = type("PlayMedia", (), {
+        "__init__": lambda self, url, mime_type: (
+            setattr(self, "url", url),
+            setattr(self, "mime_type", mime_type), None)[-1],
+    })
     browser.Unresolvable = type("Unresolvable", (Exception,), {})
     sys.modules.setdefault("homeassistant.components.media_source", browser)
 
@@ -340,12 +346,6 @@ class ByType(unittest.TestCase):
         child = self._browse("by-type/people").children[0]
         item = types.SimpleNamespace(identifier=child.identifier)
         source = media_source.H500MediaSource(self._hass())
-        # The browser-stub PlayMedia takes no arguments; give the resolver a
-        # real-shaped one for this test.
-        self.addCleanup(setattr, media_source, "PlayMedia",
-                        media_source.PlayMedia)
-        media_source.PlayMedia = lambda url, mime: types.SimpleNamespace(
-            url=url, mime_type=mime)
         resolved = asyncio.run(source.async_resolve_media(item))
         self.assertEqual(resolved.mime_type, "video/mp4")
 
@@ -403,3 +403,100 @@ class TodayFolder(unittest.TestCase):
     def test_a_quiet_day_is_an_empty_folder_not_an_error(self):
         self._clip("front", self.yesterday, "230000")
         self.assertEqual(self._browse("today").children, [])
+
+
+class TheIdentifierBoundary(ByType):
+    """Identifiers arrive from the frontend, so they are checked, not trusted.
+
+    Everything a browser sends becomes a path under the media root. These are
+    the shapes that must not become one.
+    """
+
+    def _resolve(self, identifier):
+        source = media_source.H500MediaSource(self._hass())
+        item = types.SimpleNamespace(identifier=identifier)
+        return asyncio.run(source.async_resolve_media(item))
+
+    def _refusal(self, identifier):
+        with self.assertRaises(media_source.Unresolvable) as caught:
+            self._resolve(identifier)
+        return str(caught.exception)
+
+    def test_a_traversing_identifier_is_rejected_as_malformed(self):
+        """Two guards stand here and only one of them is portable. The
+        resolved path is checked against the root, which catches traversal on
+        this machine -- but the shape is refused first, before any path is
+        built from it, so the answer does not depend on how the running OS
+        happens to resolve a component. Hence the message: these are refused
+        as invalid identifiers, not reported as missing clips."""
+        for identifier in ("../../../etc/passwd", "front/../../secret",
+                           "./front", "front/./2026-08-30"):
+            with self.subTest(identifier=identifier):
+                self.assertIn("Invalid media identifier",
+                              self._refusal(identifier))
+
+    def test_a_backslash_is_rejected_as_malformed_too(self):
+        """A Windows separator is one filename component on this machine and
+        a traversal on another. Refused on both."""
+        self.assertIn("Invalid media identifier",
+                      self._refusal("front\\..\\..\\secret"))
+
+    def test_a_symlink_out_of_the_archive_is_refused(self):
+        """The parts can all look ordinary and the resolved path still land
+        outside, which is why the check is made after resolving."""
+        outside = Path(self.root.name) / "elsewhere"
+        outside.mkdir()
+        (outside / "clip.mp4").write_bytes(b"v")
+        self.base.mkdir(parents=True, exist_ok=True)
+        (self.base / "front").symlink_to(outside)
+        with self.assertRaises(media_source.Unresolvable):
+            self._resolve("front/clip.mp4")
+
+    def test_a_file_that_is_not_a_clip_is_refused(self):
+        self._clip("front", "2026-08-30", "120000", ["motion"])
+        with self.assertRaises(media_source.Unresolvable) as caught:
+            self._resolve("front/2026-08-30/120000.json")
+        self.assertIn("120000.json", str(caught.exception))
+
+    def test_an_identifier_naming_nothing_is_refused(self):
+        with self.assertRaises(media_source.Unresolvable):
+            self._resolve("front/2026-08-30/000000.mp4")
+
+    def test_a_real_clip_resolves_to_a_signed_url_and_its_type(self):
+        self._clip("front", "2026-08-30", "120000")
+        played = self._resolve("front/2026-08-30/120000.mp4")
+        self.assertEqual(played.mime_type, "video/mp4")
+        self.assertIn("120000.mp4", played.url)
+
+    def test_a_clip_cannot_be_expanded_as_a_folder(self):
+        """Depth is refused before the path is built: a fourth level is not
+        a place in this archive whatever it names."""
+        self._clip("front", "2026-08-30", "120000")
+        with self.assertRaises(media_source.Unresolvable) as caught:
+            self._browse("front/2026-08-30/120000.mp4")
+        self.assertIn("cannot be expanded", str(caught.exception))
+
+
+class AnArchiveWithNothingInIt(ByType):
+    """Before the first download there is no folder on disk at all, and the
+    media browser still has to open."""
+
+    def test_the_virtual_folders_are_there_with_no_cameras_under_them(self):
+        children = self._browse("").children
+        titles = {child.title for child in children}
+        self.assertIn("Today", titles)
+        self.assertEqual(
+            titles, {"Today"} | {title for _, title, _ in
+                                 media_source.TYPE_FOLDERS},
+            "the virtual folders, and nothing else, until something records")
+
+    def test_the_today_folder_is_empty_rather_than_missing(self):
+        self.assertEqual(self._browse(media_source.TODAY_ID).children, [])
+
+    def test_a_type_folder_is_empty_rather_than_missing(self):
+        listed = self._browse(f"{media_source.TYPE_PREFIX}/people")
+        self.assertEqual(listed.children, [])
+
+    def test_a_type_folder_nobody_defined_is_refused(self):
+        with self.assertRaises(media_source.Unresolvable):
+            self._browse(f"{media_source.TYPE_PREFIX}/unicorns")
