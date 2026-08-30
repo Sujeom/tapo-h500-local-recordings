@@ -1520,3 +1520,101 @@ class SessionRefusals(unittest.TestCase):
         self.assertEqual(len(asyncio.run(consume())), 2)
         health = client.session_health
         self.assertEqual((health["served"], health["sessions"]), (1, 1))
+
+
+class WhatConnectDoesWithAFailure(unittest.TestCase):
+    """The difference between "wrong password" and "busy" is the whole login
+    discipline: one must ask for a new password, the other must be retried,
+    and getting it backwards either hammers a wedged hub or strands a working
+    one behind a form nobody can satisfy."""
+
+    def _connect(self, error):
+        client = H500Client("host", "admin", "local", "cloud")
+
+        def explode(*args, **kwargs):
+            raise error
+
+        with patch.object(api, "Tapo", explode):
+            client.connect()
+
+    def _refusal(self, code):
+        """What pytapo raises when the hub names a code: a bare Exception
+        whose text is the body it raised on."""
+        return Exception('Response: {"error_code": %d}' % code)
+
+    def test_a_named_refusal_becomes_an_auth_error(self):
+        for code in sorted(api.AUTH_ERROR_CODES):
+            with self.subTest(code=code):
+                with self.assertRaises(api.H500AuthError):
+                    self._connect(self._refusal(code))
+
+    def test_the_message_never_carries_the_hubs_own_reply(self):
+        """pytapo puts the response body in that message, and this exception
+        ends up in a log."""
+        with self.assertRaises(api.H500AuthError) as caught:
+            self._connect(Exception(
+                'Response: {"error_code": -40414, "nonce": "abc123"}'))
+        self.assertNotIn("nonce", str(caught.exception))
+        self.assertNotIn("abc123", str(caught.exception))
+
+    def test_the_words_invalid_authentication_are_not_a_signal(self):
+        """pytapo raises that text verbatim on the -40413 nonce path after
+        its own retries, so it means "wedged" as often as "wrong password".
+        Treating it as auth would end the retries and put a check-your-
+        password notice in front of somebody whose password is fine."""
+        with self.assertRaises(Exception) as caught:
+            self._connect(Exception("Invalid authentication data"))
+        self.assertNotIsInstance(caught.exception, api.H500AuthError)
+
+    def test_a_wedged_hub_is_left_as_it_is_to_be_retried(self):
+        """The wedge surfaces as a reset, a timeout or a zero-byte read, none
+        of which carries a code, and it recovers on a timeout."""
+        for error in (TimeoutError("no response on 8800"),
+                      ConnectionResetError("reset by peer"),
+                      ValueError("not json")):
+            with self.subTest(error=type(error).__name__):
+                with self.assertRaises(type(error)):
+                    self._connect(error)
+
+    def test_a_transport_failure_quoting_a_body_still_retries(self):
+        """A requests error carries the response it failed on, so a dropped
+        connection can arrive with a refusal code inside its own message.
+        Type decides first, before any text is read: no OSError and no
+        ValueError can be a credential refusal, whatever it quotes."""
+        quoted = 'Response: {"error_code": -40414}'
+        for error in (ConnectionResetError(quoted), OSError(quoted),
+                      ValueError(quoted)):
+            with self.subTest(error=type(error).__name__):
+                with self.assertRaises(type(error)) as caught:
+                    self._connect(error)
+                self.assertNotIsInstance(caught.exception, api.H500AuthError)
+
+    def test_a_code_the_hub_names_that_is_not_about_credentials_retries(self):
+        with self.assertRaises(Exception) as caught:
+            self._connect(self._refusal(-40210))
+        self.assertNotIsInstance(caught.exception, api.H500AuthError)
+
+    def test_check_media_asks_about_this_hubs_port(self):
+        seen = []
+        with patch.object(api, "check_media_port",
+                          lambda host: seen.append(host) or "open"):
+            client = H500Client("10.0.0.9", "admin", "local", "cloud")
+            self.assertEqual(client.check_media(), "open")
+        self.assertEqual(seen, ["10.0.0.9"])
+
+    def test_recent_asks_for_exactly_the_window_given(self):
+        """The event poller's window. Widening it costs the hub a bigger
+        search on every poll, and this hub is easy to wedge."""
+        client = H500Client("host", "admin", "local", "cloud")
+        seen = {}
+
+        class Hub:
+            def executeFunction(self, name, params):
+                seen.update(params)
+                return {"playback": {"search_video_results": []}}
+
+        client._hub = Hub()
+        client.recent(CAMERA, 1000, 1100)
+        window = repr(seen)
+        self.assertIn("1000", window)
+        self.assertIn("1100", window)
