@@ -290,5 +290,57 @@ class TheRepositoryTellsPeopleHowToUseIt(unittest.TestCase):
         self.assertIn("allow-list", text)
 
 
+
+class EveryLinkGoesSomewhere(unittest.TestCase):
+    """Relative links in the docs, resolved against the repository.
+
+    Documentation gets moved and renamed, and a dead link is invisible to
+    everybody except the person following it -- who is by then already stuck
+    on something else.
+    """
+
+    LINK = re.compile(r"\[[^\]]*\]\(([^)#\s]+)")
+
+    def _relative_links(self):
+        for name in sorted(DOCS):
+            source = ROOT / name if (ROOT / name).is_file() else ROOT / "docs" / name
+            for target in self.LINK.findall(DOCS[name]):
+                if target.startswith(("http://", "https://", "mailto:")):
+                    continue
+                yield name, target, (source.parent / target).resolve()
+
+    def test_they_all_resolve(self):
+        broken = [f"{name} -> {target}"
+                  for name, target, path in self._relative_links()
+                  if not path.exists()]
+        self.assertEqual(broken, [])
+
+    def test_there_are_some_to_check(self):
+        """A regex that matched nothing would make the check above pass on an
+        empty list forever."""
+        self.assertGreater(len(list(self._relative_links())), 5)
+
+
+class TheRepositoryRootIsTheFrontDoor(unittest.TestCase):
+    """What somebody sees before they have read anything.
+
+    Working notes belong in docs/ or out of the repository entirely; the root
+    is where people decide what a project is.
+    """
+
+    ALLOWED = {"README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md"}
+
+    def test_only_the_documents_meant_for_a_stranger_are_there(self):
+        try:
+            tracked = subprocess.run(
+                ["git", "ls-files"], cwd=ROOT, capture_output=True,
+                text=True, check=True).stdout.split()
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            self.skipTest("no git in this checkout")
+        at_root = {name for name in tracked
+                   if "/" not in name and name.endswith(".md")}
+        self.assertEqual(at_root - self.ALLOWED, set())
+
+
 if __name__ == "__main__":
     unittest.main()
