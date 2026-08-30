@@ -339,3 +339,109 @@ class TheDetectionFlagsWiring(unittest.TestCase):
         for unsubscribe in self.removals:
             unsubscribe()
         self.assertIsNone(entity._clear_timer)
+
+
+class ThePossibleDelivery(unittest.TestCase):
+    """A guess, and named like one: somebody was there, the hub did not
+    recognise them, and they did not stay. Retrospective on purpose -- at the
+    moment a detection arrives, the person has been there for one clip, and
+    so has everybody who is about to stay for ten minutes."""
+
+    PERSON = 1 << 5
+    KNOWN = 1 << 19
+
+    def _entity(self, clips, hour=14):
+        coord, _ = harness._build()
+        coord.clips_for = lambda index: list(clips)
+        coord.entry.options = {**coord.entry.options,
+                               "night_start": 22, "night_end": 6}
+        entity = _wire(binary.H500Delivery(
+            coord, 0, CAMERA))
+        self._at_hour(hour)
+        return entity
+
+    def _at_hour(self, hour):
+        """Move the frozen clock's local hour without moving NOW."""
+        original = dt_util.as_local
+        local_now = original(dt_util.utc_from_timestamp(NOW))
+        dt_util.as_local = lambda moment: local_now.replace(hour=hour)
+        self.addCleanup(setattr, dt_util, "as_local", original)
+
+    def _visit(self, ended_ago, lasted, mask=None):
+        """An unrecognised visit of `lasted` seconds that finished
+        `ended_ago` seconds back.
+
+        A chain, not two clips: sightings further apart than LOITER_GAP are
+        two visits rather than one long one, so a fixture built from its
+        endpoints alone measures fifteen seconds however far apart it puts
+        them.
+        """
+        mask = self.PERSON if mask is None else mask
+        end = NOW - ended_ago
+        starts = list(range(end - lasted, end - 15, 85)) + [end - 15]
+        return [clip(start, mask) for start in starts]
+
+    def test_a_short_unrecognised_visit_just_ended_reads_as_one(self):
+        entity = self._entity(self._visit(ended_ago=200, lasted=30))
+        self.assertTrue(entity.is_on)
+
+    def test_a_visit_still_happening_is_not_one_yet(self):
+        """Its length is not final while it is going on, and that is the
+        whole reason this is retrospective."""
+        entity = self._entity(self._visit(ended_ago=10, lasted=30))
+        self.assertFalse(entity.is_on)
+
+    def test_somebody_who_stayed_is_not_a_courier(self):
+        entity = self._entity(
+            self._visit(ended_ago=200, lasted=const.DELIVERY_SECONDS + 120))
+        self.assertFalse(entity.is_on)
+
+    def test_a_visit_long_over_is_no_longer_news(self):
+        """It stays true for a while so an automation has time to see it,
+        and then stops."""
+        entity = self._entity(
+            self._visit(ended_ago=const.DELIVERY_HOLD + 60, lasted=30))
+        self.assertFalse(entity.is_on)
+
+    def test_a_face_the_hub_knows_is_somebody_in_a_hurry(self):
+        """Recognised at any point during the visit: a member of the
+        household arriving and leaving quickly looks exactly like this."""
+        known = self._visit(ended_ago=200, lasted=30,
+                            mask=self.PERSON | self.KNOWN)
+        self.assertFalse(self._entity(known).is_on)
+
+    def test_nothing_at_the_door_is_not_a_delivery(self):
+        self.assertFalse(self._entity([]).is_on)
+
+    def test_nobody_delivers_at_three_in_the_morning(self):
+        """In daylight a quick unrecognised visit is a courier far more often
+        than not. At night it is the same shape and means something else."""
+        entity = self._entity(self._visit(ended_ago=200, lasted=30), hour=3)
+        self.assertFalse(entity.is_on)
+
+
+class TheSilentHoursSetting(unittest.TestCase):
+    """Typed in by hand, so it arrives as whatever the box produced."""
+
+    def _seconds(self, value):
+        coord, _ = harness._build()
+        coord.entry.options = {**coord.entry.options, "silent_hours": value}
+        return binary.silent_threshold(coord)
+
+    def test_a_number_typed_as_text_still_counts(self):
+        self.assertEqual(self._seconds("4"), 4 * 3600)
+
+    def test_something_that_is_not_a_number_falls_back_to_the_default(self):
+        """A silence alarm that never fires is one nobody notices is
+        broken."""
+        for value in ("soon", None, [], {}):
+            with self.subTest(value=value):
+                self.assertEqual(self._seconds(value),
+                                 const.DEFAULT_SILENT_HOURS * 3600)
+
+    def test_it_never_drops_below_an_hour(self):
+        """Anything shorter alarms on an ordinary quiet stretch."""
+        self.assertEqual(self._seconds(0), 3600)
+
+    def test_it_never_asks_for_more_history_than_is_kept(self):
+        self.assertEqual(self._seconds(10_000), const.LOOKBACK_SECONDS)
