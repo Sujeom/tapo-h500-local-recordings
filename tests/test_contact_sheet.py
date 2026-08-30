@@ -47,9 +47,18 @@ def _stub_ffmpeg():
         if loaded is not None:
             loaded.get_ffmpeg_manager = module.get_ffmpeg_manager
     # contact_sheet asks media where a camera's folder is; the test lays the
-    # folder out itself and points this at it.
+    # folder out itself and points this at it. Rebound on contact_sheet too:
+    # it binds camera_dir at import, and once another test file has imported
+    # it first -- image.py pulls it in -- patching only the media module
+    # leaves the sheet reading the real media root and finding nothing.
+    def _test_camera_dir(hass, camera):
+        return Path(camera["dir"])
+
     media = sys.modules["tapo_h500.media"]
-    media.camera_dir = lambda hass, camera: Path(camera["dir"])
+    media.camera_dir = _test_camera_dir
+    loaded_sheet = sys.modules.get("tapo_h500.contact_sheet")
+    if loaded_sheet is not None:
+        loaded_sheet.camera_dir = _test_camera_dir
 
 
 _stub_ffmpeg()
