@@ -51,11 +51,12 @@ const = importlib.import_module("tapo_h500.const")
 
 
 class Diagnostics(unittest.TestCase):
-    def test_no_credential_is_referenced_at_all(self):
-        """This file gets pasted into public bug reports."""
-        for secret in ("CONF_PASSWORD", "CONF_CLOUD_PASSWORD", "CONF_USERNAME",
-                       "CONF_HOST", "entry.data"):
-            self.assertNotIn(secret, DIAG, secret)
+    # The privacy promises are held in test_diagnostics_live: the file is
+    # generated from a hub carrying credentials, MACs, a cloud account and
+    # camera aliases, and none of them appear in it. Naming the constants a
+    # leak would travel through cannot show that a new field did not carry
+    # one. What stays here is the one thing about the source itself -- that
+    # it is written as an allow-list at all.
 
     def test_it_allow_lists_rather_than_blocking(self):
         """The hub's replies change between firmwares; a deny-list would leak
@@ -64,33 +65,6 @@ class Diagnostics(unittest.TestCase):
         self.assertIn("SAFE_CAMERA", DIAG)
         self.assertIn("for key in SAFE_READINGS", DIAG)
 
-    def test_every_allow_listed_reading_actually_exists(self):
-        """An allow-list of names nothing produces is a file full of nulls.
-
-        Six of the sixteen were wrong -- `storage_total` for
-        `storage_total_gb`, `led_enabled` for `led_on`, and so on -- so all
-        three storage figures, the LED state, face detection and the audio
-        slots came out null in every diagnostics download ever taken. Nothing
-        failed; the file simply said nothing, which is the failure mode an
-        allow-list is most prone to.
-        """
-        produced = set(status.hub_readings({}))
-        listed = set(re.findall(
-            r'"([a-z0-9_]+)"',
-            DIAG.split("SAFE_READINGS = (", 1)[1].split(")", 1)[0]))
-        self.assertEqual(listed - produced, set())
-
-    def test_camera_aliases_are_not_included(self):
-        """An alias is the owner's own words and can name a room or a person."""
-        self.assertNotIn('"alias"', DIAG)
-        self.assertIn('"index": index', DIAG)
-
-    def test_face_names_are_counted_not_listed(self):
-        self.assertIn('"named_faces": len(', DIAG)
-
-    def test_timestamps_are_relative(self):
-        """Absolute times would map a household's comings and goings."""
-        self.assertIn("newest_recording_age", DIAG)
 
 
 class Logbook(unittest.TestCase):

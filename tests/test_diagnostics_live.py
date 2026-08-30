@@ -108,6 +108,33 @@ class TheDownload(unittest.TestCase):
                        "leak@example.com"):
             self.assertNotIn(secret, text)
 
+    def test_no_credential_reaches_the_file(self):
+        """This is what gets pasted into a public bug report. The entry holds
+        the hub's address and three passwords; none of them may appear, and
+        checking the assembled file rather than the source is the only way to
+        know a future field did not quietly carry one along."""
+        self.coord.entry.data = {
+            "host": "192.168.11.5", "username": "admin",
+            "password": "camera-secret", "cloud_password": "cloud-secret",
+        }
+        text = str(self._download())
+        for secret in ("192.168.11.5", "camera-secret", "cloud-secret"):
+            self.assertNotIn(secret, text, secret)
+
+    def test_every_allow_listed_reading_is_one_the_parser_produces(self):
+        """An allow-list of names nothing produces is a file full of nulls.
+
+        Six of the sixteen were wrong once -- storage_total for
+        storage_total_gb, led_enabled for led_on -- so all three storage
+        figures, the LED state, face detection and the audio slots came out
+        null in every diagnostics download ever taken. Nothing failed; the
+        file simply said nothing, which is the failure an allow-list is most
+        prone to.
+        """
+        status = importlib.import_module("tapo_h500.status")
+        produced = set(status.hub_readings({}))
+        self.assertEqual(set(diagnostics.SAFE_READINGS) - produced, set())
+
     def test_a_reading_the_parser_knows_but_the_hub_omitted_is_null(self):
         """Present-as-null, not absent: a missing key in the file reads as
         "this build does not collect that", which sends a reader down the
