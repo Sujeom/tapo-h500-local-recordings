@@ -15,7 +15,17 @@ rules:
       Two seconds by default, which is the whole notification delay, with an
       idle backoff and a slower cadence for hub status and the paired list.
       The hub overloads easily, so the interval is the design.
-  brands: todo
+  brands:
+    status: todo
+    comment: |
+      The icons in custom_components/tapo_h500/brand/ meet the specification
+      exactly -- 256 and 512 square, RGBA -- and are what should be submitted
+      to home-assistant/brands under custom_integrations/tapo_h500/. The set
+      at the repository root is the README banner, at twice those sizes with
+      logos wider than brands accepts; submitting those is the mistake this
+      note exists to prevent. Outstanding until the pull request merges,
+      because the frontend fetches artwork from the CDN by domain rather than
+      from the integration.
   common-modules:
     status: done
     comment: The coordinator is in coordinator.py, the base entity in entity.py.
