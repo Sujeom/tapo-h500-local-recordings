@@ -368,27 +368,11 @@ class SetupClassification(unittest.TestCase):
 
 
 class Reauth(unittest.TestCase):
-    def test_the_flow_offers_a_reauth_step(self):
-        """Without it a changed password is a permanently retrying entry and
-        no way at all to type the new one."""
-        tree = ast.parse(SOURCE)
-        flow = [node for node in ast.walk(tree)
-                if isinstance(node, ast.ClassDef)
-                and node.name == "TapoH500ConfigFlow"][0]
-        steps = {node.name for node in flow.body
-                 if isinstance(node, ast.AsyncFunctionDef)}
-        self.assertIn("async_step_reauth", steps)
-        self.assertIn("async_step_reauth_confirm", steps)
-
-    def test_reauth_rewrites_the_stored_password(self):
-        fields = _schema_fields("async_step_reauth_confirm")
-        self.assertIn(const.CONF_CLOUD_PASSWORD, fields)
-        self.assertIn("password", fields)
-        # No host box: this form exists because a password changed, not
-        # because the entry should be repointed at a different device.
-        self.assertNotIn("host", fields)
-        self.assertIn("async_update_reload_and_abort", SOURCE)
-        self.assertIn("data_updates=user_input", SOURCE)
+    # What the form holds and what it saves are driven in
+    # test_reconfigure.TheReauthForm -- the step is constructed, the form
+    # submitted, and the entry read back. What is left here is the one thing
+    # a driven flow cannot show, because it is about the source: that there
+    # is only one login in the file.
 
     def test_one_validation_path_serves_both_forms(self):
         """Two copies of the login would sooner or later mean two logins, and

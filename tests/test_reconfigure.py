@@ -213,3 +213,86 @@ class ItIsNamed(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _reauth_flow(entry=None, verdict=None, seen=None):
+    flow = _flow(entry=entry, verdict=verdict, seen=seen)
+    flow.source = "reauth"
+    return flow
+
+
+class TheReauthForm(unittest.TestCase):
+    """The other recovery path: the address is right, the password is not.
+
+    Driven rather than read, for the same reason -- "the stored host is what
+    it reconnects to" is a fact about what was sent, not about the source.
+    """
+
+    def _run(self, flow, user_input=None):
+        return asyncio.run(flow.async_step_reauth_confirm(user_input))
+
+    def test_entering_reauth_lands_on_the_confirm_form(self):
+        result = asyncio.run(_reauth_flow().async_step_reauth({}))
+        self.assertEqual(result["step_id"], "reauth_confirm")
+
+    def test_it_asks_for_credentials_and_not_the_address(self):
+        """Offering a host box here would turn a credential refusal into a
+        chance to point an existing entry at a different device."""
+        fields = {str(key) for key in
+                  self._run(_reauth_flow())["data_schema"].schema}
+        self.assertEqual(fields, {"username", "password", "cloud_password"})
+
+    def _defaults(self, flow=None):
+        """Each key's starting value. Voluptuous keeps a default as a
+        callable, so a bare `.default` is a lambda for every field."""
+        schema = self._run(flow or _reauth_flow())["data_schema"].schema
+        return {str(key): key.default() if key.default else None
+                for key in schema}
+
+    def test_the_username_starts_at_the_stored_one(self):
+        self.assertEqual(self._defaults()["username"], "admin")
+
+    def test_neither_password_is_put_back_on_screen(self):
+        """The point of this form is that the stored ones are wrong, and a
+        default would show a credential to anyone at the tablet."""
+        defaults = self._defaults()
+        self.assertIsNone(defaults["password"])
+        self.assertIsNone(defaults["cloud_password"])
+
+    def test_it_reconnects_to_the_stored_address(self):
+        """There is no host on this form, so the retyped credentials must be
+        merged over the entry's data or there is nowhere to connect to."""
+        seen = []
+        flow = _reauth_flow(seen=seen)
+        self._run(flow, {"username": "admin", "password": "new-camera",
+                         "cloud_password": "new-cloud"})
+        self.assertEqual(seen[0]["host"], "192.168.11.5")
+        self.assertEqual(seen[0]["password"], "new-camera")
+
+    def test_credentials_that_work_are_written_back_and_reloaded(self):
+        flow = _reauth_flow()
+        typed = {"username": "admin", "password": "new-camera",
+                 "cloud_password": "new-cloud"}
+        self._run(flow, typed)
+        self.assertTrue(flow.reloaded)
+        self.assertEqual(flow.entry.data["password"], "new-camera")
+        self.assertEqual(flow.entry.data["cloud_password"], "new-cloud")
+
+    def test_the_settings_and_face_names_survive_it(self):
+        """A password change must not cost what setting the entry up again
+        would cost."""
+        flow = _reauth_flow()
+        self._run(flow, {"username": "admin", "password": "new-camera",
+                         "cloud_password": "new-cloud"})
+        self.assertEqual(flow.entry.options["face_names"], {"7": "Sam"})
+        self.assertEqual(flow.entry.options["keep_downloads"], 25)
+
+    def test_credentials_that_are_refused_again_stay_on_the_form(self):
+        flow = _reauth_flow(verdict={"base": "invalid_auth"})
+        result = self._run(flow, {"username": "admin", "password": "wrong",
+                                  "cloud_password": "wrong"})
+        self.assertEqual(result["type"], "form")
+        self.assertEqual(result["errors"], {"base": "invalid_auth"})
+        self.assertFalse(getattr(flow, "reloaded", False))
+        self.assertEqual(flow.entry.data["password"], "stored-camera",
+                         "a refused retype must not overwrite the stored one")
