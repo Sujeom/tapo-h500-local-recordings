@@ -48,7 +48,13 @@ rules:
   docs-actions: done
   docs-high-level-description: done
   docs-installation-instructions: done
-  docs-removal-instructions: todo
+  docs-removal-instructions:
+    status: done
+    comment: |
+      In the README, and pointing at the backup action before the delete
+      button rather than after it -- face names live on the config entry and
+      go with it. The media path and the card URL in it are asserted against
+      the constants the code uses.
   entity-event-setup:
     status: done
     comment: |

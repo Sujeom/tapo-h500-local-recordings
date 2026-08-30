@@ -194,6 +194,36 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   any card without its own picks it up.
 - **Settings:** the integration's **Configure** page.
 
+## Removing it
+
+**Back up your face names first**, if you have any. They live on the config
+entry and go with it — months of opening photographs to work out who a
+twelve-digit number is, gone in one click. Call
+`tapo_h500.backup_names` and keep what it hands back; `tapo_h500.restore_names`
+pastes it straight back in later. The same backup carries the camera layout
+and every setting you typed.
+
+Then:
+
+1. **Settings → Devices & services → Tapo H500 → the three dots → Delete.**
+   That closes the hub login, removes the devices and entities, and takes the
+   face names, the camera layout and the settings with it.
+2. **Your recordings stay.** They are under
+   `<media>/tapo_h500/<camera>/<date>/`, where `<media>` is Home Assistant's
+   `local` media directory — so `/media/tapo_h500/front_doorbell/2026-08-12/`
+   for a camera called Front Doorbell. Deleting them is your decision, not the
+   uninstaller's: destroying somebody's footage because they removed an
+   integration would be indefensible. Delete the folder yourself if you want
+   the space back.
+3. **Remove the dashboard resource.** Settings → Dashboards → three-dot menu →
+   Resources, and delete the one pointing at
+   `/tapo_h500_static/tapo-h500-card.js`. The integration adds it and cannot
+   remove it once it has been unloaded.
+4. **Uninstall from HACS**, then restart Home Assistant.
+
+Reinstalling gives you the recordings back untouched — they are found by path,
+not by an index — and everything else comes from the backup.
+
 ## Docs
 
 | | |

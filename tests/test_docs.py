@@ -11,11 +11,19 @@ None of that is cosmetic. Documentation nobody can trust is documentation
 nobody reads, and every one of these was somebody's answer to "does this work
 yet?"
 """
+import importlib
 import json
 import re
 import subprocess
+import sys
 import unittest
 from pathlib import Path
+
+import yaml
+
+sys.path.insert(0, str(Path(__file__).parent))
+import test_coordinator  # noqa: E402,F401  (installs the HA stubs)
+import test_api  # noqa: E402,F401  (installs the pytapo stubs)
 
 ROOT = Path(__file__).parents[1]
 COMPONENT = ROOT / "custom_components" / "tapo_h500"
@@ -400,6 +408,52 @@ class TheTroubleshootingPage(unittest.TestCase):
     def test_the_readme_and_the_issue_template_point_at_it(self):
         """An unlinked troubleshooting page is not a troubleshooting page."""
         self.assertIn("troubleshooting.md", DOCS["README.md"])
+
+
+
+class HowToRemoveIt(unittest.TestCase):
+    """This integration writes real files outside itself.
+
+    Somebody removing it deserves to know where the gigabytes went, and
+    somebody reinstalling deserves to know the recordings survive.
+    """
+
+    README = property(lambda self: (ROOT / "README.md").read_text())
+
+    def test_there_are_instructions_at_all(self):
+        self.assertIn("## Removing it", self.README)
+
+    def test_the_media_path_is_the_one_the_code_builds(self):
+        """Read from the constant rather than from memory: if the layout
+        changes, this fails instead of the documentation going quietly
+        wrong."""
+        const = importlib.import_module("tapo_h500.const")
+        self.assertIn(f"<media>/{const.MEDIA_DIR}/<camera>/<date>/",
+                      self.README)
+
+    def test_the_card_url_is_the_one_that_gets_registered(self):
+        const = importlib.import_module("tapo_h500.const")
+        self.assertIn(const.CARD_URL, self.README)
+
+    def test_it_says_the_recordings_stay(self):
+        """The question everybody actually has."""
+        self.assertIn("Your recordings stay", self.README)
+
+    def test_it_points_at_the_backup_action_first(self):
+        """Face names go with the entry, and that is the whole reason the
+        backup action exists -- after the fact is too late."""
+        removing = self.README.split("## Removing it", 1)[1]
+        self.assertLess(removing.index("backup_names"),
+                        removing.index("Delete"))
+
+    def test_the_actions_it_names_are_registered_ones(self):
+        services = yaml.safe_load(
+            (ROOT / "custom_components" / "tapo_h500" / "services.yaml")
+            .read_text())
+        removing = self.README.split("## Removing it", 1)[1]
+        named = set(re.findall(r"tapo_h500\.(\w+)", removing))
+        self.assertTrue(named)
+        self.assertEqual(named - set(services), set())
 
 
 if __name__ == "__main__":

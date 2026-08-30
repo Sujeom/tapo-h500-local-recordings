@@ -157,12 +157,12 @@ Verified against a physical H500 with paired TD21 doorbells:
   corresponding method. See `protocol-notes.md`.
 
 The dashboard cards have their own tests, which need Node but no browser and no
-Home Assistant (`node tests/test_cards.mjs`, over 110 checks): escaping,
+Home Assistant (`node tests/test_cards.mjs`, over 130 checks): escaping,
 relative times, hour grouping, face grouping, the summary chart's scale and
 labelling, and that no card ever points a `<video>` at a clip that has not been
 downloaded.
 
-Verified by unit test (`python3 -m unittest discover -s tests`, over 1,400
+Verified by unit test (`python3 -m unittest discover -s tests`, over 1,900
 tests, no hub or Home Assistant install required):
 
 - The H500 download request payload and the required `Content-Length: 0` outer
