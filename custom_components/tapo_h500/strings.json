@@ -9,6 +9,20 @@
           "host": "H500 IP address",
           "username": "Camera account username",
           "password": "Camera account password",
+          "cloud_password": "TP-Link cloud account password",
+          "poll_interval": "Seconds between activity checks"
+        },
+        "data_description": {
+          "poll_interval": "How quickly activity reaches Home Assistant. This is the whole notification delay -- nothing arrives sooner than the next check. A check costs the hub about 40ms, so 2 seconds is comfortable and 1 is allowed. Changeable later under Configure."
+        }
+      },
+      "reconfigure": {
+        "title": "Change your Tapo H500's address",
+        "description": "Point this hub at a new address without setting it up again -- everything on the entry stays, including your face names, your retention settings and the entity ids your automations and cards refer to. Leave the passwords blank to keep the stored ones.",
+        "data": {
+          "host": "Hub IP address or hostname",
+          "username": "Camera account username",
+          "password": "Camera account password",
           "cloud_password": "TP-Link cloud account password"
         }
       },
@@ -28,24 +42,65 @@
       "invalid_auth": "The H500 rejected these credentials."
     },
     "abort": {
-      "reauth_successful": "Reconnected. The stored credentials have been replaced."
+      "reauth_successful": "Reconnected. The stored credentials have been replaced.",
+      "reconfigure_successful": "Updated. This entry now talks to the hub at its new address.",
+      "already_configured": "Another entry is already set up at that address. Two entries on one hub means two pollers, each logging in to a device that stops responding under repeated authentication."
     }
   },
   "options": {
     "step": {
-      "init": {
-        "title": "Tapo H500 options",
+      "settings": {
+        "title": "Tapo H500 settings",
         "data": {
           "poll_interval": "Seconds between activity checks",
           "auto_download": "Download new recordings automatically",
           "convert_mp4": "Convert downloads to MP4",
-          "keep_downloads": "Downloaded clips to keep per camera"
+          "keep_downloads": "Downloaded clips to keep per camera",
+          "keep_rings": "Doorbell presses to keep per camera",
+          "silent_hours": "Hours of silence before a camera is flagged",
+          "keep_person": "Recordings with a person to keep per camera",
+          "download_types": "Only download these detections",
+          "card_days": "Days the cards show by default",
+          "auto_restart": "Restart the hub automatically when its recording service fails"
         },
         "data_description": {
           "convert_mp4": "MP4 plays in the browser; turn this off to keep the hub's original MPEG-TS.",
-          "keep_downloads": "0 keeps everything. Any other number prunes the oldest automatic downloads once a camera holds more than that. Manual downloads are never pruned."
+          "keep_downloads": "0 keeps everything. Any other number prunes the oldest automatic downloads once a camera holds more than that. Manual downloads are never pruned.",
+          "poll_interval": "The whole notification delay: nothing reaches Home Assistant sooner than the next check. About 40ms of hub time per check, so low values are cheap.",
+          "keep_rings": "0 treats presses like everything else. Any other number keeps that many of the newest presses whatever their age, so a busy afternoon of motion cannot evict the press that mattered.",
+          "silent_hours": "A camera off the Wi-Fi or flat looks exactly like a quiet one: the hub reports no online flag and no battery, so silence is the only evidence there is. Lower this for a busy doorbell, raise it for a back gate that genuinely sees nobody all day. Capped at 24 because that is how far back the hub is asked.",
+          "keep_person": "0 treats them like everything else. Any other number keeps that many of the newest recordings with a person in them whatever their age, so a windy afternoon of motion cannot evict the one recording of somebody at the door. Counted separately from doorbell presses; a press with a person in it is protected by both.",
+          "download_types": "Leave empty to download everything, which is what happens now. Tick a few and only recordings carrying one of them are kept -- the clips people go back for are usually the ones with a person or a doorbell press in them, not the traffic.",
+          "card_days": "Cards without their own “Days to show” follow this; a card with one set keeps it.",
+          "auto_restart": "Both known media failures are cured by a reboot and nothing else. At most one automatic restart every six hours, announced in the log and as a tapo_h500_auto_restart event. Cameras going quiet never triggers this — a reboot gains nothing against a flat battery."
         }
+      },
+      "init": {
+        "title": "Tapo H500",
+        "menu_options": {
+          "settings": "Settings",
+          "faces": "Name faces",
+          "layout": "Camera layout",
+          "sensitivity": "Unusual activity"
+        }
+      },
+      "faces": {
+        "title": "Name faces",
+        "description": "The hub recognises people and gives each a number, but will not say who they are — there is no name to look up. Open a face's photo to see who it is, then put a name against that number and every card and sensor uses it. Clear a box to remove a name.\n\n{faces}\n\nA face has no photo link until its recording has downloaded."
+      },
+      "layout": {
+        "title": "Camera layout",
+        "description": "Give each camera a number for how close it is to your door: **0 for the one nearest the street**, higher as they get closer to the entrance. A gate camera might be 0 and the doorbell 1.\n\nThis is the one thing the integration cannot work out on its own — the hub reports no geometry. With it, a recognised person moving from one camera to another reads as *approaching* or *leaving* rather than just a list of places.\n\nLeave every camera on the same number to turn this off; no direction is reported unless it is genuinely known.{suggestion}"
+      },
+      "sensitivity": {
+        "title": "Unusual activity",
+        "description": "How busy a camera has to get before it counts as unusual, measured against its own recent rate rather than a fixed number.\n\n**Sensitive** flags twice its typical hour. **Normal** three times. **Relaxed** five times, and needs more activity before it considers the question at all.\n\nSet these per camera: three times typical is a busy afternoon on a doorbell facing a pavement, and somebody in the garden on a back gate."
       }
+    },
+    "abort": {
+      "no_faces": "The hub has not recognised any faces yet. It only reports one when its own face detection fires, and only for the period still held — try again after someone has been seen.",
+      "one_camera": "Only one camera is paired with this hub. A direction needs two places to be between.",
+      "no_cameras": "No cameras are paired with this hub yet."
     }
   },
   "selector": {
@@ -54,6 +109,26 @@
         "off": "Never",
         "rings": "Doorbell presses only",
         "all": "Every new recording"
+      }
+    },
+    "sensitivity": {
+      "options": {
+        "sensitive": "Sensitive",
+        "normal": "Normal",
+        "relaxed": "Relaxed"
+      }
+    },
+    "download_types": {
+      "options": {
+        "2": "Motion",
+        "6": "Person",
+        "8": "Vehicle",
+        "9": "Pet",
+        "10": "Missed doorbell",
+        "17": "Doorbell",
+        "19": "Theft",
+        "20": "Face",
+        "22": "Unknown face"
       }
     }
   },
@@ -99,6 +174,9 @@
       "recordings_24h": {
         "name": "Recordings (24h)"
       },
+      "recordings_today": {
+        "name": "Recordings today"
+      },
       "ai_enhance": {
         "name": "AI enhance"
       },
@@ -117,8 +195,29 @@
       "custom_sounds": {
         "name": "Custom sounds"
       },
+      "recordings_1h": {
+        "name": "Recordings in the last hour"
+      },
+      "busiest_hour": {
+        "name": "Busiest hour"
+      },
+      "people_seen": {
+        "name": "People seen"
+      },
+      "unknown_faces": {
+        "name": "Unfamiliar face recordings"
+      },
+      "hub_health": {
+        "name": "Health"
+      },
       "storage_full_in": {
         "name": "Storage full in"
+      },
+      "media_healthy_for": {
+        "name": "Media healthy for"
+      },
+      "media_sessions": {
+        "name": "Media sessions"
       },
       "visits_24h": {
         "name": "Visits (24h)"
@@ -161,6 +260,39 @@
       "wifi_backup": {
         "name": "Wi-Fi backup"
       },
+      "detected_motion": {
+        "name": "Motion"
+      },
+      "detected_person": {
+        "name": "Person"
+      },
+      "detected_vehicle": {
+        "name": "Vehicle"
+      },
+      "detected_pet": {
+        "name": "Animal"
+      },
+      "detected_missed_doorbell": {
+        "name": "Doorbell unanswered"
+      },
+      "detected_doorbell": {
+        "name": "Doorbell"
+      },
+      "detected_theft": {
+        "name": "Tampering"
+      },
+      "detected_face": {
+        "name": "Recognised face"
+      },
+      "detected_unknown_face": {
+        "name": "Unfamiliar face"
+      },
+      "unusual_activity": {
+        "name": "Unusual activity"
+      },
+      "face_present": {
+        "name": "Seen recently"
+      },
       "loitering": {
         "name": "Loitering"
       },
@@ -172,6 +304,12 @@
       },
       "possible_delivery": {
         "name": "Possible delivery"
+      },
+      "media_problem": {
+        "name": "Recording service problem"
+      },
+      "cameras_dark": {
+        "name": "Cameras not recording"
       }
     },
     "siren": {
@@ -212,15 +350,95 @@
         "name": "Siren duration"
       }
     },
+    "image": {
+      "latest_event": {
+        "name": "Latest event"
+      },
+      "contact_sheet": {
+        "name": "Today"
+      }
+    },
     "calendar": {
       "recordings": {
         "name": "Recordings"
       }
     },
-    "image": {
-      "contact_sheet": {
-        "name": "Today"
+    "update": {
+      "firmware": {
+        "name": "Firmware"
       }
+    },
+    "button": {
+      "restart": {
+        "name": "Restart"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "doorbell": "{entity_name} was rung",
+      "face": "{entity_name} recognised a face",
+      "missed_doorbell": "{entity_name} was rung and not answered",
+      "motion": "{entity_name} detected motion",
+      "person": "{entity_name} detected a person",
+      "pet": "{entity_name} detected an animal",
+      "theft": "{entity_name} reported tampering",
+      "unknown_face": "{entity_name} saw an unfamiliar face",
+      "vehicle": "{entity_name} detected a vehicle",
+      "loitering": "{entity_name}: someone the hub does not recognise has waited there",
+      "possible_delivery": "{entity_name}: a visit that looked like a delivery",
+      "prowling": "Someone went round the house rather than up to the door",
+      "arrival": "Someone you have named arrives home",
+      "visit": "A visit begins (once per visitor, not once per recording)"
+    }
+  },
+  "issues": {
+    "storage_nearly_full": {
+      "title": "H500 storage is {used}% full",
+      "description": "The hub is about to start overwriting its oldest recordings to make room. Loop recording does not stop at full -- it discards the oldest footage silently. Download anything worth keeping, or format the hub storage once you have."
+    },
+    "hub_unreachable": {
+      "title": "H500 is not responding",
+      "description": "The hub has stopped answering, so nothing is being recorded to Home Assistant and every entity is showing its last known value. Check that it is powered and on the network. If the username is a TP-Link email rather than a local account, the hub refuses it with an error indistinguishable from being offline."
+    },
+    "unnamed_face": {
+      "title": "A face the hub keeps seeing has no name",
+      "description": "Face {face_id} has been seen {sightings} times on {cameras} and has not been named. Naming it makes every card, sensor and notification say who it is instead of a number — \"Alice rang the Front Doorbell\".\n\nName it under Configure → Name faces, where each face is listed with a link to its photograph, or with the Name this face button on the faces card.\n\n{others} other face(s) are also waiting to be named.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Name this face",
+            "description": "The hub keeps recognising face {face_id}. Give them a name and every card, sensor and notification will use it. Their photo is on the faces card if you need a look first. Submitting an empty box just closes this notice.",
+            "data": {
+              "name": "Name"
+            }
+          }
+        }
+      }
+    },
+    "camera_silent": {
+      "title": "A camera has gone quiet",
+      "description": "{cameras} has recorded nothing for {hours} hours.\n\nThat usually means it is off the Wi-Fi, flat or unplugged, but it can also mean nothing has happened there. The hub cannot tell you which: its paired-device record has no online flag, no signal strength and no battery, so silence is the only evidence available. Every entity for that camera is still showing its last known value.\n\nCheck the camera, or raise the threshold under Configure → Settings if it is simply somewhere quiet."
+    },
+    "clashing_camera_names": {
+      "title": "Two cameras share a name",
+      "description": "More than one paired camera is called {cameras}, so their downloads are filed in the same folder.\n\nRecordings are stored under a slug of the camera's own name, which is what makes \"already downloaded\" a check of the files on disk rather than a separate index that could disagree with them. Two cameras sharing a name means one camera's recording answers that question for the other, and clips from both appear under whichever card you open.\n\nRename one of them in the Tapo app. Anything already downloaded stays where it is; new recordings go to the new folder."
+    },
+    "camera_tampered": {
+      "title": "A camera reported being interfered with",
+      "description": "{camera} reported tampering at {when} ({count} report(s) in the last day).\n\nThis is the hub's own alarm for a camera being handled — knocked, covered, or lifted off its mount. It was confirmed on real hardware by taking a camera off its bracket, so it means what it says, but a knock or a strong gust can raise it too.\n\nWorth checking rather than dismissing: everything else this integration reports happened outside the house, and this one is about the camera itself. If it is real, the recordings you will want are the ones after it — check that the camera is still pointing where it should and that its recent clips are on the hub.\n\nIt clears on its own once the report ages out of the last 24 hours."
+    },
+    "media_wedged": {
+      "title": "The H500 has stopped serving recordings",
+      "description": "The hub is still detecting events, but its media service has stopped delivering recordings — either refusing sessions outright, or answering them cleanly with no video in them. Notification photographs, previews and downloads will fail until it recovers, and in testing only a hub reboot clears either state: press the hub's Restart button on its device page, or power-cycle it. Recordings already on the hub are not lost."
+    },
+    "downloads_failing": {
+      "title": "Recordings from {cameras} are not downloading",
+      "description": "{count} automatic downloads in a row have failed. The recordings still exist on the hub, but they will not appear in Home Assistant until this is fixed, and the hub will eventually overwrite them. The log (Settings → System → Logs, search “tapo_h500”) says why each one failed — a full disk and a missing ffmpeg are the usual reasons. This notice clears itself when a download succeeds."
+    },
+    "restart_ineffective": {
+      "title": "Restarting the hub did not fix its recording service",
+      "description": "The hub was restarted automatically and the failure came straight back — which has never happened before, so this is something new rather than the known wedge. Automatic restarts are paused until recordings serve again, so the evidence is not rebooted away. Download diagnostics from the integration's menu and open an issue with it; a power cycle (unplug, wait, replug) is worth one try, and if recordings recorded during the failure play as empty, say so — it means the video was never written."
     }
   }
 }

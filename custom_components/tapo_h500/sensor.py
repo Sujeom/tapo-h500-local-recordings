@@ -18,8 +18,8 @@ from homeassistant.util import dt as dt_util
 
 from .clips import (
     ACTIVITY_LEVELS, activity_level, busiest_hour, events_since, hourly_baseline,
-    hourly_counts, longest_visit, sessions, unique_faces, unknown_face_count,
-    unusual_threshold,
+    hourly_counts, local_midnight, longest_visit, sessions, unique_faces,
+    unknown_face_count, unusual_threshold,
 )
 from .const import (
     DATA_HUBS, DOMAIN, FACE_PRESENCE_WINDOW, LOITER_GAP, LOOKBACK_SECONDS,
@@ -195,6 +195,26 @@ CAMERA_SENSORS: tuple[CameraSensor, ...] = (
         native_unit_of_measurement="recordings",
         value=lambda c, i, cam: len(c.clips_for(i)),
     ),
+    # The one figure that outlives everything. The hub's own index reaches
+    # back a day and its recordings about seventeen, so "when was this camera
+    # last working properly?" had no answer here at all -- it was asked this
+    # week and could only be guessed at. A daily count is kept in long-term
+    # statistics for good, and a camera that went dark on a Tuesday shows it
+    # as a column that stops.
+    #
+    # Total-increasing rather than a measurement: it climbs through the day
+    # and returns to zero at local midnight, which is the shape Home
+    # Assistant already knows how to sum into days. The rolling 24-hour count
+    # above cannot do that job -- it is never at rest, so its daily figure
+    # depends on the minute it was read.
+    CameraSensor(
+        key="recordings_today", translation_key="recordings_today",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement="recordings",
+        value=lambda c, i, cam: events_since(
+            c.clips_for(i),
+            local_midnight(int(dt_util.utcnow().timestamp()))),
+    ),
     # Statistics, all with a state class so the recorder keeps them for the
     # long-term graphs. They are computed from the polled window rather than
     # stored: the window is a day, and anything longer is the recorder's job.
@@ -258,6 +278,8 @@ async def async_setup_entry(
         for index, camera in enumerate(coordinator.cameras)
     ]
     entities.append(H500StorageForecast(coordinator, entry))
+    entities.append(H500WedgeClock(coordinator, entry))
+    entities.append(H500MediaSessions(coordinator, entry))
     entities.append(H500Household(coordinator, entry))
     async_add_entities(entities)
 
@@ -502,6 +524,121 @@ class H500StorageForecast(CoordinatorEntity[H500Coordinator], SensorEntity):
             # "not filling" and "not enough history yet".
             "percent_per_hour": None if rate is None else round(rate, 4),
             "samples": len(self.coordinator.storage_trend),
+        }
+
+
+class H500WedgeClock(CoordinatorEntity[H500Coordinator], SensorEntity):
+    """How long the hub has been serving recordings, this run.
+
+    The hub stops serving video every so often and keeps no record of having
+    done it. Neither does Home Assistant in any form that lasts: the wedge
+    binary sensor beside this one says whether it is happening now, and binary
+    sensors get no long-term statistics, so its history ends at the recorder's
+    purge -- ten days, where the question worth asking is whether this hub is
+    getting worse over months.
+
+    A number does get kept forever, so this is the same fact as a number.
+    Climbing while the hub serves, zero while it does not: the long-term graph
+    is a sawtooth whose peaks are the times to wedge and whose resets are the
+    wedges. How often, how long between, and what the best run was, all read
+    off one line -- which is what a support case needs and what nobody could
+    produce from memory.
+
+    Hours rather than seconds because the observed gap is about twelve of
+    them, and a seconds axis would be unreadable at the span that matters.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "media_healthy_for"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:timer-alert-outline"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_media_healthy_for"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    @property
+    def native_value(self) -> float:
+        return self.coordinator.healthy_seconds / 3600
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """The counts the graph makes you squint at.
+
+        Since this Home Assistant started, not since the hub was made: none of
+        it is written to disk, and a number that pretended to span restarts
+        would be the more misleading of the two.
+        """
+        coordinator = self.coordinator
+        return {
+            "wedges_7d": coordinator.wedges_since(7 * 86400),
+            "wedges_24h": coordinator.wedges_since(86400),
+            "longest_healthy_hours":
+                round(coordinator.longest_healthy_seconds / 3600, 1),
+            "last_wedge": (
+                dt_util.utc_from_timestamp(
+                    coordinator.wedges[-1]["at"]).isoformat()
+                if coordinator.wedges else None),
+        }
+
+
+class H500MediaSessions(CoordinatorEntity[H500Coordinator], SensorEntity):
+    """How many recordings have been fetched off the hub, and how that went.
+
+    Every download and every preview is a whole media session of its own: TCP
+    connect, digest challenge, key exchange. How they are going was only ever
+    visible by grepping the debug log, which requires debug logging to have
+    been turned on before the trouble started -- so in practice the answer was
+    unavailable exactly when it was wanted.
+
+    The count is the state, because "it wedges after about N sessions" is a
+    thing worth graphing and the recorder keeps it. How the last fifty went is
+    beside it: served, empty, failed. Empty is the one that matters most and
+    the one a log line hides best -- it looks like a clean success everywhere
+    except the byte count.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "media_sessions"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "sessions"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:download-network-outline"
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_media_sessions"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    def _health(self) -> dict:
+        # A client without the counters is a test double or an older process
+        # mid-upgrade; neither should take the sensor down.
+        return getattr(self.coordinator.client, "session_health", None) or {}
+
+    @property
+    def native_value(self):
+        return self._health().get("sessions")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        health = self._health()
+        recent = health.get("recent") or 0
+        bad = (health.get("empty") or 0) + (health.get("failed") or 0)
+        return {
+            "served": health.get("served"),
+            "empty": health.get("empty"),
+            "failed": health.get("failed"),
+            "recent": recent,
+            # None rather than zero before anything has been fetched: no
+            # sessions is not the same as no failures, and a flat 0% on a
+            # hub nobody has asked for a recording reads as an all-clear.
+            "failure_percent": (None if not recent
+                                else round(bad / recent * 100, 1)),
         }
 
 

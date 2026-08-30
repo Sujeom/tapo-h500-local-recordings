@@ -7,6 +7,7 @@ import logging
 import threading
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import AsyncIterator
 
@@ -17,11 +18,38 @@ from pytapo.media_stream.crypto import AESHelper
 from pytapo.media_stream.session import HttpMediaSession
 
 from .clips import attach_detections, flatten_clips, start_of
+from .const import SESSION_HISTORY
 from .status import (
     HUB_STATUS_REQUESTS, basic_info, firmware_upgrade, unpack_multiple,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def new_session_log() -> deque:
+    """The bounded ring of recent session outcomes.
+
+    Bounded, because the question the health figure answers is how the hub is
+    doing lately. A hub that wedged this morning and has served everything
+    since would otherwise read as half broken for the rest of the week, which
+    is a number nobody can act on. Its own function so the bound is a fact a
+    test can check rather than an argument buried in a constructor.
+    """
+    return deque(maxlen=SESSION_HISTORY)
+
+
+def session_outcome(ended: str, received: int) -> str:
+    """How a media session went, from how it ended and what it carried.
+
+    Three outcomes, not two. "Empty" is the one that matters most here and
+    the one a log line hides best: a session that connected, authenticated,
+    streamed and closed cleanly while carrying no video looks like a success
+    everywhere except the byte count, and it is the failure this hub actually
+    has. A refused session is loud; this one is silent.
+    """
+    if ended != "closed":
+        return "failed"
+    return "served" if received else "empty"
 
 
 class _EmptyNonce(bytes):
@@ -230,6 +258,10 @@ class H500Client:
         # sending a byte, which is before authentication and so identifies
         # nothing; a running count is what makes "it wedges after N" visible.
         self._sessions = 0
+        # How the last few went. Grepping the debug log was the only way to
+        # answer "is the media path healthy right now", which needs debug
+        # logging to have been on before the trouble started.
+        self._session_log: deque[str] = new_session_log()
         # Hub control calls run in executor threads from both the coordinator
         # and service handlers; pytapo's session is not thread safe.
         self._hub_lock = threading.RLock()
@@ -601,6 +633,21 @@ class H500Client:
             return self._hub.executeFunction(
                 "formatSdCard", {"harddisk_manage": {"format_hd": "1"}})
 
+    @property
+    def session_health(self) -> dict:
+        """How the recent media sessions went, and how many there have been.
+
+        Read by the sensor and by diagnostics, so both say the same thing.
+        """
+        recent = list(self._session_log)
+        return {
+            "sessions": self._sessions,
+            "recent": len(recent),
+            "served": recent.count("served"),
+            "empty": recent.count("empty"),
+            "failed": recent.count("failed"),
+        }
+
     async def iter_recording(self, camera, start_time, end_time,
                              kind: str = "download") -> AsyncIterator[bytes]:
         """Stream one recording off the hub's media port.
@@ -682,6 +729,10 @@ class H500Client:
                 ended = type(err).__name__
                 raise
             finally:
+                # Served, empty, or failed. An empty session is the one that
+                # matters most and is the one a log line hides best: it looks
+                # like a clean success everywhere except the byte count.
+                self._session_log.append(session_outcome(ended, received))
                 # No host, camera, player id or clip time: this runs on every
                 # preview, unattended, at whatever level the user has on.
                 _LOGGER.debug(

@@ -26,7 +26,6 @@ from .const import (
     DETECTION_NAMES, DOMAIN, FACE_PRESENCE_WINDOW,
     LOITER_GAP, LOITER_SECONDS,
     LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED, SILENT_EXPECTED,
-    UNUSUAL_FLOOR, UNUSUAL_MULTIPLIER,
 )
 from .coordinator import H500Coordinator
 from .entity import H500Entity
@@ -118,6 +117,7 @@ async def async_setup_entry(
     ]
     entities.append(H500Prowling(coordinator, entry))
     entities.append(H500MediaProblem(coordinator, entry))
+    entities.append(H500CamerasDark(coordinator, entry))
     entities += [
         H500DetectionFlag(coordinator, index, camera, code)
         for index, camera in enumerate(coordinator.cameras)
@@ -339,6 +339,42 @@ def silent_threshold(coordinator) -> int:
     return min(max(3600, seconds), LOOKBACK_SECONDS)
 
 
+def expected_events(coordinator, index: int) -> float:
+    """Events this camera's own history predicted during the silence."""
+    last = coordinator.last_activity(index)
+    if last is None:
+        return 0.0
+    from homeassistant.util import dt as dt_util
+    return expected_since(
+        coordinator.clips_for(index), last,
+        int(dt_util.utcnow().timestamp()), LOOKBACK_SECONDS)
+
+
+def camera_is_silent(coordinator, index: int) -> bool | None:
+    """Whether this camera has stopped producing. None before the first poll.
+
+    A function rather than a method because two sensors ask it -- this
+    camera's own, and the hub-wide one that only fires when every camera says
+    yes at once. Two copies of the rule would let the dashboard show every
+    camera silent while the hub sensor stayed off.
+    """
+    seconds = coordinator.silent_seconds(index)
+    # None reads as "unknown" in the frontend, which is the truth, where
+    # False would say "fine".
+    if seconds is None:
+        return None
+    # Two grounds: the configured ceiling, and the camera's own expectation --
+    # a busy doorbell that should have produced three events by now is flagged
+    # in hours, not in a day. The adaptive half can only ever flag EARLIER.
+    tripped = (seconds >= silent_threshold(coordinator)
+               or expected_events(coordinator, index) >= SILENT_EXPECTED)
+    # Latched, because the expectation decays: its baseline is the clips still
+    # inside the poll window, and they age out while the camera stays dark.
+    # Without this the sensor trips in the evening and reads healthy again by
+    # midnight, with the camera still dead.
+    return coordinator.latch_silent(index, tripped)
+
+
 class H500CameraSilent(H500Entity, BinarySensorEntity):
     """On when this camera has produced nothing for longer than expected.
 
@@ -363,33 +399,11 @@ class H500CameraSilent(H500Entity, BinarySensorEntity):
         self._attr_unique_id = f"{camera['device_id']}_silent"
 
     def _expected(self) -> float:
-        """Events this camera's own history predicted during the silence."""
-        last = self.coordinator.last_activity(self.index)
-        if last is None:
-            return 0.0
-        from homeassistant.util import dt as dt_util
-        return expected_since(
-            self.coordinator.clips_for(self.index), last,
-            int(dt_util.utcnow().timestamp()), LOOKBACK_SECONDS)
+        return expected_events(self.coordinator, self.index)
 
     @property
     def is_on(self) -> bool | None:
-        seconds = self.coordinator.silent_seconds(self.index)
-        # Unknown before the first poll. None reads as "unknown" in the
-        # frontend, which is the truth, where False would say "fine".
-        if seconds is None:
-            return None
-        # Two grounds: the configured ceiling, exactly as before, and the
-        # camera's own expectation -- a busy doorbell that should have
-        # produced three events by now is flagged in hours, not in a day.
-        # The adaptive half can only ever flag EARLIER than the ceiling.
-        tripped = (seconds >= silent_threshold(self.coordinator)
-                   or self._expected() >= SILENT_EXPECTED)
-        # Latched, because the expectation decays: its baseline is the clips
-        # still inside the poll window, and they age out while the camera
-        # stays dark. Without this the sensor trips in the evening and reads
-        # healthy again by midnight, with the camera still dead.
-        return self.coordinator.latch_silent(self.index, tripped)
+        return camera_is_silent(self.coordinator, self.index)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -516,20 +530,79 @@ class H500MediaProblem(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
 
     @property
     def is_on(self) -> bool | None:
-        # Serving-empty is known regardless of whether a handshake has run:
-        # the downloads themselves are the evidence.
-        if getattr(self.coordinator, "media_serving_empty", False):
-            return True
-        status = self.coordinator.media_status
-        if status is None:
+        # The same question the wedge clock asks, asked once. Two copies of
+        # "is it wedged" would drift, and the clock's whole value is that its
+        # resets line up with this sensor's edges.
+        if self.coordinator.media_status is None and not getattr(
+                self.coordinator, "media_serving_empty", False):
+            # Nothing has been checked and nothing has been downloaded: no
+            # verdict is available, which is not the same as "fine".
             return None
-        return status == "wedged"
+        return self.coordinator.media_wedged
 
     @property
     def extra_state_attributes(self) -> dict:
         return {"media_status": self.coordinator.media_status,
                 "serving_empty":
                 bool(getattr(self.coordinator, "media_serving_empty", False))}
+
+
+class H500CamerasDark(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
+    """On when every camera has stopped recording at the same time.
+
+    One quiet camera is a quiet back gate, which is why its own sensor is
+    adjustable and why it is not an alarm on its own. Every camera quiet at
+    once, on a hub still answering every poll, is a different fact -- and it
+    is the failure this project exists around. Some hours after the hub
+    restarts the cameras go dark: they keep their radio link, they still
+    answer live view, and they record nothing. The app shows them connected.
+
+    There is nothing to read that says otherwise. The hub's paired-device
+    record has sixteen fields and not one is an online flag, a signal strength
+    or a battery, and the eleven battery methods all answer -40106. The
+    simultaneity is the entire signal, which is why it needs its own entity
+    rather than a glance across several.
+
+    Unavailable rather than off while the hub is not answering: a failing poll
+    is the hub's problem, not the cameras'.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "cameras_dark"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_cameras_dark"
+        self._attr_device_info = hub_device(coordinator, entry)
+
+    @property
+    def is_on(self) -> bool | None:
+        cameras = self.coordinator.cameras
+        if not cameras:
+            return None
+        verdicts = [camera_is_silent(self.coordinator, index)
+                    for index in range(len(cameras))]
+        if any(verdict is None for verdict in verdicts):
+            return None
+        return all(verdicts)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        coordinator = self.coordinator
+        gaps = [seconds for index in range(len(coordinator.cameras))
+                if (seconds := coordinator.silent_seconds(index)) is not None]
+        return {
+            "cameras": len(coordinator.cameras),
+            # The shortest gap: how long ago the last of them stopped, which
+            # is when the outage began rather than when the quietest one did.
+            "dark_for_hours": round(min(gaps) / 3600, 1) if gaps else None,
+            # Whether the hub's own media path went at the same moment. Both
+            # failing is one hub problem; this alone is the cameras, and
+            # telling them apart is the point of having this at all.
+            "media_status": coordinator.media_status,
+        }
 
 
 class H500FaceSeenRecently(CoordinatorEntity[H500Coordinator], BinarySensorEntity):

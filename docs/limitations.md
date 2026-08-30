@@ -157,13 +157,13 @@ Verified against a physical H500 with paired TD21 doorbells:
   corresponding method. See `protocol-notes.md`.
 
 The dashboard cards have their own tests, which need Node but no browser and no
-Home Assistant (`node --test tests/test_cards.mjs`, 43 checks): escaping,
+Home Assistant (`node tests/test_cards.mjs`, over 110 checks): escaping,
 relative times, hour grouping, face grouping, the summary chart's scale and
 labelling, and that no card ever points a `<video>` at a clip that has not been
 downloaded.
 
-Verified by unit test (`python3 -m unittest discover -s tests`, 99 tests, no
-hub or Home Assistant install required):
+Verified by unit test (`python3 -m unittest discover -s tests`, over 1,400
+tests, no hub or Home Assistant install required):
 
 - The H500 download request payload and the required `Content-Length: 0` outer
   framing.
@@ -176,12 +176,69 @@ hub or Home Assistant install required):
   cost a whole session's detections.
 - That hub status is fetched after the detection lookups and not on every poll,
   and that the camera list is cached but never left empty.
+- That the slow lookups thin out while the hub is failing rather than
+  thickening, and that the poll slows to six seconds after ten minutes of
+  nothing happening and snaps back the moment anything does. The cost is one
+  event: the first thing to happen after a quiet stretch is noticed up to six
+  seconds late. A configured interval longer than six seconds is left alone.
 - That an empty nonce reaches key derivation intact, a real nonce is passed
   through untouched, and the session module resolves the patched helper.
 
 Measured against the hub on a held session, median of five calls: a detection
 lookup is 19ms per camera, the clip index 17ms, the camera list 58ms, and the
 14-request batched hub status 430ms. Those numbers set the poll interval.
+
+"Cameras not recording" is on when every camera has gone quiet at the same
+time on a hub that is still answering. Confirmed on 2026-08-30 that there is
+nothing better to build it on: `subg`, the sub-GHz link the cameras talk over,
+is advertised by the hub and answers `-40106` to all twenty-five namespace and
+method probes, so the radio's state is not readable from the LAN at all. One quiet camera is a quiet back gate;
+all of them at once is the failure this project exists around, where the
+cameras keep their radio link and still answer live view and record nothing.
+There is no online flag, signal strength or battery in the hub's
+paired-device record to read instead -- the simultaneity is the whole signal.
+Its attributes say how long, and whether the hub's own media path went at the
+same moment, which is what separates a hub problem from a camera one.
+
+When a notification does not arrive, the answer is in two places and neither
+needs an automation trace. The camera's activity event entity records every
+event this integration fired, so its history says whether one fired at all;
+and each event carries whether notifications were snoozed at that moment, so a
+snooze that has since expired still explains the silence. If an event fired
+and was not snoozed, the decision was the automation's.
+
+"Media sessions" counts every recording fetched off the hub, with how the
+last fifty went beside it: served, empty, failed. That was previously only in
+the debug log, which has to have been turned on before the trouble started.
+Empty is the one that matters and the one a log line hides best -- a session
+that connected, authenticated, streamed and closed cleanly while carrying no
+video looks like a success everywhere except the byte count, and it is the
+failure this hub actually has.
+
+"Recordings today" is a per-camera daily count that Home Assistant keeps in
+long-term statistics for good, so a camera that went dark on a Tuesday shows
+it as a column that stops. The hub's own index reaches back a day and its
+recordings about seventeen, which is why "when was this camera last working
+properly?" previously had no answer. The rolling 24-hour count beside it
+cannot do that job: it is never at rest, so what it reads for a day depends on
+the minute it is read.
+
+Each outage keeps a record of what was tried against it. The diagnostics
+download carries the last ten, newest first: when each started, how long it
+lasted, and every automatic restart or player-id rotation made during it, with
+how far into the outage each one came. An outage with no end time is one still
+running or one nothing cured. "We restarted it and it came back in four
+minutes" and "we restarted it and nothing changed" are different reports, and
+neither survives being remembered a week later.
+
+The wedge is also a number, not only a binary sensor. "Media healthy for"
+counts the hours since the media path last stopped serving, climbing while it
+does and zero while it does not, so the recorder keeps it in long-term
+statistics after the binary sensor's own history has been purged. The peaks
+are the times to wedge, the resets are the wedges, and the attributes carry
+the counts for the last day and week and the best run so far. None of it is
+written to disk, so it spans this Home Assistant's uptime rather than the
+hub's life.
 
 **Not yet verified against hardware:** hub storage formatting.
 

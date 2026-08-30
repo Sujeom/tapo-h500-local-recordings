@@ -6,11 +6,9 @@ being protected here is latency: hub status used to be fetched before the
 detection lookups, which put a round trip in front of every notification.
 """
 import asyncio
-import datetime
 import importlib
 import re
 import sys
-import types
 import unittest
 from pathlib import Path
 
@@ -42,13 +40,38 @@ class _Bus:
 class _Hass:
     def __init__(self):
         self.bus = _Bus()
+        # The repair checks read the hub registry through here. Empty is a
+        # true state -- one hub, nothing else paired -- and giving them a
+        # real dict lets them actually run during a poll rather than raise
+        # and be skipped.
+        self.data = {}
+        # The config-entry registry, as much of it as a flow reads.
+        self.config_entries = _ConfigEntries()
 
     async def async_add_executor_job(self, fn, *args):
         return fn(*args)
 
+    def async_create_task(self, target, name=None, eager_start=True):
+        """Home Assistant's own signature. Real one is eager by default, so
+        the coroutine runs up to its first suspension before this returns."""
+        return asyncio.get_running_loop().create_task(target, name=name,
+                                                      eager_start=eager_start)
+
+
+class _ConfigEntries:
+    """What `hass.config_entries` offers a flow. Empty unless a test fills it."""
+
+    def __init__(self, entries=()):
+        self.entries = list(entries)
+
+    def async_entries(self, domain=None):
+        return list(self.entries)
+
 
 class _Entry:
     entry_id = "test"
+    title = "Test hub"
+    data: dict = {"host": "192.168.11.5"}
 
     def __init__(self, interval, **options):
         self.options = {"poll_interval": interval, **options}
@@ -56,6 +79,12 @@ class _Entry:
 
 class _Client:
     """Records the order calls arrive in."""
+
+    # What pytapo learned at connect. Hub entities build their DeviceInfo from
+    # it, so anything constructing one needs it present -- and deliberately
+    # sparse, because the real hub omits fields and the code has to survive
+    # that rather than only the complete answer.
+    info: dict = {"device_model": "H500"}
 
     def __init__(self):
         self.calls = []

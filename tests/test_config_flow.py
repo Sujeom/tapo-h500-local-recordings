@@ -16,7 +16,15 @@ import types
 import unittest
 from pathlib import Path
 
-import requests
+try:
+    import requests
+except ImportError:                                   # pragma: no cover
+    # Guarded the way pytapo is, a few lines down, and for the same reason:
+    # this file must pass on its own wherever it runs. requests is NOT stubbed
+    # when absent -- the shapes below assert that its exceptions really are
+    # OSError subclasses, which is the premise the auth classifier rests on,
+    # and a stand-in would answer that question by construction.
+    requests = None
 
 COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
 SOURCE = (COMPONENT / "config_flow.py").read_text()
@@ -205,10 +213,12 @@ class AuthClassifier(unittest.TestCase):
             ConnectionResetError("Connection reset by peer"),
             TimeoutError("timed out"),
             socket.timeout("timed out"),
-            requests.exceptions.ConnectionError("Connection refused"),
-            requests.exceptions.ReadTimeout("Read timed out"),
-            # A hub answering HTML, or nothing at all, to a JSON request.
-            requests.exceptions.JSONDecodeError("Expecting value", "", 0),
+            *([] if requests is None else [
+                requests.exceptions.ConnectionError("Connection refused"),
+                requests.exceptions.ReadTimeout("Read timed out"),
+                # A hub answering HTML, or nothing at all, to a JSON request.
+                requests.exceptions.JSONDecodeError("Expecting value", "", 0),
+            ]),
             ValueError("Expecting value: line 1 column 1 (char 0)"),
             # pytapo raises this verbatim on the -40413 nonce path after its
             # own retries, so the string says nothing about credentials.

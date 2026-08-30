@@ -152,6 +152,43 @@ DEFAULT_POLL_INTERVAL = 2
 # consecutive failure up to this cap and snaps back on the first success.
 POLL_BACKOFF_MAX = 300
 
+# How long nothing can happen before the poll slows down, and how far.
+#
+# At 2s the hub is asked 43,200 times a day, and nearly all of it is asking a
+# quiet house whether anything happened yet. Load is a live suspect in the
+# wedge this integration exists around, so the quiet stretches are where it can
+# be handed back cheaply.
+#
+# The price is exactly one event: the first thing to happen after a quiet
+# stretch is noticed up to POLL_IDLE_INTERVAL late instead of POLL_INTERVAL
+# late, because until it arrives there is nothing to say the house stopped
+# being quiet. Everything after it runs at full speed -- anything new snaps
+# the interval straight back, which is precisely when somebody is at the door
+# and more is coming.
+#
+# Ten minutes before it engages, six seconds once it has: inside a doorbell's
+# patience, and a third of the idle traffic. A longer configured interval is
+# left alone -- this only ever slows polling down, never speeds it up.
+POLL_IDLE_AFTER = 600
+POLL_IDLE_INTERVAL = 6
+
+# How much of the wedge log to keep. The hub records none of this, and
+# Home Assistant keeps binary sensor history only until the recorder
+# purges it -- ten days by default, where the interesting question is
+# whether this hub is getting worse over months. Ninety days of onset
+# timestamps is a few hundred floats at the observed rate.
+WEDGE_HISTORY_SECONDS = 90 * 86400
+
+# How many media session outcomes to keep for the health figure.
+#
+# A ring rather than a running total since startup, because the
+# question is how the hub is doing lately. A hub that wedged this
+# morning and has served everything since would otherwise read as half
+# broken for the rest of the week, which is the reading nobody can act
+# on. Fifty covers several hours of ordinary use and a whole wedge
+# episode.
+SESSION_HISTORY = 50
+
 STATUS_MAX_AGE = 60
 CAMERAS_MAX_AGE = 300
 # An H500 with TD21 doorbells labels every clip video_type "2", so ring-only
@@ -167,6 +204,12 @@ DEFAULT_KEEP_DOWNLOADS = 0
 # short one and is what makes "last activity" and the 24h counts meaningful;
 # without it those sensors would be blank whenever nothing happened recently.
 LOOKBACK_SECONDS = 86400
+
+# How many times one clip may be re-attempted after a failed download.
+# Three, matching the repair notice's own threshold: past that the pipeline is
+# failing for its own reason rather than the hub's, and each further attempt
+# spends a whole media session on a recording that will not arrive.
+DOWNLOAD_RETRY_LIMIT = 3
 
 # How often the media port's handshake is checked. The known failure takes
 # hours to develop, so fifteen minutes hears about it long before anyone
@@ -589,6 +632,22 @@ CONVERT_ARGS = ["-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart",
 # promise.
 PREVIEW_SECONDS = 2
 PREVIEW_MAX_BYTES = 262_144
+
+# How many preview frames per camera to keep once their clip is gone.
+#
+# A preview is written at the path the clip's own thumbnail would use, so a
+# later download finds it already there and retention deletes it alongside the
+# video. When the clip is never downloaded -- rings-only mode, a download-type
+# filter, automatic downloads off entirely -- the frame is all that is left of
+# the event, and nothing else on disk ever removes it: retention walks videos,
+# and these have no video. One per event, for the life of the installation.
+#
+# So they have a ceiling of their own rather than a retention setting. It is
+# not a retention decision to make: a preview is a cache of one frame, and the
+# ceiling only has to be high enough that it never evicts one somebody could
+# still be looking at. At the ~30 KB a 640-wide JPEG runs to, this is about
+# 6 MB per camera, against clips that are megabytes each.
+PREVIEW_KEEP = 200
 
 # One frame, scaled down. A full 2304x1296 frame is ~530 KB, which is absurd
 # for something the card renders at 96x54; 640 wide is ~65 KB and still sharp

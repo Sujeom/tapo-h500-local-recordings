@@ -6,7 +6,6 @@ restraint: nothing leaves the house unless asked, no digest arrives unrequested,
 and a spoken answer uses the same words as a written one.
 """
 import importlib
-import re
 import sys
 import types
 import unittest
@@ -14,6 +13,8 @@ from pathlib import Path
 
 COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
 INIT = (COMPONENT / "__init__.py").read_text()
+# The thirteen service handlers moved out of the package body.
+SERVICES_SRC = (COMPONENT / "services.py").read_text()
 MEDIA = (COMPONENT / "media.py").read_text()
 INTENT = (COMPONENT / "intent.py").read_text()
 
@@ -101,7 +102,7 @@ class Retention(unittest.TestCase):
 class Captioning(unittest.TestCase):
     def test_the_agent_must_be_named(self):
         """Guessing could send a picture of a doorstep to a cloud service."""
-        self.assertIn('vol.Required("agent_id")', INIT)
+        self.assertIn('vol.Required("agent_id")', SERVICES_SRC)
 
     def test_the_prompt_forbids_speculation(self):
         """One frame of someone reading a house number should not come back as
@@ -109,11 +110,11 @@ class Captioning(unittest.TestCase):
         self.assertIn("Do not speculate about intent", const.DESCRIBE_PROMPT)
 
     def test_a_missing_thumbnail_is_explained_not_crashed(self):
-        body = INIT.split("async def describe_recording", 1)[1][:1200]
+        body = SERVICES_SRC.split("async def describe_recording", 1)[1][:1200]
         self.assertIn("ServiceValidationError", body)
 
     def test_no_ai_configured_says_so(self):
-        body = INIT.split("async def describe_recording", 1)[1][:2500]
+        body = SERVICES_SRC.split("async def describe_recording", 1)[1][:2500]
         self.assertIn("No AI service is available", body)
 
 
@@ -121,12 +122,13 @@ class Digest(unittest.TestCase):
     def test_it_is_a_service_not_a_schedule(self):
         """Off unless something calls it: a summary nobody asked for is what
         makes people mute an integration."""
-        self.assertIn("SERVICE_DAILY_SUMMARY", INIT)
+        self.assertIn("SERVICE_DAILY_SUMMARY", SERVICES_SRC)
         for scheduler in ("async_track_time_change", "async_track_utc_time_change"):
+            self.assertNotIn(scheduler, SERVICES_SRC)
             self.assertNotIn(scheduler, INIT)
 
     def test_it_shares_its_phrasing_with_the_voice_answer(self):
-        self.assertIn("summarise(", INIT)
+        self.assertIn("summarise(", SERVICES_SRC)
         self.assertIn("summarise(", INTENT)
 
 
@@ -209,4 +211,4 @@ class Export(unittest.TestCase):
 
     def test_there_is_no_default_destination(self):
         """Copying files somewhere is not a thing to guess at."""
-        self.assertIn('vol.Required("destination")', INIT)
+        self.assertIn('vol.Required("destination")', SERVICES_SRC)

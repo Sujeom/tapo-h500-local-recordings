@@ -27,7 +27,7 @@ from .const import (
     CONF_DOWNLOAD_TYPES, CONF_NIGHT_END, CONF_NIGHT_START,
     DEFAULT_NIGHT_END, DEFAULT_NIGHT_START,
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
-    DIRECTION_WINDOW, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
+    DIRECTION_WINDOW, DOWNLOAD_RETRY_LIMIT, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
     AUTO_RESTART_COOLDOWN, AUTO_RESTART_CURE_WINDOW, AUTO_RESTART_RECHECK,
     CONF_AUTO_RESTART,
@@ -35,13 +35,15 @@ from .const import (
     EVENT_AUTO_RESTART,
     FIRMWARE_CHECK_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
     MEDIA_EVIDENCE_MAX_AGE,
-    POLL_BACKOFF_MAX, PROWL_WINDOW,
+    POLL_BACKOFF_MAX, POLL_IDLE_AFTER, POLL_IDLE_INTERVAL, PROWL_WINDOW,
     SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
 )
+from .media_health import MediaHealth
 from .media import (
     EmptyRecordingError, async_download_clip, async_latest_image,
-    async_preview_clip, async_prune, async_verify, existing_clip,
+    async_preview_clip, async_prune, async_prune_previews, async_verify,
+    existing_clip,
 )
 from .status import hub_readings, hours_until_full, trend_samples
 
@@ -83,10 +85,24 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self.readings: dict = {}
         self._seen_events: dict[int, set[int]] = {}
         self._seen_clips: dict[int, set[int]] = {}
-        # Newest clip start each camera has had a frame fetched for; see
-        # async_latest_frame.
-        self._frame_attempts: dict[int, int] = {}
+        # Per camera, the newest clip start a frame fetch was begun for and
+        # the task doing it; see async_latest_frame.
+        self._frame_attempts: dict[int, tuple[int, asyncio.Task]] = {}
+        # One scan of the window per poll, shared by every entity that asks.
+        # The source each answer was computed from, so a new poll's clips
+        # invalidate it by being a different object.
+        self._faces_source: object = None
+        self._faces_names: dict[str, str] = {}
+        self._faces_cache: dict[int | None, dict] = {}
+        self._people_source: object = None
+        self._people_names: dict[str, str] = {}
+        self._people_cache: dict | None = None
         self._primed = False
+        # When anything new was last noticed, for the idle backoff. Started at
+        # now rather than at zero, so a restart runs at full speed for the
+        # first ten minutes instead of treating a fresh process as a quiet
+        # house.
+        self._last_activity_at = dt_util.utcnow().timestamp()
         self._polls = 0
         # Set by a write so the next poll reads status even when the modulo
         # would skip it; at a 2s interval status is every 30th poll, so
@@ -123,37 +139,27 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             1, round(FIRMWARE_CHECK_SECONDS / interval))
         # What the last cloud firmware check said; the update entity reads it.
         self.firmware_info: dict = {}
-        # What the last media-port handshake said: "healthy", "wedged",
-        # "silent", "unreachable", or None before the first check. The wedge
-        # is the hub's known failure mode and this is how it is noticed
-        # before anyone misses a photograph; repairs.py reads it.
-        self.media_status: str | None = None
-        # Whether this wedge episode has already had its one player_id
-        # rotation; see the case-D note where it happens.
-        self._wedge_rotated = False
+        # Whether the hub is serving recordings, and the log of when it was
+        # not. Its own object: that state answers to itself and to nothing
+        # else, and spread across a coordinator that also polls, downloads,
+        # tracks faces and manages retention, "is it wedged, and when did
+        # that start" was a question you answered by reading eleven
+        # attributes in four places.
+        self.media = MediaHealth()
+        # The hub's last status answer as it arrived, unparsed.
+        self.raw_status: dict = {}
         # Consecutive automatic-download failures per camera index, reset by
         # any success. Three in a row is a pattern -- ffmpeg missing, disk
         # full, media service refusing -- and repairs.py turns it into a
         # notice instead of a warning in a log nobody reads.
         self._download_failures: dict[int, int] = {}
-        # Consecutive downloads that completed cleanly with zero video --
-        # the hub's second media failure (2026-08-18): every session works
-        # and carries nothing, for every clip, until a reboot. Hub state,
-        # so one counter, not per camera; the handshake sentinel cannot see
-        # it, so the downloads are the evidence.
-        self._empty_downloads = 0
-        # When the last automatic restart happened, if the owner opted in
-        # -- and whether one failed to cure, which stops further attempts
-        # until real recovery re-arms them.
-        self._auto_restarted = 0.0
-        self._auto_restart_broken = False
-        # When to force the deep check after an automatic restart, so the
-        # cure is verified rather than assumed. None means nothing pending.
-        self._recheck_at: float | None = None
-        # When a media session last taught us anything -- bytes served or a
-        # confirmed empty answer. Stale evidence plus an indexed clip is
-        # what triggers the deep check.
-        self._media_evidence = 0.0
+        # Clips that did not download, and how many times each was tried.
+        # Retried when the hub recovers, not on the next poll -- see
+        # _remember_failed_clip.
+        self._failed_clips: dict[int, dict[int, int]] = {}
+        # Whether the repair checks are currently failing, so the warning is
+        # said once rather than every two seconds.
+        self._repairs_broken = False
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
@@ -215,10 +221,40 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         recordings, before the coordinator has published them. Reading the
         published copy there would work off the previous poll's data, and on
         the second poll after a restart that turns everyone seen earlier
-        today into a fresh arrival.
+        today into a fresh arrival. That path is never cached: it is a
+        different question about different data.
+
+        Held for the poll it was computed from. Every face sensor, every
+        person sensor and the household count ask this, so one scan of every
+        clip on every camera was happening dozens of times for one poll's
+        worth of unchanged recordings. Two cameras is a millisecond and
+        nobody would notice; sixteen busy ones is a third of a second, which
+        is a sixth of the poll interval spent answering the same question.
+
+        The answer is shared, not copied. Callers read it; a caller that
+        started editing it would be editing everybody's.
         """
+        if clips is not None:
+            return self._scan_faces(index, clips)
+        source = (self.data or {}).get("clips", {})
+        # Identity for the clips, because each poll builds a new dictionary
+        # and the cache holds a reference to the one it answered for, so the
+        # object cannot be recycled underneath this. Equality for the names,
+        # because naming a face changes the answer without changing the
+        # recordings and does not reload the entry -- a reload costs a fresh
+        # login to a hub that wedges under repeated ones. Without this a name
+        # somebody just typed would not appear until the next poll.
+        names = self.face_names
+        if self._faces_source is not source or self._faces_names != names:
+            self._faces_source = source
+            self._faces_names = dict(names)
+            self._faces_cache = {}
+        if index not in self._faces_cache:
+            self._faces_cache[index] = self._scan_faces(index, source)
+        return self._faces_cache[index]
+
+    def _scan_faces(self, index: int | None, source: dict) -> dict[str, dict]:
         indexes = range(len(self.cameras)) if index is None else [index]
-        source = clips if clips is not None else (self.data or {}).get("clips", {})
         faces: dict[str, dict] = {}
         for position in indexes:
             for clip in source.get(position, []):
@@ -297,7 +333,23 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         Everything is recomputed from the merged trail rather than picked from
         one of the parts. That is the whole point -- gate on one id and door on
         the other is a direction only once they are the same person.
+
+        Held for the poll it was computed from, like the faces it merges, and
+        shared rather than copied for the same reason.
         """
+        if clips is not None:
+            return self._merge_people(clips)
+        source = (self.data or {}).get("clips", {})
+        names = self.face_names
+        if self._people_source is not source or self._people_names != names:
+            self._people_source = source
+            self._people_names = dict(names)
+            self._people_cache = None
+        if self._people_cache is None:
+            self._people_cache = self._merge_people(None)
+        return self._people_cache
+
+    def _merge_people(self, clips: dict | None) -> dict[str, dict]:
         merged: dict[str, dict] = {}
         groups = self.named_people
         for face_id, face in self.faces_seen(clips=clips).items():
@@ -574,6 +626,13 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         against a device that is easy to overload. The next clip gets its own
         attempt, so a refusal does not stick.
 
+        Marking alone is not enough, because the frontend asks the camera and
+        the latest-event picture at the same moment. The second one would find
+        the clip already marked, skip the fetch and read the file while the
+        first was still writing it -- served the old frame by the very
+        bookkeeping meant to stop it. So the fetch is shared: whoever arrives
+        during one waits for it and sees what it produced.
+
         While the hub is still recording there is no indexed clip and no
         frame of it exists anywhere, so nothing is asked for and the previous
         event is served -- that part is physics.
@@ -582,10 +641,29 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                   if (start := start_of(clip)) is not None
                   and (end_of(clip) or 0) > start]
         newest = max(starts, default=None)
-        if newest is not None and self._frame_attempts.get(index) != newest:
-            self._frame_attempts[index] = newest
-            await async_preview_clip(self.hass, self.client, camera, newest)
+        if newest is not None:
+            attempted, fetch = self._frame_attempts.get(index, (None, None))
+            if attempted != newest:
+                fetch = self.hass.async_create_task(
+                    self._fetch_frame(camera, newest))
+                self._frame_attempts[index] = (newest, fetch)
+            # Shielded, so a viewer closing the tab mid-fetch cancels its own
+            # wait and not the fetch: the attempt is already marked, so a
+            # cancelled fetch would leave this clip marked as tried and never
+            # tried, and the old frame would stay until the next event.
+            await asyncio.shield(fetch)
         return await async_latest_image(self.hass, camera)
+
+    async def _fetch_frame(self, camera: dict, start_time: int) -> None:
+        """Fetch one clip's frame, then keep the strays in check.
+
+        Here rather than on a timer because this is the only thing that makes
+        them: one arrives, one is swept, and a camera nobody looks at costs
+        nothing.
+        """
+        await async_preview_clip(self.hass, self.client, camera, start_time)
+        for removed in await async_prune_previews(self.hass, camera):
+            _LOGGER.debug("Pruned stray preview %s", removed)
 
     def last_activity(self, index: int) -> int | None:
         moments = [start_of(clip) for clip in self.clips_for(index)]
@@ -729,32 +807,66 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._force_status = True
         await self.async_request_refresh()
 
+    def _pace(self) -> None:
+        """Set the poll interval to suit what the hub and the house are doing.
+
+        Three states, in that order of precedence. A hub that is not answering
+        backs off hard, because pytapo re-authenticates when its token stops
+        working and a stream of fresh logins is what wedges an H500. A house
+        where nothing has happened for ten minutes backs off gently, because
+        most of this integration's traffic is asking a quiet hub whether
+        anything happened yet. Anything else runs at full speed.
+
+        Deliberately one place. Two independent writers of `update_interval`
+        would each undo the other depending on which poll finished last.
+        """
+        if self._failures:
+            wanted = backoff_seconds(
+                self._base_interval, self._failures, POLL_BACKOFF_MAX)
+            why = "hub not answering"
+        elif (dt_util.utcnow().timestamp() - self._last_activity_at
+                >= POLL_IDLE_AFTER):
+            # Never faster than configured: this only ever slows things down.
+            wanted = max(self._base_interval, POLL_IDLE_INTERVAL)
+            why = "nothing happening"
+        else:
+            wanted = self._base_interval
+            why = "recent activity"
+        if wanted != (self.update_interval.total_seconds()
+                      if self.update_interval else None):
+            _LOGGER.debug("Polling every %ss (%s)", wanted, why)
+            self.update_interval = timedelta(seconds=wanted)
+
     async def _async_update_data(self) -> dict:
-        """Poll, and back off while the hub is not answering."""
+        """Poll, paced to what the hub and the house are doing."""
         try:
             data = await self._poll()
         except Exception:
             self._failures += 1
-            delay = backoff_seconds(
-                self._base_interval, self._failures, POLL_BACKOFF_MAX)
-            if delay != (self.update_interval.total_seconds()
-                         if self.update_interval else None):
-                _LOGGER.debug("Hub not answering; polling every %ss", delay)
-                self.update_interval = timedelta(seconds=delay)
+            self._pace()
             raise
-        if self._failures:
-            _LOGGER.debug("Hub answering again; back to every %ss",
-                          self._base_interval)
-            self._failures = 0
-            self.update_interval = timedelta(seconds=self._base_interval)
+        self._failures = 0
+        self._pace()
         return data
 
     async def _poll(self) -> dict:
+        # Counted up front, not on the way out.
+        #
+        # Every cadence below is `poll % every == 0`, and the counter used to
+        # advance only where a poll finished. So it froze the moment the hub
+        # stopped answering -- and whichever gates happened to be open at that
+        # instant stayed open for the whole outage. A hub that was already
+        # failing got its camera list re-fetched, its status read and its
+        # media port handshaken on every single retry, which is the opposite
+        # of what a struggling device needs. Reading the old value keeps poll
+        # zero doing everything, which is what leaves nothing blank on startup.
+        poll, self._polls = self._polls, self._polls + 1
+
         # The paired camera list changes only when a camera is added or
         # removed, and costs 58ms -- more than the detection lookups it used to
         # precede. Fetch it on the first poll and then rarely, but never leave
         # it empty: a failure with nothing cached is still fatal to the poll.
-        if not self.cameras or self._polls % self._cameras_every == 0:
+        if not self.cameras or poll % self._cameras_every == 0:
             try:
                 self.cameras = await self.hass.async_add_executor_job(
                     self.client.cameras)
@@ -803,11 +915,17 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # lookups, so every notification waited on a round trip fetching LED
         # state and storage figures. Poll 0 still fetches it, so nothing is
         # blank on startup.
-        if self._force_status or self._polls % self._status_every == 0:
+        if self._force_status or poll % self._status_every == 0:
             self._force_status = False
             try:
-                self.readings = hub_readings(
-                    await self.hass.async_add_executor_job(self.client.hub_status))
+                # Kept alongside the parsed readings, for diagnostics. The
+                # parser reads the keys it knows and drops the rest, so a
+                # field a newer firmware added is invisible to everything --
+                # which is how `detect_status` went unnoticed until somebody
+                # dumped the JSON by hand.
+                self.raw_status = await self.hass.async_add_executor_job(
+                    self.client.hub_status)
+                self.readings = hub_readings(self.raw_status)
                 # One sample per status refresh, which is once a minute. The
                 # forecast has nothing else to work from -- the hub reports
                 # how full it is and never how full it was.
@@ -823,7 +941,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # is a variable the wedge investigation does not need.
         check = getattr(self.client, "check_media", None)
         lock = getattr(self.client, "_lock", None)
-        if (check is not None and self._polls % self._media_every == 0
+        if (check is not None and poll % self._media_every == 0
                 and not (lock is not None and lock.locked())):
             try:
                 self.note_media_status(
@@ -835,12 +953,13 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             # is keyed to the reused id. Once, not per poll -- repeating it
             # would erase the evidence of whether one rotation was enough.
             rotate = getattr(self.client, "rotate_player_id", None)
-            if self.media_status == "wedged" and not self._wedge_rotated:
+            if self.media_status == "wedged" and not self.media.rotated:
                 if rotate is not None:
                     rotate()
-                self._wedge_rotated = True
+                    self.note_recovery_attempt("player id rotated")
+                self.media.rotated = True
             elif self.media_status == "healthy":
-                self._wedge_rotated = False
+                self.media.rotated = False
 
         # The deep check: when no media session has taught us anything for
         # an hour and an indexed clip exists, fetch two seconds of it in the
@@ -853,15 +972,15 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # force the deep check due. Bytes prove the cure and re-arm
         # everything; an empty answer feeds the breaker while the failure
         # is still inside its cure window.
-        if self._recheck_at is not None and now >= self._recheck_at:
-            self._recheck_at = None
-            self._media_evidence = 0.0
+        if self.media.recheck_at is not None and now >= self.media.recheck_at:
+            self.media.recheck_at = None
+            self.media.evidence_at = 0.0
 
         fetchable = getattr(self.client, "iter_recording", None)
         spawn = getattr(self.entry, "async_create_background_task", None)
         lock = getattr(self.client, "_lock", None)
         if (fetchable is not None and spawn is not None
-                and now - self._media_evidence >= MEDIA_EVIDENCE_MAX_AGE
+                and now - self.media.evidence_at >= MEDIA_EVIDENCE_MAX_AGE
                 and not (lock is not None and lock.locked())):
             newest = None
             for index in clips_by_camera:
@@ -874,7 +993,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 index, start, end = newest
                 # Provisional stamp so the next 2-second poll does not
                 # spawn a second fetch while this one runs.
-                self._media_evidence = now
+                self.media.evidence_at = now
                 spawn(self.hass,
                       self._deep_media_check(cameras[index], start, end),
                       f"{DOMAIN} media health check")
@@ -890,29 +1009,29 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             reason = ("wedged" if self.media_status == "wedged"
                       else "empty" if self.media_serving_empty else None)
             reboot = getattr(self.client, "reboot", None)
-            elapsed = now - self._auto_restarted
+            elapsed = now - self.media.restarted_at
             # The circuit breaker: a failure back within half an hour of a
             # restart means restarting is not the cure -- a new failure in
             # a familiar coat, which a reboot every six hours would mask
             # forever. Only real recovery (bytes served) re-arms it.
-            if (reason is not None and not self._auto_restart_broken
+            if (reason is not None and not self.media.restart_broken
                     and 0 < elapsed <= AUTO_RESTART_CURE_WINDOW):
-                self._auto_restart_broken = True
+                self.media.restart_broken = True
                 _LOGGER.warning(
                     "The automatic restart did not cure the media failure "
                     "(%s is back within %.0f minutes); automatic restarts "
                     "are paused until recordings actually serve again",
                     reason, elapsed / 60)
             if (reason is not None and reboot is not None
-                    and not self._auto_restart_broken
+                    and not self.media.restart_broken
                     and elapsed >= AUTO_RESTART_COOLDOWN):
-                self._auto_restarted = now
-                self.note_served_download()  # start counting fresh
+                self.media.restarted_at = now
+                self.note_restarting()
                 _LOGGER.warning(
                     "Restarting the hub automatically: media service %s. "
                     "Expect about two minutes of downtime. Turn this off "
                     "under Configure if it was not wanted.", reason)
-                self._recheck_at = now + AUTO_RESTART_RECHECK
+                self.media.recheck_at = now + AUTO_RESTART_RECHECK
                 self.hass.bus.async_fire(EVENT_AUTO_RESTART, {
                     "entry_id": self.entry.entry_id, "reason": reason})
                 try:
@@ -926,7 +1045,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # day. A local read of its cached block -- nothing commands it to
         # contact TP-Link; see H500Client.firmware_update.
         firmware = getattr(self.client, "firmware_update", None)
-        if firmware is not None and self._polls % self._firmware_every == 0:
+        if firmware is not None and poll % self._firmware_every == 0:
             try:
                 self.firmware_info = await self.hass.async_add_executor_job(
                     firmware)
@@ -943,7 +1062,6 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             self._note_visits(clips_by_camera)
         except Exception as err:  # noqa: BLE001 - never fail a poll over this
             _LOGGER.debug("Could not check visits: %s", err)
-        self._polls += 1
         self._primed = True
         # Raise or clear the repair issues. Called every poll rather than only
         # on failure, because an issue that never clears is worse than none.
@@ -951,7 +1069,25 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             from .repairs import async_check
             async_check(self.hass, self.entry.entry_id, self)
         except Exception as err:  # noqa: BLE001 - never fail a poll over this
-            _LOGGER.debug("Could not update repair issues: %s", err)
+            # Loudly the first time, quietly after. Every repair notice this
+            # integration raises comes through here, so one exception silences
+            # all nine -- the storage warning, the wedge, the silent camera --
+            # and at debug level nobody ever learns why the notices stopped.
+            # Warning on every poll would be a line every two seconds, which
+            # is its own way of being unreadable, so it is said once and then
+            # only again after the checks have worked in between.
+            if not self._repairs_broken:
+                self._repairs_broken = True
+                _LOGGER.warning(
+                    "Repair notices are not being updated: %s. Every notice "
+                    "this integration raises comes from here, so none of them "
+                    "is reliable until this is fixed", err)
+            else:
+                _LOGGER.debug("Repair notices still failing: %s", err)
+        else:
+            if self._repairs_broken:
+                self._repairs_broken = False
+                _LOGGER.warning("Repair notices are being updated again")
         return {"clips": clips_by_camera, "hub": self.readings}
 
     def _fresh(self, index, entries, seen_map, window,
@@ -989,6 +1125,11 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Forget anything the poll window can no longer return.
         seen_map[index] = {
             k for k in seen if k[0] >= window - LOOKBACK_SECONDS}
+        if fresh:
+            # Set here rather than in the two callers because this is the one
+            # place "new" is decided, for detections and for clips alike. It
+            # is what keeps the idle backoff off while anything is going on.
+            self._last_activity_at = dt_util.utcnow().timestamp()
         return [entry for _, entry in sorted(fresh, key=lambda pair: pair[0])]
 
     def _fire(self, index, entries, seen_map, window) -> None:
@@ -1033,30 +1174,99 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             )
 
     def note_empty_download(self) -> None:
-        self._empty_downloads += 1
-        self._media_evidence = dt_util.utcnow().timestamp()
+        self.media.note_empty()
 
     def note_served_download(self) -> None:
-        recovering = self.media_serving_empty
-        self._empty_downloads = 0
-        self._media_evidence = dt_util.utcnow().timestamp()
-        # Real bytes flowed: whatever was wrong is over, so a tripped
-        # breaker re-arms and future failures may be auto-cured again.
-        self._auto_restart_broken = False
-        if recovering:
+        if self.media.note_served():
             # Every clip during the outage burned its one frame-fetch
-            # attempt on an empty answer. Clearing the marks lets the
-            # camera picture repair itself at the next look instead of
-            # staying stale until the next event. Only on recovery: a
-            # routine download clearing them would invite a redundant
-            # refetch per clip.
+            # attempt on an empty answer. Clearing the marks lets the camera
+            # picture repair itself at the next look instead of staying stale
+            # until the next event. Only on recovery: a routine download
+            # clearing them would invite a redundant refetch per clip.
             self._frame_attempts.clear()
+            self._retry_failed_clips()
+
+    def _remember_failed_clip(self, index: int, start_time: int) -> None:
+        """Remember a clip that did not download, for one more try later.
+
+        Not retried on the next poll. The failure that causes this in bulk is
+        the media service wedging, and then every clip in the window has
+        failed -- retrying them two seconds later means the whole window
+        hammering a device that is already refusing, which is how this hub
+        gets worse rather than better.
+
+        So the retry rides the recovery signal instead: the moment bytes
+        provably flow again, everything that failed during the outage is put
+        back in the queue. Until then the clips stay on the hub, which holds
+        about a fortnight of them, so waiting costs nothing and asking costs
+        the one thing that is scarce.
+        """
+        attempts = self._failed_clips.setdefault(index, {})
+        attempts[start_time] = attempts.get(start_time, 0) + 1
+
+    def _retry_failed_clips(self) -> None:
+        """Un-mark everything that failed during the outage just ended.
+
+        A clip is skipped because its start time is in `_seen_clips`, so
+        forgetting it there is what puts it back in the download queue -- the
+        same move the does-not-decode path already makes for the same reason.
+
+        Capped: a clip that has failed DOWNLOAD_RETRY_LIMIT times is failing
+        for its own reason rather than the hub's, and retrying it forever
+        would spend a media session per poll on a recording that will never
+        arrive. The repairs notice already names a pipeline failing this way.
+        """
+        for index, attempts in self._failed_clips.items():
+            seen = self._seen_clips.get(index)
+            if not seen:
+                continue
+            for start_time, count in attempts.items():
+                if count < DOWNLOAD_RETRY_LIMIT:
+                    seen.discard((start_time,))
 
     def note_media_status(self, status: str) -> None:
         """Record the sentinel's verdict, noticing recovery on the way."""
-        if status == "healthy" and self.media_status == "wedged":
+        if self.media.note_status(status):
             self._frame_attempts.clear()
-        self.media_status = status
+
+    # Everything below reads through `self.media`. Kept on the coordinator
+    # because entities, repairs and diagnostics all hold a coordinator and
+    # nothing else, and a rename here would be a rename in nine files.
+    @property
+    def media_status(self) -> str | None:
+        return self.media.status
+
+    @property
+    def media_wedged(self) -> bool:
+        return self.media.wedged
+
+    @property
+    def media_serving_empty(self) -> bool:
+        return self.media.serving_empty
+
+    @property
+    def wedges(self) -> list[dict]:
+        return self.media.wedges
+
+    @property
+    def healthy_seconds(self) -> float:
+        return self.media.healthy_seconds
+
+    @property
+    def longest_healthy_seconds(self) -> float:
+        return self.media.longest_healthy_seconds
+
+    def wedges_since(self, seconds: float) -> int:
+        return self.media.wedges_since(seconds)
+
+    def note_recovery_attempt(self, what: str) -> None:
+        self.media.note_attempt(what)
+
+    def note_restarting(self) -> None:
+        self.media.note_restarting()
+
+    def recovery_log(self, limit: int = 10) -> list[dict]:
+        return self.media.recovery_log(limit)
 
     async def _deep_media_check(self, camera, start: int, end: int) -> None:
         """Two bounded seconds of the newest clip, as evidence.
@@ -1089,18 +1299,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
     @property
     def auto_restart_broken(self) -> bool:
         """An automatic restart failed to cure the failure it fired for."""
-        return self._auto_restart_broken
+        return self.media.restart_broken
 
-    @property
-    def media_serving_empty(self) -> bool:
-        """Two clean-but-empty downloads in a row: the hub serves nothing.
-
-        One could be a freak clip; two consecutive recordings with real
-        durations answering zero bytes is the state measured on hardware,
-        where it held for every clip of every age. A single served download
-        clears it.
-        """
-        return self._empty_downloads >= 2
 
     @property
     def download_failures(self) -> dict[str, int]:
@@ -1156,6 +1356,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                             start_time, err)
             self._download_failures[index] = (
                 self._download_failures.get(index, 0) + 1)
+            self._remember_failed_clip(index, start_time)
             self.note_empty_download()
             return
         except HomeAssistantError as err:
@@ -1163,6 +1364,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                             start_time, err)
             self._download_failures[index] = (
                 self._download_failures.get(index, 0) + 1)
+            self._remember_failed_clip(index, start_time)
             return
         _LOGGER.debug("Downloaded %s (%s bytes)", result["path"], result["bytes"])
         # Verified now, while the hub still holds the original. A truncated
@@ -1180,6 +1382,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 self._download_failures.get(index, 0) + 1)
             return
         self._download_failures.pop(index, None)
+        self._failed_clips.get(index, {}).pop(start_time, None)
         self.note_served_download()
         # Only automatic downloads are pruned. A manual download is a
         # deliberate choice and is left alone.

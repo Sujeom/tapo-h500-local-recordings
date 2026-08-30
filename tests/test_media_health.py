@@ -35,6 +35,7 @@ import test_api  # noqa: E402,F401  (installs the pytapo stubs)
 api = importlib.import_module("tapo_h500.api")
 const = importlib.import_module("tapo_h500.const")
 coordinator_mod = importlib.import_module("tapo_h500.coordinator")
+binary_sensor_mod = importlib.import_module("tapo_h500.binary_sensor")
 
 
 def _serve(handler):
@@ -247,20 +248,43 @@ class MediaProblemSensor(unittest.TestCase):
     check.
     """
 
-    BODY = BINARY_SENSOR.split("class H500MediaProblem", 1)[1].split(
-        "\nclass ", 1)[0]
+    def _sensor(self, status=None, empties=0):
+        coord, _ = harness._build()
+        coord.media.status = status
+        coord.media._empty = empties
+        return binary_sensor_mod.H500MediaProblem(coord, harness._Entry(20))
 
-    def test_it_reads_the_sentinels_verdict(self):
-        self.assertIn("media_status", self.BODY)
-        self.assertIn('== "wedged"', self.BODY)
+    def test_the_known_wedge_turns_it_on(self):
+        self.assertIs(self._sensor("wedged").is_on, True)
+
+    def test_a_handshake_that_answered_turns_it_off(self):
+        self.assertIs(self._sensor("healthy").is_on, False)
 
     def test_unknown_before_the_first_check(self):
-        self.assertIn("return None", self.BODY)
+        self.assertIsNone(self._sensor().is_on)
+
+    def test_the_other_two_verdicts_do_not_alarm(self):
+        """The failing poll already covers an unreachable hub, and one slow
+        reply is a long way from a wedge."""
+        for verdict in ("unreachable", "silent"):
+            with self.subTest(verdict):
+                self.assertIs(self._sensor(verdict).is_on, False)
+
+    def test_empty_downloads_turn_it_on_with_no_handshake_at_all(self):
+        """The downloads are their own evidence. Waiting for the sentinel
+        would leave it unknown through an outage it can already see."""
+        self.assertIs(self._sensor(empties=2).is_on, True)
+
+    def test_one_empty_download_is_not_a_wedge(self):
+        """A single clip can be empty on its own account."""
+        self.assertIsNone(self._sensor(empties=1).is_on)
 
     def test_the_raw_verdict_is_an_attribute(self):
         """"unreachable" and "silent" do not alarm, but an automation may
         still want them."""
-        self.assertIn('"media_status"', self.BODY)
+        attributes = self._sensor("silent", empties=2).extra_state_attributes
+        self.assertEqual(attributes["media_status"], "silent")
+        self.assertIs(attributes["serving_empty"], True)
 
     def test_it_is_registered(self):
         self.assertIn("H500MediaProblem(coordinator, entry)", BINARY_SENSOR)

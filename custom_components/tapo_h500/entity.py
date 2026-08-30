@@ -26,4 +26,11 @@ class H500Entity(CoordinatorEntity[H500Coordinator]):
             name=camera_name(camera, index),
             manufacturer="TP-Link",
             model=camera.get("device_model"),
+            # These cameras reach Home Assistant only through the hub -- no
+            # IP of their own, no Wi-Fi, a sub-GHz radio link and nothing
+            # else. Without this they sat in the device list as peers of it,
+            # so nothing said that unplugging the hub takes all of them with
+            # it, and the hub's page did not list what depends on it. It is
+            # the hub's own identifier, which is what makes them nest under it.
+            via_device=(DOMAIN, coordinator.entry.entry_id),
         )

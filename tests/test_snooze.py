@@ -16,6 +16,8 @@ ROOT = Path(__file__).parents[1]
 COMPONENT = ROOT / "custom_components" / "tapo_h500"
 SWITCH = (COMPONENT / "switch.py").read_text()
 INIT = (COMPONENT / "__init__.py").read_text()
+# The thirteen service handlers moved out of the package body.
+SERVICES_SRC = (COMPONENT / "services.py").read_text()
 COORDINATOR = (COMPONENT / "coordinator.py").read_text()
 BLUEPRINT = (ROOT / "blueprints" / "automation" / "tapo_h500"
              / "notify_on_detection.yaml").read_text()
@@ -164,15 +166,15 @@ class Entity(unittest.TestCase):
 
 class Action(unittest.TestCase):
     def test_the_service_is_registered(self):
-        self.assertIn("(SERVICE_SNOOZE, snooze, SNOOZE_SCHEMA)", INIT)
+        self.assertIn("(SERVICE_SNOOZE, snooze, SNOOZE_SCHEMA)", SERVICES_SRC)
 
     def test_minutes_are_optional(self):
-        schema = INIT.split("SNOOZE_SCHEMA = vol.Schema(", 1)[1].split(
+        schema = SERVICES_SRC.split("SNOOZE_SCHEMA = vol.Schema(", 1)[1].split(
             "})", 1)[0]
         self.assertIn('vol.Optional("minutes")', schema)
 
     def test_minutes_are_converted_to_seconds(self):
-        body = INIT.split("    async def snooze(", 1)[1].split(
+        body = SERVICES_SRC.split("    async def snooze(", 1)[1].split(
             "\n    for service", 1)[0]
         self.assertIn("minutes * 60", body)
 
@@ -183,7 +185,7 @@ class Action(unittest.TestCase):
     def test_the_service_appears_in_the_removal_list(self):
         """Services are removed when the last hub unloads; one missing from
         that tuple lingers and fails when called."""
-        removal = INIT.split("SERVICES = (", 1)[1].split(")", 1)[0]
+        removal = SERVICES_SRC.split("SERVICES = (", 1)[1].split(")", 1)[0]
         self.assertIn("SERVICE_SNOOZE", removal)
 
 
@@ -216,7 +218,7 @@ class Removal(unittest.TestCase):
         already; a service in one and not the other never goes away."""
         registered = set(re.findall(r"\(SERVICE_(\w+), \w+, \w+_SCHEMA\)", INIT))
         listed = set(re.findall(r"SERVICE_(\w+)",
-                                INIT.split("SERVICES = (", 1)[1]
+                                SERVICES_SRC.split("SERVICES = (", 1)[1]
                                 .split("\n)", 1)[0]))
         self.assertEqual(registered - listed, set())
 

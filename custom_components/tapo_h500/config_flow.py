@@ -107,6 +107,74 @@ class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user", data_schema=schema, errors=errors)
 
+    def _entry_at(self, host: str, ignoring: str):
+        """Another configured entry already talking to this address, if any."""
+        for other in self.hass.config_entries.async_entries(DOMAIN):
+            if other.entry_id != ignoring and other.data.get(CONF_HOST) == host:
+                return other
+        return None
+
+    async def async_step_reconfigure(self, user_input=None):
+        """Point an existing entry at the hub's new address.
+
+        A hub that changed IP left one route: delete the entry and set it up
+        again. That loses everything held on it -- every face name, every
+        retention and download setting, and the entity ids, which take every
+        automation and dashboard card that named them with it. A DHCP lease
+        expiring should not cost that.
+
+        The credentials are on the form too, prefilled with the username and
+        blank for the passwords. A hub reached at a new address is often a hub
+        that was reset, and sending somebody to reauth immediately after this
+        would be two forms for one job. Blank means keep the stored one, so
+        this is usable for a plain address change without retyping a secret.
+        """
+        errors = {}
+        entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            # Blank passwords mean unchanged. Merged under the typed values so
+            # anything actually entered wins.
+            typed = {key: value for key, value in user_input.items() if value}
+            merged = {**entry.data, **typed}
+            other = self._entry_at(merged[CONF_HOST], entry.entry_id)
+            if other is not None:
+                # Two entries on one hub means two pollers, each logging in to
+                # a device that wedges under repeated authentication. Not
+                # `_abort_if_unique_id_mismatch`, which is for an identity
+                # that survives an address change: here the identity IS the
+                # address, so that check would refuse every move it exists to
+                # allow.
+                return self.async_abort(reason="already_configured")
+            errors = await self._validate(merged)
+            if not errors:
+                # The unique id is the host, so it moves with the entry.
+                # Left behind, a later setup at the new address would look
+                # like a different hub and be allowed alongside this one.
+                return self.async_update_reload_and_abort(
+                    entry, data_updates=typed,
+                    unique_id=merged[CONF_HOST],
+                    title=f"Tapo H500 ({merged[CONF_HOST]})")
+
+        previous = user_input or {}
+        schema = vol.Schema({
+            vol.Required(
+                CONF_HOST,
+                default=previous.get(CONF_HOST, entry.data.get(CONF_HOST)),
+            ): str,
+            vol.Required(
+                CONF_USERNAME,
+                default=previous.get(
+                    CONF_USERNAME, entry.data.get(CONF_USERNAME, "admin")),
+            ): str,
+            # Optional, and never prefilled. A stored password on screen is a
+            # password shown to whoever is at the tablet, and this form's main
+            # job -- a new address -- does not need one.
+            vol.Optional(CONF_PASSWORD, default=""): str,
+            vol.Optional(CONF_CLOUD_PASSWORD, default=""): str,
+        })
+        return self.async_show_form(
+            step_id="reconfigure", data_schema=schema, errors=errors)
+
     async def async_step_reauth(self, entry_data):
         return await self.async_step_reauth_confirm()
 

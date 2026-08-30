@@ -1,0 +1,21 @@
+# Keeps the CI actions current. Not the integration's own dependency.
+#
+# Dependabot reads requirements.txt and pyproject.toml; this integration
+# declares its one package in custom_components/tapo_h500/manifest.json, which
+# Dependabot does not parse. That is not worth working around with a shadow
+# requirements file: pytapo here is a PINNED FORK whose media-session
+# behaviour the integration depends on precisely -- the empty nonce, the
+# session lifecycle, the error text the auth classifier reads -- so an
+# automatic bump is the last thing wanted. tests/test_manifest.py holds the
+# pin; moving it is a deliberate act with a hub to test against.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    # A pinned action that silently stops being maintained is the supply-chain
+    # risk here, and monthly is often enough to notice without becoming noise.
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"

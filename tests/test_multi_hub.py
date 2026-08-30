@@ -19,6 +19,8 @@ from pathlib import Path
 
 COMPONENT = Path(__file__).parents[1] / "custom_components" / "tapo_h500"
 INIT = (COMPONENT / "__init__.py").read_text()
+# The thirteen service handlers moved out of the package body.
+SERVICES_SRC = (COMPONENT / "services.py").read_text()
 INTENT = (COMPONENT / "intent.py").read_text()
 REPAIRS = (COMPONENT / "repairs.py").read_text()
 CARD = (COMPONENT / "www" / "tapo-h500-card.js").read_text()
@@ -77,7 +79,7 @@ class Summaries(unittest.TestCase):
         self.assertIn("distinct(", walk)
 
     def test_the_summary_action_does_the_same(self):
-        body = INIT.split("    async def daily_summary(", 1)[1].split(
+        body = SERVICES_SRC.split("    async def daily_summary(", 1)[1].split(
             "\n    async def ", 1)[0]
         self.assertIn("distinct(", body)
 

@@ -23,7 +23,8 @@ from homeassistant.util import dt as dt_util
 
 from .clips import camera_slug, surplus
 from .const import (
-    CONVERT_ARGS, MEDIA_DIR, PREVIEW_MAX_BYTES, PREVIEW_SECONDS, THUMBNAIL_ARGS,
+    CONVERT_ARGS, MEDIA_DIR, PREVIEW_KEEP, PREVIEW_MAX_BYTES, PREVIEW_SECONDS,
+    THUMBNAIL_ARGS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -39,6 +40,11 @@ class EmptyRecordingError(HomeAssistantError):
     """
 
 URL_LIFETIME = timedelta(hours=12)
+
+# Appended to the second pass through a repeated daylight-saving hour.
+# A letter, so it can never be confused with a digit of the clock, and
+# one that sorts after nothing so the newest file stays last.
+AMBIGUOUS_HOUR = "b"
 
 
 def media_root(hass: HomeAssistant) -> Path:
@@ -56,8 +62,20 @@ def camera_dir(hass: HomeAssistant, camera) -> Path:
 
 def clip_path(hass: HomeAssistant, camera, start_time: int, suffix: str) -> Path:
     moment = dt_util.as_local(dt_util.utc_from_timestamp(int(start_time)))
+    name = moment.strftime("%H%M%S")
+    # The hour that repeats when daylight saving ends maps two different
+    # recordings onto one wall clock, and without this the second silently
+    # overwrites the first -- once a year, discovered only by needing the
+    # footage that is no longer there.
+    #
+    # `fold` is 1 only on that second pass, so every other recording keeps the
+    # name it has always had and nothing already on disk is orphaned. Sorting
+    # inside that one hour is no longer chronological, which the contact sheet
+    # shows and nothing else reads; losing a recording is the worse trade.
+    if moment.fold:
+        name += AMBIGUOUS_HOUR
     path = (camera_dir(hass, camera) / moment.strftime("%Y-%m-%d")
-            / f"{moment.strftime('%H%M%S')}{suffix}")
+            / f"{name}{suffix}")
     root = media_root(hass)
     # camera_slug and strftime cannot produce traversal, but the whole point of
     # a trust boundary is not taking that on faith.
@@ -304,6 +322,40 @@ def _videos(directory: Path) -> list[Path]:
                   if path.suffix in (".mp4", ".ts"))
 
 
+def _strays(directory: Path) -> list[Path]:
+    """Thumbnails with no clip beside them, oldest first.
+
+    No is-directory check, the same as `_videos`: glob over a camera that has
+    recorded nothing yields nothing rather than raising.
+    """
+    return sorted(path for path in directory.glob("*/*.jpg")
+                  if not path.with_suffix(".mp4").exists()
+                  and not path.with_suffix(".ts").exists())
+
+
+async def async_prune_previews(hass: HomeAssistant, camera) -> list[str]:
+    """Hold a camera's stray preview frames to `PREVIEW_KEEP`.
+
+    A stray is a thumbnail whose clip was never downloaded, which is most of
+    them: previews exist precisely so the picture shows an event that is only
+    on the hub. `async_prune` walks videos and deletes each one's thumbnail
+    with it, so it never sees these -- they are one file per event, kept for
+    the life of the installation.
+
+    Not the retention number, which defaults to keeping everything and is
+    about recordings. This is a cache of single frames with a ceiling high
+    enough that it cannot evict one somebody could still be looking at; the
+    newest always survives, which is the one the camera entity serves.
+    """
+    strays = await hass.async_add_executor_job(
+        _strays, camera_dir(hass, camera))
+    doomed = surplus(strays, PREVIEW_KEEP)
+    if not doomed:
+        return []
+    removed = await hass.async_add_executor_job(_delete, doomed)
+    return [relative(hass, path) for path in removed]
+
+
 async def async_export(hass: HomeAssistant, camera, start_time: int,
                        destination: str) -> dict:
     """Copy a downloaded clip and its thumbnail somewhere retention cannot reach.
@@ -503,9 +555,15 @@ def _start_from_path(path: Path) -> int | None:
     makes "already downloaded" a path check. Reading the time back out of the
     name avoids a second index that could disagree with the files on disk.
     """
+    stem, fold = path.stem, 0
+    if stem.endswith(AMBIGUOUS_HOUR) and stem[:-len(AMBIGUOUS_HOUR)].isdigit():
+        # The daylight-saving second pass; see clip_path. Read back with the
+        # same fold it was written with, or the roundtrip returns the FIRST
+        # pass's instant and "already downloaded" answers for the wrong clip.
+        stem, fold = stem[:-len(AMBIGUOUS_HOUR)], 1
     try:
-        stamp = datetime.strptime(f"{path.parent.name} {path.stem}",
-                                  "%Y-%m-%d %H%M%S")
+        stamp = datetime.strptime(f"{path.parent.name} {stem}",
+                                  "%Y-%m-%d %H%M%S").replace(fold=fold)
     except (ValueError, TypeError):
         return None
     # Through dt_util's zone, not the process's. clip_path writes these
@@ -518,9 +576,27 @@ def _start_from_path(path: Path) -> int | None:
 
 
 def _newest_thumbnail(directory: Path) -> bytes | None:
-    # Names sort chronologically, so the last path is the newest clip.
-    thumbnails = sorted(directory.glob("*/*.jpg"))
-    return thumbnails[-1].read_bytes() if thumbnails else None
+    """The newest thumbnail on disk, or None.
+
+    Names sort chronologically -- <date>/<HHMMSS>.jpg -- so the newest is the
+    last file in the newest day that has one. Globbing the whole archive and
+    sorting it read every path in it to answer with one: a year of a busy
+    doorbell is twenty thousand paths, walked on every frontend look at the
+    camera picture, which is several times a second while somebody is looking.
+
+    Days are tried newest first rather than assuming the first has a file in
+    it. A day can hold clips whose thumbnails all failed to render, and one
+    that has been emptied by retention leaves nothing behind but itself.
+    """
+    # No is-a-directory filter: globbing inside something that is not one
+    # yields nothing, so a stray file at the camera's root falls through by
+    # itself, and a check that cannot change an answer is a line to read
+    # rather than a guard.
+    for day in sorted(directory.glob("*"), reverse=True):
+        newest = max(day.glob("*.jpg"), default=None)
+        if newest is not None:
+            return newest.read_bytes()
+    return None
 
 
 async def async_latest_image(hass: HomeAssistant, camera) -> bytes | None:

@@ -56,6 +56,43 @@ SAFE_CAMERA = (
 )
 
 
+# How many paths of the hub's answer to describe. A hub with sixteen cameras
+# and a firmware that has grown could otherwise fill the file.
+SHAPE_LIMIT = 400
+
+
+def _shape(value: Any, prefix: str = "", out: dict | None = None) -> dict:
+    """Every path in the hub's answer, with the kind of thing at the end.
+
+    Names and types, never values. The allow-list above is the right way to
+    keep an installation out of a public bug report, and it has one cost: a
+    field the parser does not know about is invisible here, so nobody can add
+    it to the list because nobody knows it exists. That is exactly how
+    `detect_status` went unnoticed until somebody dumped the JSON by hand.
+
+    A path and a type give that away without giving anything else away. The
+    fix for a key that turns out to matter is still to name it above, which is
+    the point: this makes the list maintainable, it does not replace it.
+    """
+    out = {} if out is None else out
+    if isinstance(value, dict):
+        for key in value:
+            if len(out) >= SHAPE_LIMIT:
+                out["truncated"] = f"more than {SHAPE_LIMIT} paths"
+                break
+            _shape(value[key], f"{prefix}{key}.", out)
+    elif isinstance(value, list):
+        # One entry stands for the whole list: the siblings repeat its shape,
+        # and the length is already the interesting part.
+        if value:
+            _shape(value[0], f"{prefix}[{len(value)}].", out)
+        else:
+            out[prefix.rstrip(".")] = "list(0)"
+    else:
+        out[prefix.rstrip(".")] = type(value).__name__
+    return out
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
@@ -104,6 +141,10 @@ async def async_get_config_entry_diagnostics(
         "device": {key: coordinator.client.info.get(key)
                    for key in SAFE_DEVICE},
         "hub": {key: coordinator.readings.get(key) for key in SAFE_READINGS},
+        # What the hub answered, described rather than quoted. This is the
+        # only part of the file that can show a field nobody has named yet.
+        "hub_answer_shape": _shape(getattr(coordinator, "raw_status", None)
+                                   or {}),
         "cameras": cameras,
         "coordinator": {
             "update_interval": (coordinator.update_interval.total_seconds()
@@ -118,7 +159,20 @@ async def async_get_config_entry_diagnostics(
             "media_status": getattr(coordinator, "media_status", None),
             "media_sessions": getattr(
                 coordinator.client, "_sessions", None),
+            # How the last few went, so a report says whether the hub was
+            # refusing sessions or answering them with nothing -- which are
+            # different failures with different cures and read identically
+            # from a session count alone.
+            "session_health": getattr(
+                coordinator.client, "session_health", None),
             "download_failures": dict(getattr(
                 coordinator, "_download_failures", {}) or {}),
+            # Every outage this process has seen, newest first, with what was
+            # tried against it and how long it lasted. The whole point of a
+            # bug report is the second half of that: "we restarted it and it
+            # came back in four minutes" and "we restarted it and nothing
+            # changed" are different reports, and neither survives being
+            # remembered a week later.
+            "wedge_log": coordinator.recovery_log(),
         },
     }

@@ -1,0 +1,444 @@
+{
+  "title": "Tapo H500 lokale Aufnahmen",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mit einem Tapo H500 verbinden",
+        "description": "Der gesamte Datenverkehr bleibt lokal. Das TP-Link-Cloud-Passwort wird ausschließlich für die lokale Medienverschlüsselung benötigt.",
+        "data": {
+          "host": "IP-Adresse des H500",
+          "username": "Benutzername des Kamerakontos",
+          "password": "Passwort des Kamerakontos",
+          "cloud_password": "Passwort des TP-Link-Cloud-Kontos",
+          "poll_interval": "Sekunden zwischen den Aktivitätsabfragen"
+        },
+        "data_description": {
+          "poll_interval": "Wie schnell Aktivität in Home Assistant ankommt. Das ist die gesamte Benachrichtigungsverzögerung – nichts trifft früher ein als bei der nächsten Abfrage. Eine Abfrage kostet die Basis etwa 40 ms, 2 Sekunden sind also bequem und 1 ist zulässig. Später unter „Konfigurieren“ änderbar."
+        }
+      },
+      "reconfigure": {
+        "title": "Adresse des Tapo H500 ändern",
+        "description": "Diese Basis auf eine neue Adresse zeigen lassen, ohne sie neu einzurichten – alles am Eintrag bleibt erhalten: die Namen der Gesichter, die Aufbewahrungseinstellungen und die Entitäts-IDs, auf die sich Automationen und Karten beziehen. Passwortfelder leer lassen, um die gespeicherten zu behalten.",
+        "data": {
+          "host": "IP-Adresse oder Hostname der Basis",
+          "username": "Benutzername des Kamerakontos",
+          "password": "Passwort des Kamerakontos",
+          "cloud_password": "Passwort des TP-Link-Cloud-Kontos"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Erneut mit dem Tapo H500 verbinden",
+        "description": "Die Basis hat die gespeicherten Zugangsdaten ausdrücklich abgelehnt und nicht bloß nicht geantwortet. Bitte das Kamerakonto erneut eingeben – das lokale Konto aus der Tapo-App, nicht die TP-Link-E-Mail-Adresse für die Anmeldung. Der gesamte Datenverkehr bleibt lokal; das TP-Link-Cloud-Passwort dient weiterhin nur der lokalen Medienverschlüsselung.",
+        "data": {
+          "username": "Benutzername des Kamerakontos",
+          "password": "Passwort des Kamerakontos",
+          "cloud_password": "Passwort des TP-Link-Cloud-Kontos"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung oder Anmeldung am H500 nicht möglich.",
+      "no_cameras": "Der H500 meldet keine gekoppelten Kameras.",
+      "invalid_auth": "Der H500 hat diese Zugangsdaten abgelehnt."
+    },
+    "abort": {
+      "reauth_successful": "Wieder verbunden. Die gespeicherten Zugangsdaten wurden ersetzt.",
+      "reconfigure_successful": "Aktualisiert. Dieser Eintrag spricht jetzt mit der Basis unter ihrer neuen Adresse.",
+      "already_configured": "Unter dieser Adresse ist bereits ein anderer Eintrag eingerichtet. Zwei Einträge auf einer Basis bedeuten zwei Abfragen, die sich beide an einem Gerät anmelden, das bei wiederholter Anmeldung nicht mehr antwortet."
+    }
+  },
+  "options": {
+    "step": {
+      "settings": {
+        "title": "Tapo-H500-Einstellungen",
+        "data": {
+          "poll_interval": "Sekunden zwischen den Aktivitätsabfragen",
+          "auto_download": "Neue Aufnahmen automatisch herunterladen",
+          "convert_mp4": "Downloads in MP4 umwandeln",
+          "keep_downloads": "Heruntergeladene Clips pro Kamera behalten",
+          "keep_rings": "Klingelereignisse pro Kamera behalten",
+          "silent_hours": "Stunden Stille, bis eine Kamera gemeldet wird",
+          "keep_person": "Aufnahmen mit einer Person pro Kamera behalten",
+          "download_types": "Nur diese Erkennungen herunterladen",
+          "card_days": "Tage, die die Karten standardmäßig zeigen",
+          "auto_restart": "Basis automatisch neu starten, wenn ihr Aufnahmedienst ausfällt"
+        },
+        "data_description": {
+          "convert_mp4": "MP4 lässt sich im Browser abspielen; ausschalten, um das ursprüngliche MPEG-TS der Basis zu behalten.",
+          "keep_downloads": "0 behält alles. Jede andere Zahl löscht die ältesten automatischen Downloads, sobald eine Kamera mehr davon hält. Manuelle Downloads werden nie gelöscht.",
+          "poll_interval": "Die gesamte Benachrichtigungsverzögerung: nichts erreicht Home Assistant früher als bei der nächsten Abfrage. Etwa 40 ms Zeit der Basis je Abfrage, niedrige Werte sind also günstig.",
+          "keep_rings": "0 behandelt Klingelereignisse wie alles andere. Jede andere Zahl behält so viele der neuesten Klingelereignisse, unabhängig von ihrem Alter – damit ein bewegter Nachmittag nicht das Klingeln verdrängt, auf das es ankam.",
+          "silent_hours": "Eine Kamera ohne WLAN oder mit leerem Akku sieht genauso aus wie eine ruhige: die Basis meldet weder einen Online-Status noch einen Akkustand, Stille ist also der einzige vorhandene Hinweis. Für eine viel genutzte Türklingel niedriger setzen, für ein Hoftor, an dem tagelang wirklich niemand vorbeikommt, höher. Auf 24 begrenzt, weil die Basis nur so weit zurück gefragt wird.",
+          "keep_person": "0 behandelt sie wie alles andere. Jede andere Zahl behält so viele der neuesten Aufnahmen mit einer Person darauf, unabhängig von ihrem Alter – damit ein windiger Nachmittag nicht die eine Aufnahme von jemandem an der Tür verdrängt. Wird getrennt von den Klingelereignissen gezählt; ein Klingeln mit einer Person darauf ist durch beides geschützt.",
+          "download_types": "Leer lassen, um alles herunterzuladen – so verhält es sich jetzt. Werden einzelne angehakt, werden nur Aufnahmen behalten, die eine davon tragen: die Clips, zu denen Menschen zurückkehren, sind meist die mit einer Person oder einem Klingeln darauf, nicht der Straßenverkehr.",
+          "card_days": "Karten ohne eigene Angabe „Tage anzeigen“ folgen diesem Wert; eine Karte mit eigener Angabe behält sie.",
+          "auto_restart": "Beide bekannten Medienfehler werden durch einen Neustart behoben und sonst durch nichts. Höchstens ein automatischer Neustart alle sechs Stunden, im Protokoll und als Ereignis tapo_h500_auto_restart angekündigt. Verstummende Kameras lösen das nie aus – gegen einen leeren Akku bringt ein Neustart nichts."
+        }
+      },
+      "init": {
+        "title": "Tapo H500",
+        "menu_options": {
+          "settings": "Einstellungen",
+          "faces": "Gesichter benennen",
+          "layout": "Kameraanordnung",
+          "sensitivity": "Ungewöhnliche Aktivität"
+        }
+      },
+      "faces": {
+        "title": "Gesichter benennen",
+        "description": "Die Basis erkennt Personen wieder und gibt jeder eine Nummer, sagt aber nicht, wer sie sind – es gibt keinen Namen zum Nachschlagen. Das Foto eines Gesichts öffnen, um zu sehen, wer es ist, dann einen Namen zu dieser Nummer eintragen; jede Karte und jeder Sensor verwendet ihn dann. Ein Feld leeren entfernt den Namen.\n\n{faces}\n\nEin Gesicht hat erst dann einen Foto-Link, wenn seine Aufnahme heruntergeladen wurde."
+      },
+      "layout": {
+        "title": "Kameraanordnung",
+        "description": "Jeder Kamera eine Zahl dafür geben, wie nah sie an der Tür ist: **0 für die, die der Straße am nächsten ist**, höher, je näher sie am Eingang stehen. Eine Torkamera wäre 0 und die Türklingel 1.\n\nDas ist das Einzige, was die Integration nicht selbst herausfinden kann – die Basis meldet keine Geometrie. Damit liest sich eine erkannte Person, die von einer Kamera zur nächsten geht, als *nähert sich* oder *geht weg* statt nur als Liste von Orten.\n\nAlle Kameras auf derselben Zahl lassen schaltet das ab; eine Richtung wird nur gemeldet, wenn sie wirklich bekannt ist.{suggestion}"
+      },
+      "sensitivity": {
+        "title": "Ungewöhnliche Aktivität",
+        "description": "Wie viel an einer Kamera los sein muss, damit es als ungewöhnlich gilt – gemessen an ihrer eigenen jüngsten Rate statt an einer festen Zahl.\n\n**Empfindlich** meldet das Doppelte ihrer üblichen Stunde. **Normal** das Dreifache. **Entspannt** das Fünffache und braucht überhaupt mehr Aktivität, bevor die Frage gestellt wird.\n\nPro Kamera einstellen: das Dreifache des Üblichen ist an einer Türklingel am Gehweg ein voller Nachmittag und am Hoftor jemand im Garten."
+      }
+    },
+    "abort": {
+      "no_faces": "Die Basis hat noch keine Gesichter erkannt. Sie meldet eines nur, wenn ihre eigene Gesichtserkennung auslöst, und nur für den noch vorgehaltenen Zeitraum – nach dem nächsten Besuch noch einmal versuchen.",
+      "one_camera": "Mit dieser Basis ist nur eine Kamera gekoppelt. Eine Richtung braucht zwei Orte, zwischen denen sie liegt.",
+      "no_cameras": "Mit dieser Basis ist noch keine Kamera gekoppelt."
+    }
+  },
+  "selector": {
+    "auto_download": {
+      "options": {
+        "off": "Nie",
+        "rings": "Nur Klingelereignisse",
+        "all": "Jede neue Aufnahme"
+      }
+    },
+    "sensitivity": {
+      "options": {
+        "sensitive": "Empfindlich",
+        "normal": "Normal",
+        "relaxed": "Entspannt"
+      }
+    },
+    "download_types": {
+      "options": {
+        "2": "Bewegung",
+        "6": "Person",
+        "8": "Fahrzeug",
+        "9": "Tier",
+        "10": "Verpasstes Klingeln",
+        "17": "Klingel",
+        "19": "Manipulation",
+        "20": "Gesicht",
+        "22": "Unbekanntes Gesicht"
+      }
+    }
+  },
+  "entity": {
+    "event": {
+      "activity": {
+        "name": "Aktivität",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "ring": "Klingeln",
+              "motion": "Bewegung"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "storage_free": {
+        "name": "Freier Speicher"
+      },
+      "storage_total": {
+        "name": "Gesamtspeicher"
+      },
+      "storage_used": {
+        "name": "Belegter Speicher"
+      },
+      "storage_status": {
+        "name": "Speicherstatus"
+      },
+      "siren_time_left": {
+        "name": "Verbleibende Sirenenzeit"
+      },
+      "firmware_state": {
+        "name": "Firmware-Status"
+      },
+      "ip_address": {
+        "name": "IP-Adresse"
+      },
+      "last_activity": {
+        "name": "Letzte Aktivität"
+      },
+      "recordings_24h": {
+        "name": "Aufnahmen (24 h)"
+      },
+      "recordings_today": {
+        "name": "Aufnahmen heute"
+      },
+      "ai_enhance": {
+        "name": "KI-Verbesserung"
+      },
+      "network_mode": {
+        "name": "Netzwerkmodus"
+      },
+      "model": {
+        "name": "Modell"
+      },
+      "clock_offset": {
+        "name": "Uhrabweichung"
+      },
+      "timezone": {
+        "name": "Zeitzone"
+      },
+      "custom_sounds": {
+        "name": "Eigene Klänge"
+      },
+      "recordings_1h": {
+        "name": "Aufnahmen in der letzten Stunde"
+      },
+      "busiest_hour": {
+        "name": "Aktivste Stunde"
+      },
+      "people_seen": {
+        "name": "Gesehene Personen"
+      },
+      "unknown_faces": {
+        "name": "Aufnahmen mit unbekanntem Gesicht"
+      },
+      "hub_health": {
+        "name": "Zustand"
+      },
+      "storage_full_in": {
+        "name": "Speicher voll in"
+      },
+      "media_healthy_for": {
+        "name": "Medien in Ordnung seit"
+      },
+      "media_sessions": {
+        "name": "Mediensitzungen"
+      },
+      "visits_24h": {
+        "name": "Besuche (24 h)"
+      },
+      "activity_level": {
+        "name": "Aktivität",
+        "state": {
+          "quiet": "Ruhig",
+          "active": "Aktiv",
+          "busy": "Viel los",
+          "unusual": "Ungewöhnlich"
+        }
+      },
+      "people_seen_recently": {
+        "name": "Kürzlich gesehene Personen"
+      },
+      "auto_upgrade_time": {
+        "name": "Zeitpunkt der automatischen Aktualisierung"
+      },
+      "scheduled_reboot": {
+        "name": "Geplanter Neustart"
+      }
+    },
+    "binary_sensor": {
+      "storage_problem": {
+        "name": "Speicherproblem"
+      },
+      "media_encrypted": {
+        "name": "Medienverschlüsselung"
+      },
+      "hub_storage": {
+        "name": "Speicher der Basis"
+      },
+      "continuous_recording": {
+        "name": "Daueraufnahme"
+      },
+      "ai_enhance_enabled": {
+        "name": "KI-Verbesserung aktiv"
+      },
+      "wifi_backup": {
+        "name": "WLAN-Reserve"
+      },
+      "detected_motion": {
+        "name": "Bewegung"
+      },
+      "detected_person": {
+        "name": "Person"
+      },
+      "detected_vehicle": {
+        "name": "Fahrzeug"
+      },
+      "detected_pet": {
+        "name": "Tier"
+      },
+      "detected_missed_doorbell": {
+        "name": "Klingeln unbeantwortet"
+      },
+      "detected_doorbell": {
+        "name": "Klingel"
+      },
+      "detected_theft": {
+        "name": "Manipulation"
+      },
+      "detected_face": {
+        "name": "Erkanntes Gesicht"
+      },
+      "detected_unknown_face": {
+        "name": "Unbekanntes Gesicht"
+      },
+      "unusual_activity": {
+        "name": "Ungewöhnliche Aktivität"
+      },
+      "face_present": {
+        "name": "Kürzlich gesehen"
+      },
+      "loitering": {
+        "name": "Herumstehen"
+      },
+      "camera_silent": {
+        "name": "Stumm"
+      },
+      "prowling": {
+        "name": "Umherstreifen"
+      },
+      "possible_delivery": {
+        "name": "Mögliche Lieferung"
+      },
+      "media_problem": {
+        "name": "Problem mit dem Aufnahmedienst"
+      },
+      "cameras_dark": {
+        "name": "Kameras nehmen nicht auf"
+      }
+    },
+    "siren": {
+      "siren": {
+        "name": "Sirene"
+      }
+    },
+    "switch": {
+      "led": {
+        "name": "Status-LED"
+      },
+      "loop_recording": {
+        "name": "Ringaufnahme"
+      },
+      "auto_upgrade": {
+        "name": "Automatische Firmware-Aktualisierungen"
+      },
+      "diagnose_mode": {
+        "name": "Diagnosemodus"
+      },
+      "face_detection": {
+        "name": "Gesichtserkennung"
+      },
+      "snoozed": {
+        "name": "Benachrichtigungen stummgeschaltet"
+      }
+    },
+    "select": {
+      "siren_tone": {
+        "name": "Sirenenklang"
+      }
+    },
+    "number": {
+      "siren_volume": {
+        "name": "Sirenenlautstärke"
+      },
+      "siren_duration": {
+        "name": "Sirenendauer"
+      }
+    },
+    "image": {
+      "latest_event": {
+        "name": "Letztes Ereignis"
+      },
+      "contact_sheet": {
+        "name": "Heute"
+      }
+    },
+    "calendar": {
+      "recordings": {
+        "name": "Aufnahmen"
+      }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
+      }
+    },
+    "button": {
+      "restart": {
+        "name": "Neu starten"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "doorbell": "Es hat an {entity_name} geklingelt",
+      "face": "{entity_name} hat ein Gesicht erkannt",
+      "missed_doorbell": "Es hat an {entity_name} geklingelt und niemand hat geöffnet",
+      "motion": "{entity_name} hat Bewegung erkannt",
+      "person": "{entity_name} hat eine Person erkannt",
+      "pet": "{entity_name} hat ein Tier erkannt",
+      "theft": "{entity_name} hat eine Manipulation gemeldet",
+      "unknown_face": "{entity_name} hat ein unbekanntes Gesicht gesehen",
+      "vehicle": "{entity_name} hat ein Fahrzeug erkannt",
+      "loitering": "{entity_name}: Jemand, den die Basis nicht kennt, hat dort gewartet",
+      "possible_delivery": "{entity_name}: ein Besuch, der nach einer Lieferung aussah",
+      "prowling": "Jemand ist um das Haus herumgegangen, statt zur Tür",
+      "arrival": "Jemand, den Sie benannt haben, kommt nach Hause",
+      "visit": "Ein Besuch beginnt (einmal je Besucher, nicht einmal je Aufnahme)"
+    }
+  },
+  "issues": {
+    "storage_nearly_full": {
+      "title": "Der Speicher des H500 ist zu {used} % belegt",
+      "description": "Die Basis beginnt gleich, ihre ältesten Aufnahmen zu überschreiben, um Platz zu schaffen. Die Ringaufnahme hört bei „voll“ nicht auf – sie verwirft das älteste Material stillschweigend. Laden Sie herunter, was Sie behalten möchten, und formatieren Sie den Speicher der Basis danach gegebenenfalls."
+    },
+    "hub_unreachable": {
+      "title": "Der H500 antwortet nicht",
+      "description": "Die Basis antwortet nicht mehr, es wird also nichts nach Home Assistant aufgezeichnet und jede Entität zeigt ihren letzten bekannten Wert. Prüfen Sie, ob sie mit Strom versorgt und im Netzwerk ist. Ist der Benutzername eine TP-Link-E-Mail-Adresse statt eines lokalen Kontos, lehnt die Basis ihn mit einem Fehler ab, der von „offline“ nicht zu unterscheiden ist."
+    },
+    "unnamed_face": {
+      "title": "Ein Gesicht, das die Basis immer wieder sieht, hat keinen Namen",
+      "description": "Gesicht {face_id} wurde {sightings}-mal an {cameras} gesehen und hat keinen Namen. Mit einem Namen sagen jede Karte, jeder Sensor und jede Benachrichtigung, wer es ist, statt einer Nummer – „Alice hat an der Haustür geklingelt“.\n\nBenennen unter „Konfigurieren“ → „Gesichter benennen“, wo jedes Gesicht mit einem Link zu seinem Foto aufgeführt ist, oder mit der Schaltfläche „Dieses Gesicht benennen“ auf der Gesichterkarte.\n\n{others} weitere(s) Gesicht(er) warten ebenfalls auf einen Namen.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Dieses Gesicht benennen",
+            "description": "Die Basis erkennt Gesicht {face_id} immer wieder. Geben Sie ihm einen Namen, und jede Karte, jeder Sensor und jede Benachrichtigung verwendet ihn. Das Foto ist auf der Gesichterkarte, falls Sie zuerst nachsehen möchten. Ein leeres Feld abzusenden schließt diesen Hinweis einfach.",
+            "data": {
+              "name": "Name"
+            }
+          }
+        }
+      }
+    },
+    "camera_silent": {
+      "title": "Eine Kamera ist verstummt",
+      "description": "{cameras} hat seit {hours} Stunden nichts aufgezeichnet.\n\nMeist heißt das, sie ist ohne WLAN, leer oder ausgesteckt – es kann aber auch heißen, dass dort nichts passiert ist. Die Basis kann das nicht unterscheiden: ihr Eintrag über gekoppelte Geräte kennt weder einen Online-Status noch eine Signalstärke noch einen Akkustand, Stille ist also der einzige verfügbare Hinweis. Jede Entität dieser Kamera zeigt weiterhin ihren letzten bekannten Wert.\n\nPrüfen Sie die Kamera, oder erhöhen Sie den Schwellenwert unter „Konfigurieren“ → „Einstellungen“, wenn sie schlicht an einem ruhigen Ort hängt."
+    },
+    "clashing_camera_names": {
+      "title": "Zwei Kameras haben denselben Namen",
+      "description": "Mehr als eine gekoppelte Kamera heißt {cameras}, ihre Downloads landen deshalb im selben Ordner.\n\nAufnahmen werden unter einer Kurzform des Kameranamens abgelegt; genau das macht „schon heruntergeladen“ zu einer Prüfung der Dateien auf der Platte statt zu einem eigenen Index, der ihnen widersprechen könnte. Teilen sich zwei Kameras einen Namen, beantwortet die Aufnahme der einen diese Frage für die andere, und auf der geöffneten Karte erscheinen Clips von beiden.\n\nBenennen Sie eine davon in der Tapo-App um. Bereits Heruntergeladenes bleibt, wo es ist; neue Aufnahmen gehen in den neuen Ordner."
+    },
+    "camera_tampered": {
+      "title": "Eine Kamera hat eine Manipulation gemeldet",
+      "description": "{camera} hat um {when} eine Manipulation gemeldet ({count} Meldung(en) am letzten Tag).\n\nDas ist der eigene Alarm der Basis dafür, dass jemand die Kamera angefasst hat – angestoßen, verdeckt oder von der Halterung genommen. Es wurde an echter Hardware bestätigt, indem eine Kamera von ihrer Halterung genommen wurde; es bedeutet also, was es sagt, aber ein Stoß oder eine kräftige Böe kann es ebenfalls auslösen.\n\nEher prüfen als wegklicken: alles andere, was diese Integration meldet, ist außerhalb des Hauses passiert, dies betrifft die Kamera selbst. Ist es echt, sind die Aufnahmen danach die, die Sie brauchen werden – prüfen Sie, ob die Kamera noch dorthin zeigt, wo sie soll, und ob ihre jüngsten Clips auf der Basis liegen.\n\nDer Hinweis verschwindet von selbst, sobald die Meldung aus den letzten 24 Stunden herausfällt."
+    },
+    "media_wedged": {
+      "title": "Der H500 liefert keine Aufnahmen mehr",
+      "description": "Die Basis erkennt weiterhin Ereignisse, aber ihr Mediendienst liefert keine Aufnahmen mehr – entweder lehnt er Sitzungen rundweg ab, oder er beantwortet sie sauber und ohne Video darin. Fotos in Benachrichtigungen, Vorschauen und Downloads schlagen fehl, bis er sich erholt, und in Tests hat nur ein Neustart der Basis einen der beiden Zustände behoben: die Schaltfläche „Neu starten“ auf ihrer Geräteseite drücken oder sie vom Strom trennen. Aufnahmen, die bereits auf der Basis liegen, gehen nicht verloren."
+    },
+    "downloads_failing": {
+      "title": "Aufnahmen von {cameras} werden nicht heruntergeladen",
+      "description": "{count} automatische Downloads in Folge sind fehlgeschlagen. Die Aufnahmen liegen weiterhin auf der Basis, erscheinen aber erst in Home Assistant, wenn das behoben ist, und die Basis überschreibt sie irgendwann. Das Protokoll (Einstellungen → System → Protokolle, nach „tapo_h500“ suchen) sagt, warum jeder einzelne fehlgeschlagen ist – eine volle Platte und ein fehlendes ffmpeg sind die üblichen Gründe. Dieser Hinweis verschwindet von selbst, sobald ein Download gelingt."
+    },
+    "restart_ineffective": {
+      "title": "Der Neustart der Basis hat ihren Aufnahmedienst nicht repariert",
+      "description": "Die Basis wurde automatisch neu gestartet und der Fehler war sofort wieder da – das ist bisher nie vorgekommen, es ist also etwas Neues und nicht der bekannte Aussetzer. Automatische Neustarts sind angehalten, bis wieder Aufnahmen geliefert werden, damit die Spuren nicht weggestartet werden. Laden Sie die Diagnose aus dem Menü der Integration herunter und eröffnen Sie damit einen Fehlerbericht; ein Trennen vom Strom (ausstecken, warten, wieder einstecken) ist einen Versuch wert, und falls Aufnahmen, die während des Fehlers entstanden sind, leer abspielen, erwähnen Sie das – dann wurde das Video nie geschrieben."
+    }
+  }
+}

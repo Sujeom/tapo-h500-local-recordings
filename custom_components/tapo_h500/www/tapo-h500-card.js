@@ -29,7 +29,14 @@ const pad = (value) => String(value).padStart(2, "0");
 export const utcDay = (date) =>
   `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}`;
 
-// Camera aliases and hub-supplied labels reach innerHTML, so they are escaped.
+// Nothing from the hub reaches innerHTML unescaped.
+//
+// Camera aliases, face names and detection labels are all the hub's words or
+// the owner's, and they land in markup built by hand. Text goes through
+// `esc`; anything that is a number goes through `Number`, which is both the
+// escape and the assertion that it was one. A test walks this file and fails
+// on an interpolation that is neither, because "we remembered every time" is
+// not a property anybody can keep by hand across 1,350 lines.
 export const esc = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -334,6 +341,10 @@ if (!customElements.get("tapo-h500-card-editor")) {
   customElements.define("tapo-h500-card-editor", TapoH500CardEditor);
 }
 
+// What identifies a control across a rebuild. Enough to tell one row's Play
+// from another's, and from the same row's Delete.
+const FOCUS_KEYS = ["action", "start", "index", "code", "face"];
+
 const BASE_STYLE = `
   /* The sections view gives a resized card a height; filling it is what makes
      dragging the handle do anything. In the masonry view nothing above sets a
@@ -412,11 +423,24 @@ class H500Base extends HTMLElement {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.innerHTML =
-        `<style>${BASE_STYLE}${this.constructor.style}</style><ha-card></ha-card>`;
+        `<style>${BASE_STYLE}${this.constructor.style}</style><ha-card></ha-card>`
+        + `<span class="sr-only" role="status" aria-live="polite"></span>`;
       this._card = this.shadowRoot.querySelector("ha-card");
+      // Outside the card on purpose. A live region only announces changes to
+      // a region that was already there; one inserted with its text already
+      // in it says nothing, and the card's whole contents are replaced on
+      // every real render. This node is made once and only its text changes,
+      // which is the thing screen readers are listening for.
+      this._status = this.shadowRoot.querySelector('[role="status"]');
       this._card.addEventListener("click", (event) => this._onClick(event));
     }
     this._recordings = null;
+    this._busy = false;
+    this._queued = false;
+    // What was last written into the card, so an unchanged render can be
+    // skipped. Cleared here because a reconfigure changes the styles and the
+    // shape, and the old markup is no longer what is on screen.
+    this._markup = null;
     this._sharedNames = {};
     this._cameras = null;
     this._error = null;
@@ -438,11 +462,40 @@ class H500Base extends HTMLElement {
   }
 
   connectedCallback() {
-    this._timer = setInterval(() => this._load(), 60000);
+    this._timer = setInterval(() => this._tick(), 60000);
+    // A wall tablet with this on a dashboard nobody is looking at asked the
+    // hub for a listing every minute, all night, for a screen that was off.
+    // Each one is a round trip to a device this project exists because it
+    // wedges under load.
+    this._visibility = () => {
+      if (!document.hidden && this._stale) {
+        this._stale = false;
+        this._load();
+      }
+    };
+    document.addEventListener("visibilitychange", this._visibility);
+  }
+
+  /** The minute poll, skipped while nobody can see the answer.
+   *
+   * Remembered rather than dropped: a tab that has been hidden for an hour
+   * is showing an hour-old list, and refreshing it the moment it comes back
+   * is the whole reason for polling in the first place.
+   */
+  _tick() {
+    if (document.hidden) {
+      this._stale = true;
+      return;
+    }
+    this._load();
   }
 
   disconnectedCallback() {
     clearInterval(this._timer);
+    if (this._visibility) {
+      document.removeEventListener("visibilitychange", this._visibility);
+      this._visibility = null;
+    }
     clearTimeout(this._pulseTimer);
     this._pulseTimer = null;
   }
@@ -479,14 +532,30 @@ class H500Base extends HTMLElement {
   }
 
   async _load() {
-    if (!this._hass || this._busy) return;
+    if (!this._hass) return;
+    // One request at a time, and none dropped.
+    //
+    // A busy flag that simply returned looked like it was protecting the hub
+    // and was throwing work away: press a camera button while the minute poll
+    // is in flight and the load for the camera you just chose never happened
+    // at all. The card sat on the previous camera's recordings, under the new
+    // camera's name, until the next poll a minute later.
+    if (this._busy) { this._queued = true; return; }
     this._busy = true;
+    // What this request is for. Anything that changes it while it is in the
+    // air -- a camera button, a day arrow -- makes the answer coming back the
+    // answer to a question nobody is asking any more, and painting it is how
+    // a camera or a day ends up labelled with somebody else's recordings.
+    const index = this._index;
+    const offset = this._dayOffset;
+    const stale = () => index !== this._index || offset !== this._dayOffset;
     try {
       const response = await this._call("list_recordings", {
         config_entry_id: await this._entryId(),
-        camera_index: this._index,
+        camera_index: index,
         ...this._window(),
       });
+      if (stale()) return;
       // What the listing actually covers, when the integration decided.
       this._days = response.days ?? this._config.days;
       this._camera = response.camera;
@@ -497,10 +566,17 @@ class H500Base extends HTMLElement {
       this._recordings = response.recordings.slice().reverse();
       this._error = null;
     } catch (err) {
-      this._error = err.message || String(err);
+      // A failure belonging to a question nobody asked any more is not an
+      // error worth showing over the answer that is still coming.
+      if (!stale()) this._error = err.message || String(err);
     } finally {
       this._busy = false;
-      this._render();
+      if (this._queued) {
+        this._queued = false;
+        this._load();
+      } else if (!stale()) {
+        this._render();
+      }
     }
   }
 
@@ -579,6 +655,14 @@ class H500Base extends HTMLElement {
     } catch (err) {
       this._error = err.message || String(err);
       this._render();
+    } finally {
+      // Re-enabled here rather than left to the rebuild. It used to be
+      // cleared as a side effect of innerHTML replacing the button, which
+      // stopped being true the moment an unchanged render skipped the
+      // rebuild -- and that left Refresh dead after one press on a camera
+      // with nothing new. Setting it on a button the rebuild has already
+      // replaced is harmless.
+      button.disabled = false;
     }
   }
 
@@ -622,17 +706,44 @@ class H500Base extends HTMLElement {
       ? `<video controls autoplay src="${esc(item.url)}"></video>` : "";
   }
 
-  /** Play when the clip is on disk, otherwise offer to fetch it. */
+  /** What to call this face: the owner's name for it, or its hub id.
+   *
+   * The id is cast rather than escaped. Its callers escape what comes back,
+   * and escaping it here too would turn an ampersand into `&amp;amp;` on the
+   * way through -- while leaving it raw would be the one value in this file
+   * that reaches markup on trust.
+   */
+  _label(face) {
+    const named = face.name !== undefined && face.name !== null;
+    return { named, text: named ? String(face.name) : `Face ${Number(face.id)}` };
+  }
+
+  /** When this recording was made, for a label somebody has to listen to. */
+  _when(item) {
+    return new Date(Number(item.start_time) * 1000).toLocaleString();
+  }
+
+  /** Play when the clip is on disk, otherwise offer to fetch it.
+   *
+   * Each button says which recording it is for. A list of thirty rows read
+   * aloud was thirty buttons all called "Play", which is a list nobody can
+   * navigate: the visible text is enough beside the timestamp on screen and
+   * carries none of it to anyone who cannot see the row.
+   */
   _actions(item) {
+    const spoken = esc(this._when(item));
     return item.downloaded
-      ? `<button data-action="play" data-start="${item.start_time}">
+      ? `<button data-action="play" data-start="${Number(item.start_time)}"
+           aria-label="${this._isPlaying(item) ? "Hide" : "Play"} recording from ${spoken}">
            ${this._isPlaying(item) ? "Hide" : "Play"}
          </button>
-         <button class="danger" data-action="delete" data-start="${item.start_time}">
+         <button class="danger" data-action="delete" data-start="${Number(item.start_time)}"
+           aria-label="Delete recording from ${spoken}">
            Delete
          </button>`
-      : `<button data-action="download" data-start="${item.start_time}"
-           data-end="${item.end_time}">Download</button>`;
+      : `<button data-action="download" data-start="${Number(item.start_time)}"
+           data-end="${Number(item.end_time)}"
+           aria-label="Download recording from ${spoken}">Download</button>`;
   }
 
   _maxHeight() {
@@ -664,10 +775,17 @@ class H500Base extends HTMLElement {
             aria-pressed="${cam.index === this._index}">${esc(cam.alias)}</button>
         `).join("")}</div>`
       : "";
-    const live = this._hass
-      && recordingNow(this._hass.states, this._index) ? `
-        <span class="recording-now" role="status">&#9679; Recording…</span>`
+    const recording = Boolean(
+      this._hass && recordingNow(this._hass.states, this._index));
+    // Decoration: the same fact is announced by the live region, and a
+    // screen reader reading both would say it twice.
+    const live = recording ? `
+        <span class="recording-now" aria-hidden="true">&#9679; Recording…</span>`
       : "";
+    if (this._status) {
+      const say = recording ? "Recording now" : "";
+      if (this._status.textContent !== say) this._status.textContent = say;
+    }
     if (live && !this._pulseTimer) {
       // One re-render at expiry, so the dot goes out by itself.
       this._pulseTimer = setTimeout(() => {
@@ -675,13 +793,75 @@ class H500Base extends HTMLElement {
         this._render();
       }, RECORDING_NOW_SECONDS * 1000);
     }
-    this._card.innerHTML = `
+    const markup = `
       <div class="head">
         <h2>${esc(title)}</h2>${live}
         <button data-action="refresh">Refresh</button>
       </div>
       ${picker}
       ${body}`;
+    // Nothing changed, so nothing is rebuilt.
+    //
+    // Replacing innerHTML destroys and remakes every node under it: an open
+    // recording restarts from zero with autoplay, keyboard focus falls back
+    // to the document, a half-typed name in the editor is gone and the
+    // scroll position with it. The poll runs every minute whether or not the
+    // hub had anything to say, so on a quiet camera all of that happened
+    // once a minute, forever, for no change at all.
+    if (markup === this._markup) return;
+    this._markup = markup;
+    // Which control had the keyboard, so it can have it back. innerHTML
+    // replaces every node, and the browser drops focus to the document --
+    // which for somebody tabbing through a list of recordings means starting
+    // again from the top every time anything changes.
+    const focused = this.shadowRoot && this.shadowRoot.activeElement;
+    const had = focused && focused.dataset && focused.dataset.action
+      ? { ...focused.dataset } : null;
+    // A clip somebody is watching keeps its place across a rebuild it did
+    // not ask for -- a new recording arriving is not a reason to send the
+    // one on screen back to the beginning.
+    const playing = this._card.querySelector && this._card.querySelector("video");
+    const resume = playing && playing.currentTime
+      ? { time: playing.currentTime, paused: playing.paused } : null;
+    this._card.innerHTML = markup;
+    if (resume) this._resume(resume);
+    if (had) this._refocus(had);
+  }
+
+  /** Give the keyboard back to the control that had it.
+   *
+   * Matched on the data attributes it was identified by, because that is
+   * what survives a rebuild -- the element itself does not. Compared rather
+   * than built into a selector: the values are the hub's face ids and clip
+   * times, and a selector assembled from them is a string built out of
+   * somebody else's data, which is the shape this file spent an afternoon
+   * getting rid of.
+   */
+  _refocus(had) {
+    const buttons = this._card.querySelectorAll
+      ? this._card.querySelectorAll("button[data-action]") : [];
+    for (const button of buttons) {
+      const same = FOCUS_KEYS.every(
+        (key) => (button.dataset[key] || "") === (had[key] || ""));
+      if (same) {
+        if (button.focus) button.focus();
+        return;
+      }
+    }
+  }
+
+  /** Put a rebuilt player back where the old one was.
+   *
+   * On `loadedmetadata`, because seeking a media element that has not read
+   * its duration yet is either ignored or an error depending on the browser.
+   */
+  _resume(state) {
+    const video = this._card.querySelector && this._card.querySelector("video");
+    if (!video) return;
+    video.addEventListener("loadedmetadata", () => {
+      video.currentTime = state.time;
+      if (state.paused) video.pause();
+    }, { once: true });
   }
 }
 
@@ -823,7 +1003,8 @@ class TapoH500HeroCard extends H500Base {
     // meant to be one thing, not a stack.
     const frame = this._isPlaying(item)
       ? this._player(item)
-      : `<button class="frame" data-action="play" data-start="${item.start_time}"
+      : `<button class="frame" data-action="play" data-start="${Number(item.start_time)}"
+           aria-label="Play recording from ${esc(this._when(item))}"
            ${item.downloaded ? "" : "disabled"}>
            ${this._image(item)}
            ${item.downloaded ? `<span class="play">&#9654;</span>` : ""}
@@ -871,7 +1052,8 @@ class TapoH500GridCard extends H500Base {
   _tile(item) {
     const when = new Date(item.start_time * 1000);
     return `
-      <button class="tile" data-action="play" data-start="${item.start_time}"
+      <button class="tile" data-action="play" data-start="${Number(item.start_time)}"
+        aria-label="Play recording from ${esc(this._when(item))}"
         aria-pressed="${this._isPlaying(item)}" ${item.downloaded ? "" : "disabled"}>
         ${this._image(item)}
         <span class="when">${esc(when.toLocaleTimeString())}</span>
@@ -1125,7 +1307,9 @@ class TapoH500FacesCard extends H500Base {
       return `
         <div class="facewrap">
         <button class="face" data-action="play"
-          data-start="${face.newest.start_time}"
+          data-start="${Number(face.newest.start_time)}"
+          aria-label="Play the newest recording of ${
+            esc(this._label(face).text)}, from ${esc(this._when(face.newest))}"
           ${face.newest.downloaded ? "" : "disabled"}>
           ${this._image(face.newest)}
           <span class="who${named ? "" : " unnamed"}">${
@@ -1135,6 +1319,7 @@ class TapoH500FacesCard extends H500Base {
         </button>
         <button class="name" data-action="name" data-face="${esc(face.id)}"
           data-name="${esc(named ? face.name : "")}"
+          aria-label="${named ? "Rename" : "Name"} ${esc(this._label(face).text)}"
           >${named ? "Rename" : "Name this face"}</button>
         </div>`;
     }).join("");
@@ -1176,11 +1361,6 @@ class TapoH500FaceSummaryCard extends H500Base {
     return 2 + Math.ceil((this._faces || []).length / 2);
   }
 
-  _label(face) {
-    const named = face.name !== undefined && face.name !== null;
-    return { named, text: named ? String(face.name) : `Face ${face.id}` };
-  }
-
   _table(faces) {
     const rows = faces.map((face) => `
       <tr><td>${esc(this._label(face).text)}</td>
@@ -1214,11 +1394,16 @@ class TapoH500FaceSummaryCard extends H500Base {
       const mid = y + row / 2;
       const { named, text } = this._label(face);
       const count = Number(face.sightings);
-      const title = `${text} — seen ${count} time${count === 1 ? "" : "s"}`;
+      // Escaped here rather than at the point it is used, so what leaves
+      // this line is markup and nothing downstream has to remember. Named
+      // apart from the card's own `title`, which is a raw camera alias: one
+      // name for both would make "is this escaped?" unanswerable by anything
+      // that reads the file, this file's own guard included.
+      const tooltip = `${esc(text)} — seen ${count} time${count === 1 ? "" : "s"}`;
       const width = Math.max(2, x(count) - L);
       return `
         <rect class="hit" x="0" y="${y}" width="${W}" height="${row}">
-          <title>${esc(title)}</title></rect>
+          <title>${tooltip}</title></rect>
         <text class="who${named ? "" : " unnamed"}" x="0" y="${(mid + 3).toFixed(1)}"
           >${esc(text.length > 16 ? `${text.slice(0, 15)}…` : text)}</text>
         <rect class="bar" x="${L}" y="${(mid - barH / 2).toFixed(1)}"
@@ -1291,7 +1476,8 @@ class TapoH500PeopleCard extends H500Base {
     const rows = this._people.map((person) => {
       const named = person.name !== undefined && person.name !== null;
       const strip = person.items.map((item) => `
-        <button data-action="play" data-start="${item.start_time}"
+        <button data-action="play" data-start="${Number(item.start_time)}"
+          aria-label="Play recording from ${esc(this._when(item))}"
           ${item.downloaded ? "" : "disabled"}>
           ${this._image(item)}
           <span class="stamp">${esc(ago(item.start_time))}</span>

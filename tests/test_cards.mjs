@@ -8,25 +8,107 @@
  */
 import assert from "node:assert/strict";
 
+/** A control the card rendered, identified the way the card identifies it. */
+class FakeButton {
+  constructor(dataset) { this.dataset = dataset; this.focused = false; }
+  focus() { this.focused = true; }
+}
 class FakeElement {
   constructor() { this.shadowRoot = null; this.children = []; }
   appendChild(child) { this.children.push(child); }
   addEventListener() {}
   dispatchEvent() {}
   attachShadow() {
-    this.shadowRoot = { innerHTML: "", querySelector: () => new FakeCard() };
+    const card = new FakeCard();
+    // The live region lives beside the card and is made once; the card is
+    // rebuilt. Which is the whole point of it being out here.
+    const status = { textContent: "" };
+    const root = { innerHTML: "", activeElement: null };
+    root.querySelector = (selector) => {
+      if (selector === "ha-card") return card;
+      // Only if the card actually put one there. Handing it back regardless
+      // would hide the case where nobody made a live region at all.
+      if (selector === '[role="status"]') {
+        return root.innerHTML.includes('role="status"') ? status : null;
+      }
+      return null;
+    };
+    this.shadowRoot = root;
     return this.shadowRoot;
   }
 }
-class FakeCard { constructor() { this.innerHTML = ""; }
-  addEventListener() {} }
+class FakeVideo {
+  constructor() {
+    this.currentTime = 0; this.paused = false; this._listeners = {};
+  }
+  addEventListener(type, fn) { (this._listeners[type] ||= []).push(fn); }
+  pause() { this.paused = true; }
+  /** What the browser does once the media has read its duration. */
+  loadedmetadata() { (this._listeners.loadedmetadata || []).forEach(fn => fn()); }
+}
+class FakeCard {
+  constructor() { this.innerHTML = ""; this.writes = 0; this.video = null; }
+  addEventListener() {}
+  querySelector(selector) { return selector === "video" ? this.video : null; }
+  /** The buttons in whatever was last written, read out of the markup.
+   *
+   * Built once per write and kept, because the browser's are the same
+   * objects every time you ask -- and focusing a throwaway proves nothing.
+   */
+  querySelectorAll() {
+    if (this._buttons) return this._buttons;
+    this._buttons = [...this.innerHTML.matchAll(/<button([^>]*)>/g)].map(([, attrs]) => {
+      const dataset = {};
+      for (const [, key, value] of attrs.matchAll(/data-([a-z]+)="([^"]*)"/g)) {
+        dataset[key] = value;
+      }
+      return new FakeButton(dataset);
+    }).filter((button) => button.dataset.action);
+    return this._buttons;
+  }
+}
+// The card writes innerHTML; counting the writes is how "it did not rebuild"
+// is checked. Writing it also replaces any player, which is what the browser
+// does and the whole reason an unchanged render must not write.
+Object.defineProperty(FakeCard.prototype, "innerHTML", {
+  get() { return this._html || ""; },
+  set(value) {
+    this._html = value;
+    this.writes = (this.writes || 0) + 1;
+    this.video = value.includes("<video") ? new FakeVideo() : null;
+    this._buttons = null;
+  },
+});
 
 globalThis.HTMLElement = FakeElement;
 globalThis.customElements = { _defined: new Map(),
   get(name) { return this._defined.get(name); },
   define(name, cls) { this._defined.set(name, cls); } };
 globalThis.window = {};
-globalThis.document = { createElement: (tag) => ({ tagName: tag, addEventListener() {} }) };
+globalThis.document = {
+  hidden: false,
+  _listeners: {},
+  createElement: (tag) => ({ tagName: tag, addEventListener() {} }),
+  addEventListener(type, fn) { (this._listeners[type] ||= []).push(fn); },
+  removeEventListener(type, fn) {
+    this._listeners[type] = (this._listeners[type] || []).filter((f) => f !== fn);
+  },
+  /** What the browser does when a tab is shown or hidden. */
+  setHidden(hidden) {
+    this.hidden = hidden;
+    (this._listeners.visibilitychange || []).slice().forEach((fn) => fn());
+  },
+};
+// The minute timer, kept rather than run, so a test can fire it and see what
+// the card does with it -- which is where the visibility check has to be.
+const intervals = new Map();
+let nextInterval = 1;
+globalThis.setInterval = (fn) => {
+  intervals.set(nextInterval, fn);
+  return nextInterval++;
+};
+globalThis.clearInterval = (id) => { intervals.delete(id); };
+const fireTimers = () => [...intervals.values()].forEach((fn) => fn());
 globalThis.CustomEvent = class { constructor(type, opts) { this.type = type; Object.assign(this, opts); } };
 
 const mod = await import("../custom_components/tapo_h500/www/tapo-h500-card.js");
@@ -217,6 +299,536 @@ const build = (Cls, config = {}) => {
   card._camera = { alias: "Front Doorbell" };
   return card;
 };
+
+// --- rebuilding only when something changed --------------------------------
+
+test("a poll that found nothing new does not rebuild the card", () => {
+  // Replacing innerHTML destroys and remakes every node under it: an open
+  // recording restarts from zero with autoplay, keyboard focus falls back to
+  // the document, and the scroll position goes. The poll runs every minute
+  // whether or not the hub had anything to say.
+  const card = build(TapoH500Card, {});
+  card._render();
+  const first = card._card.writes;
+  card._render();
+  card._render();
+  assert.equal(card._card.writes, first, "three identical renders, one write");
+});
+
+test("a new recording does rebuild it", () => {
+  const card = build(TapoH500Card, {});
+  card._render();
+  const before = card._card.writes;
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  assert.equal(card._card.writes, before + 1);
+});
+
+test("switching camera rebuilds even if the list looks the same", () => {
+  const card = build(TapoH500Card, {});
+  card._cameras = [{ index: 0, alias: "Front" }, { index: 1, alias: "Side" }];
+  card._render();
+  const before = card._card.writes;
+  card._index = 1;
+  card._render();
+  assert.equal(card._card.writes, before + 1,
+    "the picker's pressed state is part of the markup");
+});
+
+test("a reconfigure forgets what was on screen", () => {
+  // Otherwise the first render after a config change compares against markup
+  // that belonged to the old styles and shape, and skips.
+  const card = build(TapoH500Card, {});
+  card._render();
+  const before = card._card.writes;
+  card.setConfig({});
+  card._recordings = CLIPS;
+  card._camera = { alias: "Front Doorbell" };
+  card._render();
+  assert.equal(card._card.writes, before + 1);
+});
+
+test("a clip being watched keeps its place across a rebuild", () => {
+  // A new recording arriving is not a reason to send the one on screen back
+  // to the beginning. The fake card replaces its player on every write, the
+  // way a browser does.
+  const card = build(TapoH500Card, {});
+  card._playing = String(CLIPS[0].start_time);
+  card._render();
+  assert.ok(card._card.video, "the clip being played has a player");
+  card._card.video.currentTime = 42;
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  const fresh = card._card.video;
+  fresh.loadedmetadata();
+  assert.equal(fresh.currentTime, 42);
+  assert.equal(fresh.paused, false, "it was playing, so it plays on");
+});
+
+test("a paused clip comes back paused across a rebuild", () => {
+  const card = build(TapoH500Card, {});
+  card._playing = String(CLIPS[0].start_time);
+  card._render();
+  card._card.video.currentTime = 12;
+  card._card.video.paused = true;
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  card._card.video.loadedmetadata();
+  assert.equal(card._card.video.currentTime, 12);
+  assert.equal(card._card.video.paused, true);
+});
+
+test("a clip at the very start is not treated as one to restore", () => {
+  // currentTime 0 is where a fresh autoplay starts anyway, and seeking back
+  // to 0 would only fight the autoplay attribute.
+  const card = build(TapoH500Card, {});
+  card._playing = String(CLIPS[0].start_time);
+  card._render();
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  assert.equal(card._card.video._listeners.loadedmetadata, undefined);
+});
+
+test("a button re-enables itself instead of waiting for the rebuild", async () => {
+  // It used to be cleared as a side effect of innerHTML replacing the button.
+  // That stopped being true the moment an unchanged render skipped the
+  // rebuild, and left Refresh dead after one press on a quiet camera.
+  const card = build(TapoH500Card, {});
+  card._hass = { connection: { sendMessagePromise: async () => ({
+    response: { recordings: [], camera: { alias: "Front" } } }) } };
+  card._config.entry_id = "abc";
+  const button = { dataset: { action: "refresh" }, disabled: false,
+                   closest() { return button; } };
+  await card._onClick({ target: button });
+  assert.equal(button.disabled, false);
+});
+
+test("a button that threw still re-enables", async () => {
+  const card = build(TapoH500Card, {});
+  card._hass = { connection: { sendMessagePromise: async () => {
+    throw new Error("hub not answering"); } } };
+  card._config.entry_id = "abc";
+  const button = { dataset: { action: "refresh" }, disabled: false,
+                   closest() { return button; } };
+  await card._onClick({ target: button });
+  assert.equal(button.disabled, false);
+  assert.equal(card._error, "hub not answering");
+});
+
+// --- nothing from the hub reaches markup unescaped -------------------------
+
+/** The source with every `esc(...)` call cut out, parens matched.
+ *
+ * An interpolation inside an escaped expression is already safe, and there is
+ * no way to tell that from a regex over the raw text.
+ */
+const withoutEscaped = (source) => {
+  let out = "";
+  for (let i = 0; i < source.length; i += 1) {
+    if (source.startsWith("esc(", i)) {
+      let depth = 0;
+      let j = i + 3;
+      for (; j < source.length; j += 1) {
+        if (source[j] === "(") depth += 1;
+        else if (source[j] === ")") { depth -= 1; if (!depth) break; }
+      }
+      i = j;
+      continue;
+    }
+    out += source[i];
+  }
+  return out;
+};
+
+/** Interpolations that are safe by their shape, whatever they hold.
+ *
+ * A cast, a padded or fixed number, a length, a comparison, a choice between
+ * literals, or a call into another render function whose own output is
+ * checked by this same test.
+ */
+const SAFE_SHAPE = /^(Number|String|pad)\(|\.length\b|\.toFixed\(|===|\?|=>|this\._/;
+
+/** Names inspected once and found safe, with why.
+ *
+ * Default-deny, the same way the diagnostics allow-list works and for the
+ * same reason: a rule that lists what is dangerous leaks whatever gets added
+ * next. A new interpolation fails this test until somebody has looked at it.
+ */
+const SAFE_NAMES = new Set([
+  // Markup built by another function in this file, already escaped there.
+  "bars", "body", "grid", "picker", "rows", "strip", "tiles", "ticks",
+  "frame", "mark", "hit", "live", "row", "tooltip",
+  // Escaped where it is built, so it is markup by the time it is used. Named
+  // apart from the `when` Date objects beside it, so that stays checkable.
+  "spoken",
+  // Layout arithmetic. Chart geometry, never anything anybody typed.
+  "H", "L", "T", "W", "H - 4", "H - 6", "W - R", "barH", "plotH", "y", "d",
+  "value", "total", "count", "date.getUTCFullYear()",
+  // Stylesheets, which are this file's own constants.
+  "BASE_STYLE", "this.constructor.style",
+  // A CSS class name chosen by the caller, from a literal in this file.
+  "className",
+  // The unit word in a relative time -- "minute", "hour" -- from a constant.
+  "name",
+  // A face id in a browser prompt, which is not markup at all.
+  "faceId",
+]);
+
+test("no value reaches markup unescaped", async () => {
+  // Camera aliases, face names and detection labels are the hub's words or
+  // the owner's, and they land in markup built by hand. "We remembered every
+  // time" is not a property anybody keeps across 1,350 lines, so it is
+  // checked instead -- including for values that took a turn through a local
+  // on the way, which is how the first version of this test missed the card
+  // title.
+  const { readFileSync } = await import("node:fs");
+  const source = withoutEscaped(readFileSync(
+    "custom_components/tapo_h500/www/tapo-h500-card.js", "utf8"));
+  const unsafe = [];
+  for (const [, expression] of source.matchAll(/\$\{([^{}]*)\}/g)) {
+    const text = expression.trim();
+    // Empty is what an entirely escaped interpolation leaves behind.
+    if (!text || SAFE_SHAPE.test(text) || SAFE_NAMES.has(text)) continue;
+    unsafe.push(text);
+  }
+  assert.deepEqual([...new Set(unsafe)].sort(), [],
+    "wrap in esc() for text, Number() for a number, or add to SAFE_NAMES "
+    + "once you have checked what it holds");
+});
+
+test("the check would catch one", () => {
+  // A guard nobody has seen fail is a guard nobody should trust. Both shapes
+  // that have slipped past a version of this test: a property read straight
+  // into markup, and a hub value that went through a local first.
+  const source = withoutEscaped(
+    'const heading = camera.alias;'
+    + 'html = `<b title="${item.alias}">${esc(item.name)}</b>'
+    + '<h2>${heading}</h2>`;');
+  const found = [];
+  for (const [, expression] of source.matchAll(/\$\{([^{}]*)\}/g)) {
+    const text = expression.trim();
+    // Empty is what an entirely escaped interpolation leaves behind.
+    if (!text || SAFE_SHAPE.test(text) || SAFE_NAMES.has(text)) continue;
+    found.push(text);
+  }
+  assert.deepEqual(found.sort(), ["heading", "item.alias"],
+    "the escaped one is ignored; the raw property and the raw local are not");
+});
+
+test("clip times go out as numbers, which is the escape and the assertion", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(
+    "custom_components/tapo_h500/www/tapo-h500-card.js", "utf8");
+  for (const attribute of ["data-start", "data-end"]) {
+    for (const [, expression] of
+         source.matchAll(new RegExp(`${attribute}="\\$\\{([^}]*)\\}"`, "g"))) {
+      assert.match(expression, /^(Number|esc)\(/,
+        `${attribute}="\${${expression}}" is neither cast nor escaped`);
+    }
+  }
+});
+
+// --- not polling a hub for a screen nobody is looking at --------------------
+
+/** A card whose loads are counted rather than performed. */
+const counting = (Cls, config = {}) => {
+  const card = new Cls();
+  card.setConfig({ ...config });
+  card.loads = 0;
+  card._load = () => { card.loads += 1; };
+  return card;
+};
+
+test("the minute timer is the thing that checks, not just _tick", () => {
+  // The check has to be on the path the timer actually takes. Calling _tick
+  // by hand proves nothing about what setInterval was handed.
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  document.setHidden(true);
+  fireTimers();
+  assert.equal(card.loads, 0);
+  document.setHidden(false);
+  card.disconnectedCallback();
+});
+
+test("a hidden tab does not ask the hub anything", async () => {
+  // A wall tablet with this on a dashboard nobody is looking at asked for a
+  // listing every minute, all night, for a screen that was off. Each one is a
+  // round trip to a device this project exists because it wedges under load.
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  document.setHidden(true);
+  card._tick();
+  card._tick();
+  assert.equal(card.loads, 0);
+  document.setHidden(false);
+});
+
+test("a visible tab still polls", () => {
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  card._tick();
+  assert.equal(card.loads, 1);
+});
+
+test("coming back catches up rather than waiting for the next minute", () => {
+  // A tab hidden for an hour is showing an hour-old list, and refreshing it
+  // the moment it comes back is the whole reason for polling.
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  document.setHidden(true);
+  card._tick();
+  assert.equal(card.loads, 0);
+  document.setHidden(false);
+  assert.equal(card.loads, 1);
+});
+
+test("coming back to a tab that missed nothing does not reload", () => {
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  document.setHidden(true);
+  document.setHidden(false);
+  assert.equal(card.loads, 0, "no tick was skipped, so nothing to catch up");
+});
+
+test("a removed card stops listening", () => {
+  // Otherwise every dashboard edit leaves another listener behind, each one
+  // holding a whole card object.
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  card.disconnectedCallback();
+  document.setHidden(true);
+  card._tick();
+  document.setHidden(false);
+  assert.equal(card.loads, 0);
+});
+
+// --- what somebody using a screen reader or a keyboard gets ----------------
+
+test("every recording button says which recording it is for", () => {
+  // Thirty rows read aloud were thirty buttons all called "Play". The
+  // timestamp beside them on screen carries none of that to anybody who
+  // cannot see the row.
+  const card = build(TapoH500Card, {});
+  // Two on disk, so there are two Delete buttons to tell apart. The shared
+  // fixture has one of each, which is the wrong shape for this question.
+  card._recordings = CLIPS.map((clip) => ({ ...clip, downloaded: true }));
+  card._render();
+  const deletes = [...card._card.innerHTML.matchAll(/aria-label="([^"]*)"/g)]
+    .map(([, label]) => label)
+    .filter((label) => label.startsWith("Delete recording"));
+  assert.ok(deletes.length >= 2, "the rows carry labels at all");
+  assert.equal(new Set(deletes).size, deletes.length,
+    "and one row's Delete does not sound like another's");
+});
+
+test("the labels name the action as well as the clip", () => {
+  const card = build(TapoH500Card, {});
+  card._render();
+  const html = card._card.innerHTML;
+  assert.match(html, /aria-label="Play recording from [^"]+"/);
+  assert.match(html, /aria-label="Delete recording from [^"]+"/);
+});
+
+test("a hostile face name cannot escape through a label", () => {
+  const card = build(TapoH500FacesCard, {});
+  card._sharedNames = { "7": `"><img src=x onerror=alert(1)>` };
+  card._recordings = CLIPS.map((clip) => ({ ...clip, face_ids: [7] }));
+  const html = card.body();
+  assert.ok(!html.includes("<img src=x"), "escaped inside the label too");
+});
+
+test("the live region is made once and only its text changes", () => {
+  // A live region only announces changes to a region already there. One
+  // inserted with its text already in it says nothing at all -- and the
+  // card's whole contents are replaced on every real render.
+  const card = build(TapoH500Card, {});
+  const region = card.shadowRoot.querySelector('[role="status"]');
+  assert.equal(region.textContent, "");
+  card._hass = { states: {
+    "event.front_activity": {
+      attributes: { camera_index: 0, detection_types: [2] },
+      state: new Date().toISOString() } } };
+  card._render();
+  assert.equal(region.textContent, "Recording now");
+  card._hass = { states: {} };
+  card._render();
+  assert.equal(region.textContent, "");
+});
+
+test("the visible recording dot is not announced twice", () => {
+  const card = build(TapoH500Card, {});
+  card._hass = { states: {
+    "event.front_activity": {
+      attributes: { camera_index: 0, detection_types: [2] },
+      state: new Date().toISOString() } } };
+  card._render();
+  const html = card._card.innerHTML;
+  assert.match(html, /class="recording-now" aria-hidden="true"/);
+  assert.ok(!html.includes('role="status"'),
+    "the announcing one is outside the part that gets rebuilt");
+});
+
+test("the keyboard stays where it was across a rebuild", () => {
+  // innerHTML replaces every node and the browser drops focus to the
+  // document, which for somebody tabbing through a list means starting again
+  // from the top every time anything changes.
+  const card = build(TapoH500Card, {});
+  card._render();
+  const before = card._card.querySelectorAll();
+  const target = before.find((button) => button.dataset.action === "delete");
+  card.shadowRoot.activeElement = target;
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  const after = card._card.querySelectorAll();
+  const focused = after.filter((button) => button.focused);
+  assert.equal(focused.length, 1, "exactly one control has the keyboard");
+  assert.equal(focused[0].dataset.action, "delete");
+  assert.equal(focused[0].dataset.start, target.dataset.start,
+    "the same row's Delete, not a different row's");
+});
+
+test("focus is not moved when nothing had it", () => {
+  const card = build(TapoH500Card, {});
+  card._render();
+  card.shadowRoot.activeElement = null;
+  card._recordings = [{ ...CLIPS[0], start_time: CLIPS[0].start_time + 9 },
+                      ...CLIPS];
+  card._render();
+  assert.equal(card._card.querySelectorAll().filter((b) => b.focused).length, 0);
+});
+
+test("a control that is gone after the rebuild takes nothing with it", () => {
+  // Delete the clip you were on and its buttons do not come back. Focusing
+  // some other row's Delete would be worse than losing it.
+  const card = build(TapoH500Card, {});
+  card._render();
+  const target = card._card.querySelectorAll()
+    .find((button) => button.dataset.action === "delete");
+  card.shadowRoot.activeElement = target;
+  card._recordings = CLIPS.filter(
+    (clip) => String(clip.start_time) !== target.dataset.start);
+  card._render();
+  assert.equal(card._card.querySelectorAll().filter((b) => b.focused).length, 0);
+});
+
+// --- one request at a time, and none dropped -------------------------------
+
+/** Let every pending microtask and timer callback run. */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/** A card whose service call resolves when the test says so. */
+const deferred = (Cls, config = {}) => {
+  const card = new Cls();
+  card.setConfig({ entry_id: "abc", ...config });
+  const calls = [];
+  card._hass = { connection: { sendMessagePromise: (message) => {
+    let settle;
+    const promise = new Promise((resolve, reject) => {
+      settle = { resolve, reject };
+    });
+    calls.push({ index: message.service_data.camera_index, ...settle });
+    return promise;
+  } } };
+  const answer = (n, recordings) => calls[n].resolve({ response: {
+    recordings, camera: { alias: `Camera ${calls[n].index}` }, days: 1 } });
+  return { card, calls, answer };
+};
+
+const clipAt = (start) => ({ ...CLIPS[0], start_time: start, end_time: start + 9 });
+
+test("choosing a camera mid-load is not thrown away", async () => {
+  // The busy flag used to return, which looked like it was protecting the hub
+  // and was dropping work: the load for the camera just chosen never ran, and
+  // the card sat on the previous camera's recordings under the new name until
+  // the next poll a minute later.
+  const { card, calls, answer } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  assert.equal(calls.length, 1);
+  card._index = 1;
+  card._load();
+  await tick();
+  assert.equal(calls.length, 1, "the second waits rather than piling on");
+  answer(0, [clipAt(100)]);
+  await tick();
+  assert.equal(calls.length, 2, "and then it runs");
+  assert.equal(calls[1].index, 1, "for the camera actually chosen");
+});
+
+test("a day change mid-load supersedes the answer too", async () => {
+  const { card, calls, answer } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  card._dayOffset = 3;
+  card._load();
+  answer(0, [clipAt(100)]);
+  await tick();
+  assert.equal(card._camera, undefined,
+    "yesterday's answer under today's heading is the same bug");
+});
+
+test("a superseded answer is not painted", async () => {
+  const { card, calls, answer } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  card._index = 1;
+  card._load();
+  answer(0, [clipAt(100)]);
+  await tick();
+  assert.equal(card._camera, undefined,
+    "camera 0's answer belongs to a question nobody is asking");
+  answer(1, [clipAt(200), clipAt(300)]);
+  await tick();
+  assert.equal(card._recordings.length, 2, "camera 1's, not camera 0's");
+  assert.equal(card._camera.alias, "Camera 1");
+});
+
+test("a superseded failure does not show over an answer still coming", async () => {
+  const { card, calls, answer } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  card._index = 1;
+  card._load();
+  calls[0].reject(new Error("hub not answering"));
+  await tick();
+  assert.equal(card._error, null,
+    "camera 0's failure must not sit over camera 1's answer still coming");
+  answer(1, [clipAt(200)]);
+  await tick();
+  assert.equal(card._error, null);
+  assert.equal(card._recordings.length, 1);
+});
+
+test("a failure on the request that is still current does show", async () => {
+  const { card, calls } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  calls[0].reject(new Error("hub not answering"));
+  await tick();
+  assert.equal(card._error, "hub not answering");
+});
+
+test("several changes while one is in flight collapse to a single follow-up", async () => {
+  // The point is the hub, which wedges under load. Queueing one is right;
+  // queueing four is a burst.
+  const { card, calls, answer } = deferred(TapoH500Card);
+  card._load();
+  await tick();
+  card._load();
+  card._load();
+  card._load();
+  await tick();
+  assert.equal(calls.length, 1);
+  answer(0, []);
+  await tick();
+  assert.equal(calls.length, 2);
+});
 
 test("the summary chart reserves room for its own x-axis labels", () => {
   // Anti-pattern: a fixed height that fits the plot but clips the axis band,

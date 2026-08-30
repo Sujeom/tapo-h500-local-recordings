@@ -22,9 +22,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 import test_coordinator as harness  # noqa: E402  (installs the HA stubs)
 
 coordinator_mod = importlib.import_module("tapo_h500.coordinator")
+binary_sensor_mod = importlib.import_module("tapo_h500.binary_sensor")
 const = importlib.import_module("tapo_h500.const")
 
 NOW = 1_786_600_000
+CAMERA = {"device_id": "cam0", "alias": "Front"}
+
+
+def clip(start, length=15):
+    return {"startTime": start, "endTime": start + length}
 
 
 class _Client:
@@ -138,9 +144,11 @@ class Entity(unittest.TestCase):
         self.assertIn("H500CameraSilent(coordinator, index, camera)", setup)
 
     def test_it_is_unknown_rather_than_fine_before_the_first_poll(self):
-        body = BINARY_SENSOR.split("class H500CameraSilent", 1)[1].split(
-            "\nclass ", 1)[0]
-        self.assertIn("if seconds is None:\n            return None", body)
+        """None reads as "unknown" in the frontend, which is the truth.
+        False would say "fine" about a camera nobody has asked about yet."""
+        coord, _ = build()
+        sensor = binary_sensor_mod.H500CameraSilent(coord, 0, CAMERA)
+        self.assertIsNone(sensor.is_on)
 
 
 class Repair(unittest.TestCase):
@@ -226,6 +234,19 @@ class ExpectedSince(unittest.TestCase):
         two_day = clips_mod.expected_since(clips, since, now, 2 * 86400)
         self.assertAlmostEqual(two_day, one_day / 2, delta=0.2)
 
+    def test_a_zero_window_predicts_nothing_rather_than_dividing_by_it(self):
+        """The boundary of the guard, not just one side of it.
+
+        `window` becomes the divisor two lines later (`days = window / 86400`),
+        so the guard is what stands between a zero window and a
+        ZeroDivisionError inside a poll. Mutation testing found this: widening
+        `window <= 0` to `window < 0` survived the whole suite, because every
+        test passed a real window and nothing exercised nought.
+        """
+        clips = [{"startTime": at_local_hour(0, 9), "endTime": 0}]
+        self.assertEqual(clips_mod.expected_since(clips, 0, 100, 0), 0.0)
+        self.assertEqual(clips_mod.expected_since(clips, 0, 100, -1), 0.0)
+
     def test_no_history_predicts_nothing(self):
         self.assertEqual(clips_mod.expected_since([], NOW - 3600, NOW, 86400), 0.0)
 
@@ -258,15 +279,37 @@ class AdaptiveSensorWiring(unittest.TestCase):
     BODY = BINARY_SENSOR.split("class H500CameraSilent", 1)[1].split(
         "\nclass ", 1)[0]
 
-    def test_it_flags_on_either_ground(self):
-        self.assertIn("expected_since", self.BODY)
-        self.assertIn("SILENT_EXPECTED", self.BODY)
-        self.assertIn(" or ", self.BODY.split("def is_on", 1)[1]
-                      .split("@property", 1)[0])
+    def _sensor(self, clips, **options):
+        coord, _ = build(**options)
+        coord._primed = True
+        coord.clips_for = lambda index: list(clips)
+        return binary_sensor_mod.H500CameraSilent(coord, 0, CAMERA), coord
+
+    def test_a_busy_camera_is_flagged_long_before_the_ceiling(self):
+        """Two recordings an hour for a day, then four hours of nothing. The
+        ceiling is twenty-four hours away and this is already wrong."""
+        clips = [clip(NOW - 4 * 3600 - n * 1800) for n in range(48)]
+        sensor, coord = self._sensor(clips, silent_hours=24)
+        self.assertLess(coord.silent_seconds(0), 24 * 3600)
+        self.assertTrue(sensor.is_on)
+
+    def test_the_ceiling_still_catches_a_camera_with_no_history(self):
+        """Nothing to build an expectation from, so only the hard limit can
+        fire -- and it must."""
+        sensor, coord = self._sensor([])
+        self.assertEqual(binary_sensor_mod.expected_events(coord, 0), 0.0)
+        self.assertTrue(sensor.is_on)
+
+    def test_a_camera_recording_normally_is_flagged_on_neither(self):
+        sensor, _ = self._sensor([clip(NOW - 60 * n) for n in range(1, 40)])
+        self.assertFalse(sensor.is_on)
 
     def test_the_expectation_is_shown_alongside_the_silence(self):
-        attrs = self.BODY.split("extra_state_attributes", 1)[1]
-        self.assertIn("expected_events", attrs)
+        clips = [clip(NOW - 4 * 3600 - n * 1800) for n in range(48)]
+        sensor, _ = self._sensor(clips)
+        attributes = sensor.extra_state_attributes
+        self.assertGreater(attributes["expected_events"], 0)
+        self.assertGreater(attributes["silent_seconds"], 0)
 
 
 class TheAlarmDoesNotSwitchItselfOff(unittest.TestCase):
@@ -388,8 +431,25 @@ class TheAlarmDoesNotSwitchItselfOff(unittest.TestCase):
         self.assertFalse(coord.silent_latched(0))
 
     def test_the_sensor_says_when_it_is_being_held(self):
-        body = BINARY_SENSOR.split("class H500CameraSilent", 1)[1].split(
-            "\nclass ", 1)[0]
-        self.assertIn("latch_silent", body.split("def is_on", 1)[1])
-        self.assertIn("held_since_last_recording",
-                      body.split("extra_state_attributes", 1)[1])
+        """"Still on, and here is why" -- otherwise a held alarm reads as a
+        sensor stuck for no reason anybody can see."""
+        coord, _ = build()
+        coord._primed = True
+        coord.clips_for = lambda index: []
+        sensor = binary_sensor_mod.H500CameraSilent(coord, 0, CAMERA)
+        self.assertTrue(sensor.is_on)
+        self.assertTrue(coord.silent_latched(0))
+        self.assertTrue(
+            sensor.extra_state_attributes["held_since_last_recording"])
+
+    def test_a_recording_clears_the_latch(self):
+        """Only the camera producing again counts as recovery. The
+        expectation falling back under its line is the decay this ignores."""
+        coord, _ = build()
+        coord._primed = True
+        coord.clips_for = lambda index: []
+        sensor = binary_sensor_mod.H500CameraSilent(coord, 0, CAMERA)
+        self.assertTrue(sensor.is_on)
+        coord.clips_for = lambda index: [clip(NOW - 30)]
+        self.assertFalse(sensor.is_on)
+        self.assertFalse(coord.silent_latched(0))

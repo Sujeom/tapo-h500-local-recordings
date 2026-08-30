@@ -568,16 +568,20 @@ is always its highest set bit plus one — checked against every observed record
 So the mask is the richer field: `2097442` is bits 1, 5, 8 and 21 — four
 concurrent detections where `alarm_type` reports only the last.
 
-**Only two codes are named**, and only where the evidence carries: `2` is set
+~~**Only two codes are named**, and only where the evidence carries: `2` is set
 on nearly every detection, and `20` is the only code observed carrying a
-`face_id`. The rest are real and unnamed, and are displayed as `type 22` rather
-than guessed at. The hub cannot name them either — `getAlertTypeList` is
-`-40106` and `getAlertConfig` returns `{}`.
+`face_id`. The rest are real and unnamed.~~ **(superseded — see "What the
+alarm_type codes mean" above.)** Nine codes are named now, each against
+observed detections, and anything outside that set is still displayed as its
+number rather than guessed at. The hub cannot name them either —
+`getAlertTypeList` is `-40106` and `getAlertConfig` returns `{}`.
 
-**Which code means a doorbell press is still unknown.** `RING_ALARM_TYPES` in
-`const.py` is deliberately empty; add the code there once a real press has been
-captured and the event entity, the download filter and every card pick it up at
-once.
+~~**Which code means a doorbell press is still unknown.** `RING_ALARM_TYPES` in
+`const.py` is deliberately empty.~~ **(superseded.)** `alarm_type` 17 is a
+press, confirmed against a real one, and `RING_ALARM_TYPES` is `{17}`. Code 10
+rides along with it every time and has never been seen alone, so it is read as
+a missed press rather than added to the set — that would claim more than was
+observed.
 
 ### Why it looked dead for so long
 
@@ -612,8 +616,11 @@ firmware 1.3.20:
   both cameras across a seven-day window, with and without child addressing.
   It is a live method that yields nothing here.
 - Every clip is `video_type: "2"`, whatever triggered it. There is no per-clip
-  classification, which is the same reason a doorbell press cannot be told
-  apart from motion.
+  classification in the *clip index*. ~~which is the same reason a doorbell
+  press cannot be told apart from motion.~~ **(superseded.)** The detection
+  log carries it: `searchDetectionList` answers with an `alarm_type` per
+  event, and `attach_detections` puts the two together so one record carries
+  both.
 - Person, pet and vehicle config getters are camera-level, and a camera child
   cannot be addressed (see `controlChild` above).
 
@@ -783,6 +790,65 @@ reason than pytapo's silence:
 A delete verb was deliberately **not** brute-forced. Any probe specific enough
 to prove one exists is specific enough to erase a recording, and hub footage
 cannot be recovered.
+
+### `subg` is unreachable too — asked and answered, 2026-08-30
+
+`subg` is the sub-GHz link between the hub and the TD21 doorbells, which is to
+say it is the layer the failure this project exists around lives in: the
+cameras keep their radio link, still answer live view, and record nothing. It
+was advertised in `app_component_list` and had never been probed.
+
+`tools/probe_subg.py` asked, in one login: fifteen section spellings — the five
+that work for `app_component` and `general_camera_manage`, plus ten from a
+radio's own vocabulary (`rf`, `signal`, `channel`, `paired_list` and the rest)
+— and ten method names through `executeFunction`.
+
+**Every one returned `-40106`.** `subg` joins `playbackDelete`, `snapshot`,
+`eventCenter` and `ringLog`: advertised and not addressable.
+
+That is a useful negative. There is no LAN-readable state for the camera
+radio, so "have the cameras gone dark" cannot be answered by a reading and
+must be inferred. Every camera falling silent at once, on a hub still
+answering every poll, is the whole of the available signal — which is what the
+"Cameras not recording" sensor is built on, and why it is built that way.
+
+Two traps caught this probe on the way, both already written up in this file
+and both worth repeating because they produce confident wrong answers:
+
+- A bare `{"method": name, "params": {}}` sent down `performRequest` comes
+  back `40210` whatever the name is. The envelope is rejected before the hub
+  looks at the method, so the reply says nothing about whether it exists.
+  `executeFunction` builds the envelope that gets evaluated.
+- A rejected envelope reports `err_code`; an evaluated one carries
+  `error_code` inside its result. Reading only the second made ten rejected
+  envelopes look like ten answers.
+
+The probe is read-only by construction rather than by convention: every
+request is walked before it is sent, and any `method` that is not a getter, or
+any key that is a write verb, refuses the run. `do` is checked as a key rather
+than a method name, because that is how Tapo's write verb travels, and the
+walk descends into lists because sub-requests arrive in one. `multipleRequest`
+is allowed by name as a carrier and its contents are still walked.
+
+### What cannot be answered from the LAN at all
+
+Three questions are left, and none of them can be settled by asking the hub.
+
+- **A faster event source.** `eventCenter` and `ringLog` are advertised and
+  every namespace and method route returns `-40106`. If the app reaches them
+  it does so by a shape no amount of guessing here has found, and the way to
+  learn it is a capture of the app's own traffic -- a proxy between the phone
+  and the hub, with the app's certificate pinning dealt with.
+- **Live view.** The session opens, authenticates, is acknowledged, and no
+  video arrives. Every step this end can perform has been performed. What is
+  missing is whatever the app sends that this does not, which is the same
+  capture.
+- **The radio itself.** `subg` is unreachable, so what is left is listening to
+  the link rather than asking about it: a software-defined radio at 868 or
+  915MHz, which is a different project with different equipment.
+
+None of that is a matter of more probing. It is a matter of instruments this
+repository does not have.
 
 ## What has not worked
 

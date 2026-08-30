@@ -136,7 +136,7 @@ class CircuitBreaker(unittest.TestCase):
         coord, client = _build()
         client.check_media = lambda: "wedged"
         _poll(coord)                       # restarts once
-        coord._auto_restarted = 1_786_600_000 - 600   # ten minutes ago
+        coord.media.restarted_at = 1_786_600_000 - 600   # ten minutes ago
         _poll(coord)                       # state still wedged
         self.assertTrue(coord.auto_restart_broken)
         self.assertEqual(client.reboots, 1)
@@ -145,9 +145,9 @@ class CircuitBreaker(unittest.TestCase):
         coord, client = _build()
         client.check_media = lambda: "wedged"
         _poll(coord)
-        coord._auto_restarted = 1_786_600_000 - 600
+        coord.media.restarted_at = 1_786_600_000 - 600
         _poll(coord)                       # trips
-        coord._auto_restarted = 1_786_600_000 - 8 * 3600   # cooldown long past
+        coord.media.restarted_at = 1_786_600_000 - 8 * 3600   # cooldown long past
         _poll(coord, 3)
         self.assertEqual(client.reboots, 1,
                          "a restart that did not cure must not be retried")
@@ -156,13 +156,13 @@ class CircuitBreaker(unittest.TestCase):
         coord, client = _build()
         client.check_media = lambda: "wedged"
         _poll(coord)
-        coord._auto_restarted = 1_786_600_000 - 600
+        coord.media.restarted_at = 1_786_600_000 - 600
         _poll(coord)                       # trips
         client.check_media = lambda: "healthy"
         coord.note_served_download()       # bytes actually flowed
         self.assertFalse(coord.auto_restart_broken)
         client.check_media = lambda: "wedged"
-        coord._auto_restarted = 1_786_600_000 - 8 * 3600
+        coord.media.restarted_at = 1_786_600_000 - 8 * 3600
         _poll(coord)
         self.assertEqual(client.reboots, 2)
 
@@ -173,7 +173,7 @@ class CircuitBreaker(unittest.TestCase):
         client.check_media = lambda: "wedged"
         _poll(coord)
         coord.note_served_download()       # it recovered in between
-        coord._auto_restarted = 1_786_600_000 - 8 * 3600
+        coord.media.restarted_at = 1_786_600_000 - 8 * 3600
         _poll(coord)
         self.assertFalse(coord.auto_restart_broken)
         self.assertEqual(client.reboots, 2)
@@ -208,17 +208,17 @@ class PostRestartRecheck(unittest.TestCase):
         coord, client = _build()
         client.check_media = lambda: "wedged"
         _poll(coord)
-        self.assertIsNotNone(coord._recheck_at)
+        self.assertIsNotNone(coord.media.recheck_at)
 
     def test_the_recheck_forces_the_deep_check_due(self):
         coord, client = _build()
         client.check_media = lambda: "wedged"
         _poll(coord)
-        coord._media_evidence = 1_786_600_000  # fresh, would normally skip
-        coord._recheck_at = 1_786_600_000 - 1  # due now
+        coord.media.evidence_at = 1_786_600_000  # fresh, would normally skip
+        coord.media.recheck_at = 1_786_600_000 - 1  # due now
         _poll(coord)
-        self.assertIsNone(coord._recheck_at)
-        self.assertEqual(coord._media_evidence, 0.0,
+        self.assertIsNone(coord.media.recheck_at)
+        self.assertEqual(coord.media.evidence_at, 0.0,
                          "evidence must be forced stale so the deep check "
                          "runs at the first opportunity")
 
@@ -226,14 +226,74 @@ class PostRestartRecheck(unittest.TestCase):
         coord, client = _build()
         client.check_media = lambda: "wedged"
         _poll(coord)
-        coord._recheck_at = 1_786_600_000 - 1
+        coord.media.recheck_at = 1_786_600_000 - 1
         _poll(coord)
-        stamped = coord._media_evidence
+        stamped = coord.media.evidence_at
         _poll(coord)
-        self.assertEqual(coord._recheck_at, None)
-        self.assertGreaterEqual(coord._media_evidence, stamped)
+        self.assertEqual(coord.media.recheck_at, None)
+        self.assertGreaterEqual(coord.media.evidence_at, stamped)
 
     def test_no_restart_means_no_recheck(self):
         coord, client = _build(auto=False)
         _poll(coord, 3)
-        self.assertIsNone(coord._recheck_at)
+        self.assertIsNone(coord.media.recheck_at)
+
+
+class WhatTheRestartTellsTheLog(unittest.TestCase):
+    """A restart is a treatment, not a recovery.
+
+    The path used to reset its counters by announcing a served download,
+    which means bytes arrived. That clears the frame marks, retries the
+    failed clips and closes the outage in the wedge log -- reporting a cure
+    at the exact moment the cure was only being attempted, and leaving the
+    record unable to answer the question it exists for: did restarting help?
+    """
+
+    def test_the_outage_stays_open_across_the_restart(self):
+        coord, client = _build()
+        coord.note_empty_download()
+        coord.note_empty_download()
+        self.assertEqual(len(coord.wedges), 1)
+        _poll(coord)
+        self.assertEqual(client.reboots, 1)
+        self.assertIsNone(coord.wedges[-1]["ended"],
+                          "the hub is rebooting, not serving")
+
+    def test_the_restart_is_written_down(self):
+        coord, _ = _build()
+        coord.note_empty_download()
+        coord.note_empty_download()
+        _poll(coord)
+        self.assertEqual([a["what"] for a in coord.wedges[-1]["tried"]],
+                         ["hub restart"])
+
+    def test_the_counters_still_start_fresh(self):
+        """Sessions from before a reboot say nothing about the hub after
+        it, which is why the path resets them at all."""
+        coord, _ = _build()
+        coord.note_empty_download()
+        coord.note_empty_download()
+        _poll(coord)
+        self.assertEqual(coord.media._empty, 0)
+
+    def test_recovery_afterwards_closes_it_and_reads_as_a_cure(self):
+        coord, _ = _build()
+        coord.note_empty_download()
+        coord.note_empty_download()
+        _poll(coord)
+        coord.note_served_download()
+        entry = coord.recovery_log()[0]
+        self.assertIsNotNone(entry["lasted_minutes"])
+        self.assertEqual([a["what"] for a in entry["tried"]], ["hub restart"])
+
+    def test_the_player_id_rotation_is_written_down_too(self):
+        """The case-D experiment ran in the coordinator and its result was
+        recorded nowhere at all."""
+        coord, client = _build()
+        client.check_media = lambda: "wedged"
+        rotations = []
+        client.rotate_player_id = lambda: rotations.append(1)
+        _poll(coord)
+        self.assertEqual(rotations, [1])
+        self.assertIn("player id rotated",
+                      [a["what"] for a in coord.wedges[-1]["tried"]])
