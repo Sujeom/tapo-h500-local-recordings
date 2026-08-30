@@ -88,6 +88,15 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Per camera, the newest clip start a frame fetch was begun for and
         # the task doing it; see async_latest_frame.
         self._frame_attempts: dict[int, tuple[int, asyncio.Task]] = {}
+        # One scan of the window per poll, shared by every entity that asks.
+        # The source each answer was computed from, so a new poll's clips
+        # invalidate it by being a different object.
+        self._faces_source: object = None
+        self._faces_names: dict[str, str] = {}
+        self._faces_cache: dict[int | None, dict] = {}
+        self._people_source: object = None
+        self._people_names: dict[str, str] = {}
+        self._people_cache: dict | None = None
         self._primed = False
         # When anything new was last noticed, for the idle backoff. Started at
         # now rather than at zero, so a restart runs at full speed for the
@@ -239,10 +248,40 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         recordings, before the coordinator has published them. Reading the
         published copy there would work off the previous poll's data, and on
         the second poll after a restart that turns everyone seen earlier
-        today into a fresh arrival.
+        today into a fresh arrival. That path is never cached: it is a
+        different question about different data.
+
+        Held for the poll it was computed from. Every face sensor, every
+        person sensor and the household count ask this, so one scan of every
+        clip on every camera was happening dozens of times for one poll's
+        worth of unchanged recordings. Two cameras is a millisecond and
+        nobody would notice; sixteen busy ones is a third of a second, which
+        is a sixth of the poll interval spent answering the same question.
+
+        The answer is shared, not copied. Callers read it; a caller that
+        started editing it would be editing everybody's.
         """
+        if clips is not None:
+            return self._scan_faces(index, clips)
+        source = (self.data or {}).get("clips", {})
+        # Identity for the clips, because each poll builds a new dictionary
+        # and the cache holds a reference to the one it answered for, so the
+        # object cannot be recycled underneath this. Equality for the names,
+        # because naming a face changes the answer without changing the
+        # recordings and does not reload the entry -- a reload costs a fresh
+        # login to a hub that wedges under repeated ones. Without this a name
+        # somebody just typed would not appear until the next poll.
+        names = self.face_names
+        if self._faces_source is not source or self._faces_names != names:
+            self._faces_source = source
+            self._faces_names = dict(names)
+            self._faces_cache = {}
+        if index not in self._faces_cache:
+            self._faces_cache[index] = self._scan_faces(index, source)
+        return self._faces_cache[index]
+
+    def _scan_faces(self, index: int | None, source: dict) -> dict[str, dict]:
         indexes = range(len(self.cameras)) if index is None else [index]
-        source = clips if clips is not None else (self.data or {}).get("clips", {})
         faces: dict[str, dict] = {}
         for position in indexes:
             for clip in source.get(position, []):
@@ -321,7 +360,23 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         Everything is recomputed from the merged trail rather than picked from
         one of the parts. That is the whole point -- gate on one id and door on
         the other is a direction only once they are the same person.
+
+        Held for the poll it was computed from, like the faces it merges, and
+        shared rather than copied for the same reason.
         """
+        if clips is not None:
+            return self._merge_people(clips)
+        source = (self.data or {}).get("clips", {})
+        names = self.face_names
+        if self._people_source is not source or self._people_names != names:
+            self._people_source = source
+            self._people_names = dict(names)
+            self._people_cache = None
+        if self._people_cache is None:
+            self._people_cache = self._merge_people(None)
+        return self._people_cache
+
+    def _merge_people(self, clips: dict | None) -> dict[str, dict]:
         merged: dict[str, dict] = {}
         groups = self.named_people
         for face_id, face in self.faces_seen(clips=clips).items():
