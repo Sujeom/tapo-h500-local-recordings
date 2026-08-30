@@ -142,7 +142,13 @@ rules:
   entity-disabled-by-default: todo
   entity-translations: done
   exception-translations: todo
-  icon-translations: todo
+  icon-translations:
+    status: done
+    comment: |
+      icons.json for the eight entities that have a translation key, and for
+      all thirteen actions. H500FaceLocationSensor keeps _attr_icon: it builds
+      its name dynamically and has no key to file an icon under, and giving it
+      one would change its entity id.
   reconfiguration-flow:
     status: done
     comment: |

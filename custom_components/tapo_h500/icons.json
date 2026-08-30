@@ -1,0 +1,55 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "possible_delivery": {
+        "default": "mdi:package-variant-closed",
+        "state": {
+          "on": "mdi:package-variant"
+        }
+      }
+    },
+    "sensor": {
+      "activity_level": {
+        "default": "mdi:motion-sensor"
+      },
+      "media_healthy_for": {
+        "default": "mdi:timer-alert-outline"
+      },
+      "media_sessions": {
+        "default": "mdi:download-network-outline"
+      },
+      "people_seen_recently": {
+        "default": "mdi:account-group"
+      },
+      "storage_full_in": {
+        "default": "mdi:harddisk"
+      },
+      "visits_24h": {
+        "default": "mdi:account-clock"
+      }
+    },
+    "switch": {
+      "snoozed": {
+        "default": "mdi:bell",
+        "state": {
+          "on": "mdi:bell-off"
+        }
+      }
+    }
+  },
+  "services": {
+    "backup_names": "mdi:content-save-outline",
+    "classify_downloads": "mdi:tag-multiple-outline",
+    "daily_summary": "mdi:text-box-outline",
+    "delete_recording": "mdi:delete-outline",
+    "describe_recording": "mdi:information-outline",
+    "download_recording": "mdi:download",
+    "export_recording": "mdi:export",
+    "find_face": "mdi:account-search-outline",
+    "format_hub_storage": "mdi:harddisk-remove",
+    "list_recordings": "mdi:format-list-bulleted",
+    "name_face": "mdi:account-edit-outline",
+    "restore_names": "mdi:backup-restore",
+    "snooze": "mdi:bell-sleep"
+  }
+}

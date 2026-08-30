@@ -427,7 +427,6 @@ class H500Delivery(H500Entity, BinarySensorEntity):
     """
 
     _attr_translation_key = "possible_delivery"
-    _attr_icon = "mdi:package-variant-closed"
 
     def __init__(self, coordinator, index: int, camera: dict) -> None:
         super().__init__(coordinator, index, camera)

@@ -131,7 +131,6 @@ class H500Snooze(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_translation_key = "snoozed"
-    _attr_icon = "mdi:bell-sleep"
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:

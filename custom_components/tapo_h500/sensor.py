@@ -378,7 +378,6 @@ class H500Visits(H500Entity, SensorEntity):
     _attr_translation_key = "visits_24h"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "visits"
-    _attr_icon = "mdi:account-clock"
 
     def __init__(self, coordinator, index: int, camera: dict) -> None:
         super().__init__(coordinator, index, camera)
@@ -427,7 +426,6 @@ class H500ActivityLevel(H500Entity, SensorEntity):
     _attr_translation_key = "activity_level"
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(ACTIVITY_LEVELS)
-    _attr_icon = "mdi:motion-sensor"
 
     def __init__(self, coordinator, index: int, camera: dict) -> None:
         super().__init__(coordinator, index, camera)
@@ -504,7 +502,6 @@ class H500StorageForecast(CoordinatorEntity[H500Coordinator], SensorEntity):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.DAYS
     _attr_suggested_display_precision = 1
-    _attr_icon = "mdi:harddisk"
 
     def __init__(self, coordinator, entry) -> None:
         super().__init__(coordinator)
@@ -556,7 +553,6 @@ class H500WedgeClock(CoordinatorEntity[H500Coordinator], SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 1
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:timer-alert-outline"
 
     def __init__(self, coordinator, entry) -> None:
         super().__init__(coordinator)
@@ -609,7 +605,6 @@ class H500MediaSessions(CoordinatorEntity[H500Coordinator], SensorEntity):
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = "sessions"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:download-network-outline"
 
     def __init__(self, coordinator, entry) -> None:
         super().__init__(coordinator)
@@ -662,7 +657,6 @@ class H500Household(CoordinatorEntity[H500Coordinator], SensorEntity):
     _attr_translation_key = "people_seen_recently"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "people"
-    _attr_icon = "mdi:account-group"
 
     def __init__(self, coordinator, entry) -> None:
         super().__init__(coordinator)
@@ -784,6 +778,9 @@ class H500FaceLocationSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
     """
 
     _attr_has_entity_name = True
+    # In code rather than icons.json: this entity builds its name
+    # dynamically and has no translation key to file an icon under,
+    # and giving it one would change its entity id.
     _attr_icon = "mdi:map-marker-account"
 
     def __init__(self, coordinator, entry, face_id: str) -> None:
