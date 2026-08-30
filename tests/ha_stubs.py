@@ -436,10 +436,11 @@ class _StubFinder(importlib.abc.MetaPathFinder):
         return importlib.util.spec_from_loader(name, _StubLoader())
 
 
-class _FakeNow:
-    @staticmethod
-    def timestamp():
-        return 1_786_600_000
+# The frozen clock. A real datetime rather than a bare .timestamp() holder:
+# code under test calls .astimezone() and .date() on what utcnow() returns,
+# and a stand-in that answers only .timestamp() fails the first entity that
+# formats "today".
+FROZEN_NOW = 1_786_600_000
 
 
 def install(component_path=None):
@@ -493,7 +494,8 @@ def install(component_path=None):
     _module("homeassistant.helpers.device_registry", DeviceInfo=dict)
 
     dt = _module("homeassistant.util.dt")
-    dt.utcnow = lambda: _FakeNow()
+    dt.utcnow = lambda: datetime.datetime.fromtimestamp(
+        FROZEN_NOW, datetime.timezone.utc)
     # Real datetimes, so anything deriving a local calendar day or hour from a
     # timestamp is exercised rather than stubbed into always agreeing.
     dt.utc_from_timestamp = lambda ts: datetime.datetime.fromtimestamp(
