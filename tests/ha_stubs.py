@@ -496,6 +496,23 @@ def install(component_path=None):
             UpdateFailed=type("UpdateFailed", (Exception,), {}))
     _module("homeassistant.helpers.device_registry", DeviceInfo=dict)
 
+    # A real timer double: the manufactured one returned an uncallable class,
+    # so cancelling a detection hold raised. Tests fire or cancel through it.
+    timers = []
+
+    def async_call_later(hass, delay, action):
+        entry = {"delay": delay, "action": action, "cancelled": False}
+        timers.append(entry)
+
+        def cancel():
+            entry["cancelled"] = True
+
+        return cancel
+
+    event_helper = _module("homeassistant.helpers.event",
+                           async_call_later=async_call_later)
+    event_helper.timers = timers
+
     dt = _module("homeassistant.util.dt")
     dt.utcnow = lambda: datetime.datetime.fromtimestamp(
         FROZEN_NOW, datetime.timezone.utc)
