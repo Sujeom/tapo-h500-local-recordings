@@ -85,7 +85,30 @@ globalThis.customElements = { _defined: new Map(),
   get(name) { return this._defined.get(name); },
   define(name, cls) { this._defined.set(name, cls); } };
 globalThis.window = {};
-globalThis.document = { createElement: (tag) => ({ tagName: tag, addEventListener() {} }) };
+globalThis.document = {
+  hidden: false,
+  _listeners: {},
+  createElement: (tag) => ({ tagName: tag, addEventListener() {} }),
+  addEventListener(type, fn) { (this._listeners[type] ||= []).push(fn); },
+  removeEventListener(type, fn) {
+    this._listeners[type] = (this._listeners[type] || []).filter((f) => f !== fn);
+  },
+  /** What the browser does when a tab is shown or hidden. */
+  setHidden(hidden) {
+    this.hidden = hidden;
+    (this._listeners.visibilitychange || []).slice().forEach((fn) => fn());
+  },
+};
+// The minute timer, kept rather than run, so a test can fire it and see what
+// the card does with it -- which is where the visibility check has to be.
+const intervals = new Map();
+let nextInterval = 1;
+globalThis.setInterval = (fn) => {
+  intervals.set(nextInterval, fn);
+  return nextInterval++;
+};
+globalThis.clearInterval = (id) => { intervals.delete(id); };
+const fireTimers = () => [...intervals.values()].forEach((fn) => fn());
 globalThis.CustomEvent = class { constructor(type, opts) { this.type = type; Object.assign(this, opts); } };
 
 const mod = await import("../custom_components/tapo_h500/www/tapo-h500-card.js");
@@ -507,6 +530,81 @@ test("clip times go out as numbers, which is the escape and the assertion", asyn
         `${attribute}="\${${expression}}" is neither cast nor escaped`);
     }
   }
+});
+
+// --- not polling a hub for a screen nobody is looking at --------------------
+
+/** A card whose loads are counted rather than performed. */
+const counting = (Cls, config = {}) => {
+  const card = new Cls();
+  card.setConfig({ ...config });
+  card.loads = 0;
+  card._load = () => { card.loads += 1; };
+  return card;
+};
+
+test("the minute timer is the thing that checks, not just _tick", () => {
+  // The check has to be on the path the timer actually takes. Calling _tick
+  // by hand proves nothing about what setInterval was handed.
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  document.setHidden(true);
+  fireTimers();
+  assert.equal(card.loads, 0);
+  document.setHidden(false);
+  card.disconnectedCallback();
+});
+
+test("a hidden tab does not ask the hub anything", async () => {
+  // A wall tablet with this on a dashboard nobody is looking at asked for a
+  // listing every minute, all night, for a screen that was off. Each one is a
+  // round trip to a device this project exists because it wedges under load.
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  document.setHidden(true);
+  card._tick();
+  card._tick();
+  assert.equal(card.loads, 0);
+  document.setHidden(false);
+});
+
+test("a visible tab still polls", () => {
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  card._tick();
+  assert.equal(card.loads, 1);
+});
+
+test("coming back catches up rather than waiting for the next minute", () => {
+  // A tab hidden for an hour is showing an hour-old list, and refreshing it
+  // the moment it comes back is the whole reason for polling.
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  document.setHidden(true);
+  card._tick();
+  assert.equal(card.loads, 0);
+  document.setHidden(false);
+  assert.equal(card.loads, 1);
+});
+
+test("coming back to a tab that missed nothing does not reload", () => {
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  document.setHidden(true);
+  document.setHidden(false);
+  assert.equal(card.loads, 0, "no tick was skipped, so nothing to catch up");
+});
+
+test("a removed card stops listening", () => {
+  // Otherwise every dashboard edit leaves another listener behind, each one
+  // holding a whole card object.
+  const card = counting(TapoH500Card);
+  card.connectedCallback();
+  card.disconnectedCallback();
+  document.setHidden(true);
+  card._tick();
+  document.setHidden(false);
+  assert.equal(card.loads, 0);
 });
 
 // --- what somebody using a screen reader or a keyboard gets ----------------

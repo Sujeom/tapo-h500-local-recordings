@@ -462,11 +462,40 @@ class H500Base extends HTMLElement {
   }
 
   connectedCallback() {
-    this._timer = setInterval(() => this._load(), 60000);
+    this._timer = setInterval(() => this._tick(), 60000);
+    // A wall tablet with this on a dashboard nobody is looking at asked the
+    // hub for a listing every minute, all night, for a screen that was off.
+    // Each one is a round trip to a device this project exists because it
+    // wedges under load.
+    this._visibility = () => {
+      if (!document.hidden && this._stale) {
+        this._stale = false;
+        this._load();
+      }
+    };
+    document.addEventListener("visibilitychange", this._visibility);
+  }
+
+  /** The minute poll, skipped while nobody can see the answer.
+   *
+   * Remembered rather than dropped: a tab that has been hidden for an hour
+   * is showing an hour-old list, and refreshing it the moment it comes back
+   * is the whole reason for polling in the first place.
+   */
+  _tick() {
+    if (document.hidden) {
+      this._stale = true;
+      return;
+    }
+    this._load();
   }
 
   disconnectedCallback() {
     clearInterval(this._timer);
+    if (this._visibility) {
+      document.removeEventListener("visibilitychange", this._visibility);
+      this._visibility = null;
+    }
     clearTimeout(this._pulseTimer);
     this._pulseTimer = null;
   }
