@@ -15,6 +15,7 @@ from homeassistant.exceptions import (
     ServiceValidationError,
 )
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.loader import async_get_integration
 
 from .api import H500AuthError, H500Client
@@ -335,6 +336,36 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if hass.services.has_service(DOMAIN, service):
                 hass.services.async_remove(DOMAIN, service)
     return True
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: ConfigEntry, device: DeviceEntry
+) -> bool:
+    """Whether Home Assistant may delete this device from the registry.
+
+    Unpair a camera from the hub and its device stays in Home Assistant
+    forever, with its twenty-odd entities, every one of them unavailable and
+    every one still in every entity picker. Without this hook the delete
+    button is not offered at all -- Home Assistant refuses on the integration's
+    behalf, on the assumption that it would come straight back.
+
+    A camera the hub still lists is exactly that case and is refused, with the
+    same reasoning: it would be recreated on the next poll, and a delete button
+    that undoes itself is worse than one that is missing. Anything else is
+    gone from the hub and safe to let go, the hub's own device included -- if
+    somebody deletes that, the config entry goes with it, which is what they
+    asked for.
+    """
+    coordinator = hass.data.get(DOMAIN, {}).get(DATA_HUBS, {}).get(
+        entry.entry_id)
+    if coordinator is None:
+        # Unloaded, so there is nothing to contradict. The registry entry is
+        # the user's to remove.
+        return True
+    paired = {camera.get("device_id") for camera in coordinator.cameras}
+    return not any(identifier in paired
+                   for domain, identifier in device.identifiers
+                   if domain == DOMAIN)
 
 
 def _coordinator(hass, entry_id) -> H500Coordinator:

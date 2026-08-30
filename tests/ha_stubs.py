@@ -403,6 +403,29 @@ def install(component_path=None):
     return dispatcher
 
 
+def real_module(name: str):
+    """Load one of the component's own modules for real, under a private name.
+
+    `tapo_h500` in `sys.modules` is the stub package this file installs, so
+    importing by name gives back the stub. Loading from the file with a name
+    inside that package is what lets `from .const import ...` resolve.
+
+    Cached, because executing a module twice gives two sets of classes and
+    `isinstance` stops meaning anything between them.
+    """
+    private = f"tapo_h500._real_{name}"
+    loaded = sys.modules.get(private)
+    if loaded is not None:
+        return loaded
+    filename = "__init__.py" if name == "init" else f"{name}.py"
+    spec = importlib.util.spec_from_file_location(
+        private, str(pathlib.Path(COMPONENT_PATH) / filename))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[private] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _real_media_attr(name):
     """Load the genuine media module once, under a private name, and read it.
 
