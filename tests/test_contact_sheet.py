@@ -281,10 +281,6 @@ class Entity(unittest.TestCase):
         self.assertIn("await async_contact_sheet(", body)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class WhenFfmpegWillNotFinish(_SheetWorld):
     """A sheet is decoration. Nothing about it may hold up a camera entity.
 
@@ -323,3 +319,7 @@ class WhenFfmpegWillNotFinish(_SheetWorld):
         finally:
             asyncio.create_subprocess_exec = original
         self.assertEqual(killed, [True])
+
+
+if __name__ == "__main__":
+    unittest.main()

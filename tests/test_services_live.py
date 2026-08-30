@@ -437,10 +437,6 @@ class ListRecordings(_World):
         self.assertEqual([c["index"] for c in answer["cameras"]], [0, 1])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class WhenTheHubSaysNo(_World):
     """Every service that talks to the hub sorts its failures into two: the
     caller got it wrong, or the hub did. The first is a validation error the
@@ -511,3 +507,7 @@ class TheConfiguredWindow(ListRecordings):
         self.assertEqual(self.call("list_recordings",
                                    camera_index=0)["days"],
                          services.DEFAULT_CARD_DAYS)
+
+
+if __name__ == "__main__":
+    unittest.main()

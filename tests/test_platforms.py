@@ -66,7 +66,6 @@ class Diagnostics(unittest.TestCase):
         self.assertIn("for key in SAFE_READINGS", DIAG)
 
 
-
 class Logbook(unittest.TestCase):
     def test_a_press_reads_as_a_sentence(self):
         self.assertEqual(logbook._phrase([6, 10, 17]),
@@ -259,10 +258,6 @@ class Image(unittest.TestCase):
 
     def test_it_has_a_label(self):
         self.assertIn("latest_event", STRINGS["entity"]["image"])
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class NamePromptFix(unittest.TestCase):
@@ -495,3 +490,7 @@ class RepairChecksActuallyRun(unittest.TestCase):
                      "_downloads_failing", "_restart_ineffective",
                      "_tampered"):
             self.assertIn(f"{name}(hass, entry_id, coordinator)", dispatch)
+
+
+if __name__ == "__main__":
+    unittest.main()

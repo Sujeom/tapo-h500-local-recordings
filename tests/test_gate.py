@@ -65,10 +65,6 @@ class EveryCheckIsWiredToFail(unittest.TestCase):
         self.assertIn("exit 1", VERIFY)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AFailureSaysWhichOne(unittest.TestCase):
     """A gate that fails without saying why costs an afternoon.
 
@@ -162,3 +158,7 @@ class TheCoverageFloorIsARatchet(unittest.TestCase):
             self.assertEqual(tool._gate(good, tool.FLOOR_TOTAL - 1), 2)
         self.assertIn("new_module.py", said.getvalue(),
                       "a breach names the module it is about")
+
+
+if __name__ == "__main__":
+    unittest.main()

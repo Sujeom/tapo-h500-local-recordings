@@ -212,10 +212,6 @@ class Issue(unittest.TestCase):
         self.assertIn("photo", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class StandaloneTool(unittest.TestCase):
     """tools/check-media.py sends the same conversation the tested
     classifier does, so its verdicts mean the same thing."""
@@ -465,3 +461,7 @@ class ServingEmpty(unittest.TestCase):
     def test_the_notice_mentions_the_restart_button(self):
         text = STRINGS["issues"]["media_wedged"]["description"]
         self.assertIn("Restart", text)
+
+
+if __name__ == "__main__":
+    unittest.main()

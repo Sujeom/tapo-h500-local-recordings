@@ -308,10 +308,6 @@ class TheArchiveSearch(_World):
         self.assertEqual(self._search({"7"}), [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheTrustBoundary(_World):
     """Where media.py refuses rather than writes.
 
@@ -401,3 +397,7 @@ class ReadingAClipsNameBack(_World):
     def test_a_well_formed_name_reads_back_as_its_start(self):
         path = media.clip_path(self.hass, CAMERA, NOW, ".ts")
         self.assertEqual(media._start_from_path(path), NOW)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -95,10 +95,6 @@ class PollZeroStillDoesEverything(unittest.TestCase):
         self.assertEqual(coord._polls, 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class WhileNothingIsHappening(unittest.TestCase):
     """Nearly all of this integration's traffic is asking a quiet hub whether
     anything happened yet. At two seconds that is 43,200 round trips a day
@@ -163,3 +159,7 @@ class WhileNothingIsHappening(unittest.TestCase):
         coord, _ = harness._build(5)
         self.assertEqual(coord._last_activity_at,
                          NOW)
+
+
+if __name__ == "__main__":
+    unittest.main()

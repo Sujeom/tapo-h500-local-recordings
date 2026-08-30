@@ -119,10 +119,6 @@ class TheDailyCount(unittest.TestCase):
                 self.assertIn("recordings_today", doc["entity"]["sensor"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheZoneIsNeverCached(unittest.TestCase):
     """Home Assistant's date helpers are found once and kept. The zone they
     resolve is looked up every time.
@@ -162,3 +158,7 @@ class TheZoneIsNeverCached(unittest.TestCase):
         clips_mod.local_hour(0)
         self.assertIsNotNone(clips_mod._DT)
         self.assertIs(clips_mod._DT, dt_util)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -63,10 +63,6 @@ class Resolvable(unittest.TestCase):
         self.assertGreater(len(list(COMPONENT.glob("*.py"))), 20)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheServicesLiveInTheirOwnModule(unittest.TestCase):
     """`__init__.py` is where an entry is set up and taken down.
 
@@ -106,3 +102,7 @@ class TheServicesLiveInTheirOwnModule(unittest.TestCase):
     def test_the_package_body_reaches_them_through_one_call(self):
         self.assertIn("services.async_register(hass)", self.INIT)
         self.assertIn("from .services import SERVICES", self.INIT)
+
+
+if __name__ == "__main__":
+    unittest.main()

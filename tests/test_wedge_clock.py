@@ -191,10 +191,6 @@ class TheSensor(unittest.TestCase):
                               doc["entity"]["sensor"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheRecoveryLog(unittest.TestCase):
     """Every outage used to start the diagnosis from nothing.
 
@@ -284,3 +280,7 @@ class TheRecoveryLog(unittest.TestCase):
     def test_diagnostics_carry_it(self):
         source = (COMPONENT / "diagnostics.py").read_text()
         self.assertIn("coordinator.recovery_log()", source)
+
+
+if __name__ == "__main__":
+    unittest.main()

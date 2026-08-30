@@ -166,10 +166,6 @@ class Photograph(unittest.TestCase):
         self.assertIn("frame not in [none, '', 'None']", RAW)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FirstEventAfterRestart(unittest.TestCase):
     """The availability guard must not swallow the first real press.
 
@@ -514,3 +510,7 @@ class QuietHours(unittest.TestCase):
     def test_the_inputs_exist_with_time_selectors(self):
         for name in ("quiet_start", "quiet_end"):
             self.assertIn("time", str(DOC["blueprint"]["input"][name]))
+
+
+if __name__ == "__main__":
+    unittest.main()

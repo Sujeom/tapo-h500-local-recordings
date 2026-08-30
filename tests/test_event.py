@@ -60,10 +60,6 @@ class AutomationUsesIt(unittest.TestCase):
         self.assertNotIn("image: /api/camera_proxy", AUTOMATION)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class WhyThereWasNoNotification(unittest.TestCase):
     """"There was activity and I got no message" has two answers on this
     side, and neither used to be visible after the fact.
@@ -115,3 +111,7 @@ class WhyThereWasNoNotification(unittest.TestCase):
         entity = self._fire(kind="ring", snoozed_until=NOW + 3600)
         self.assertEqual(entity.triggered[0][0], "ring")
         self.assertEqual(entity.triggered[0][1]["camera_index"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

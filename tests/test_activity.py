@@ -98,10 +98,6 @@ class Thresholds(unittest.TestCase):
         self.assertGreater(const.UNUSUAL_MULTIPLIER, 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class NightWindow(unittest.TestCase):
     """A window that wraps midnight, and the one signal built on it."""
 
@@ -144,3 +140,7 @@ class NightWindow(unittest.TestCase):
     def test_a_recognised_face_at_night_is_someone_coming_home(self):
         known = {"events_1": (1 << 5) | (1 << 19)}                # 6, 20
         self.assertFalse(clips.notable(known, 2, 22, 6))
+
+
+if __name__ == "__main__":
+    unittest.main()

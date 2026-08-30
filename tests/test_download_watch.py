@@ -139,10 +139,6 @@ class Issue(unittest.TestCase):
         self.assertIn("{cameras}", issue["title"] + issue["description"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 clips_mod = importlib.import_module("tapo_h500.clips")
 INIT = (COMPONENT / "__init__.py").read_text()
 # The thirteen service handlers moved out of the package body.
@@ -265,3 +261,7 @@ class GlobalDays(unittest.TestCase):
         """A card following the global option must not caption itself with
         its own default."""
         self.assertIn("response.days", CARD_JS)
+
+
+if __name__ == "__main__":
+    unittest.main()

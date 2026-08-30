@@ -143,10 +143,6 @@ class Registration(unittest.TestCase):
                          {"LastEventIntent", "TodayIntent", "SnoozeIntent"})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheSpokenAndTheWrittenAnswer(unittest.TestCase):
     """The digest service and the voice answer describe the same day.
 
@@ -223,3 +219,7 @@ class TheDigestIsAskedFor(unittest.TestCase):
         self.assertEqual(scheduled, [], "nothing is put on a timer")
         self.assertIn("daily_summary", hass.services.registered,
                       "it exists, it just waits to be called")
+
+
+if __name__ == "__main__":
+    unittest.main()

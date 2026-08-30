@@ -297,10 +297,6 @@ class ThePreviewUrl(unittest.TestCase):
         self.assertIn("authSig", url)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheRemainingRegistrars(unittest.TestCase):
     def _setup(self, module, cameras=2):
         coord, _ = harness._build()
@@ -886,3 +882,7 @@ class WhatTheMediaPortSays(unittest.TestCase):
         nothing can be said about whether it is wedged."""
         self.assertEqual(self._check(OSError("no route to host")),
                          "unreachable")
+
+
+if __name__ == "__main__":
+    unittest.main()

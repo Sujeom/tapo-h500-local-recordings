@@ -232,10 +232,6 @@ class Wiring(unittest.TestCase):
             SOURCE)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 import asyncio
 import json
 import tempfile
@@ -500,3 +496,7 @@ class AnArchiveWithNothingInIt(ByType):
     def test_a_type_folder_nobody_defined_is_refused(self):
         with self.assertRaises(media_source.Unresolvable):
             self._browse(f"{media_source.TYPE_PREFIX}/unicorns")
+
+
+if __name__ == "__main__":
+    unittest.main()

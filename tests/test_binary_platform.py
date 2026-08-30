@@ -295,10 +295,6 @@ class Setup(unittest.TestCase):
         self.assertEqual((before, after), (1, 1))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheDetectionFlagsWiring(unittest.TestCase):
     """What a flag subscribes to, and what it lets go of."""
 
@@ -445,3 +441,7 @@ class TheSilentHoursSetting(unittest.TestCase):
 
     def test_it_never_asks_for_more_history_than_is_kept(self):
         self.assertEqual(self._seconds(10_000), const.LOOKBACK_SECONDS)
+
+
+if __name__ == "__main__":
+    unittest.main()

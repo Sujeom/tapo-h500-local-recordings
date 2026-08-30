@@ -118,10 +118,6 @@ class AutoRestart(unittest.TestCase):
         self.assertNotIn(const.CONF_AUTO_RESTART, const.RELOAD_ON_CHANGE)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CircuitBreaker(unittest.TestCase):
     """A restart that does not cure stops being tried.
 
@@ -297,3 +293,7 @@ class WhatTheRestartTellsTheLog(unittest.TestCase):
         self.assertEqual(rotations, [1])
         self.assertIn("player id rotated",
                       [a["what"] for a in coord.wedges[-1]["tried"]])
+
+
+if __name__ == "__main__":
+    unittest.main()

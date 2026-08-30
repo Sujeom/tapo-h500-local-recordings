@@ -230,10 +230,6 @@ class AttachingABusEvent(unittest.TestCase):
         self.assertEqual(kind, "event")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class EverySlugCanBeAttached(unittest.TestCase):
     """The editor lists triggers, the owner picks one, and it is saved into
     their automations file. A slug that can be offered but not attached makes
@@ -282,3 +278,7 @@ class EverySlugCanBeAttached(unittest.TestCase):
         for left in range(len(tables)):
             for right in range(left + 1, len(tables)):
                 self.assertEqual(tables[left] & tables[right], set())
+
+
+if __name__ == "__main__":
+    unittest.main()

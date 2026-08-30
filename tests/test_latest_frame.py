@@ -176,10 +176,6 @@ class Routing(unittest.TestCase):
         self.assertIn('signal("image"', body)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class HealsWithTheHub(unittest.TestCase):
     """Attempt marks clear when media recovers, so the picture self-repairs.
 
@@ -354,3 +350,7 @@ class SharedFetch(unittest.TestCase):
 
         asyncio.run(scenario())
         self.assertEqual(self.finished, [NOW - 30])
+
+
+if __name__ == "__main__":
+    unittest.main()

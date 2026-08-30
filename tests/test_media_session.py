@@ -204,10 +204,6 @@ class PreviewSession(unittest.TestCase):
             b"fresh-frame")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DetectionSidecar(unittest.TestCase):
     """What a download knew about its clip survives beside it on disk.
 
@@ -471,3 +467,7 @@ class ArchiveFaceSearch(unittest.TestCase):
         hass = self._hass()
         self._clip(hass, START - 86400)
         self.assertEqual(media.archive_face_search(hass, CAMERA, {"99"}), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

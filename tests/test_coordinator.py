@@ -366,10 +366,6 @@ class PollInterval(unittest.TestCase):
         self.assertEqual(slow._status_every, 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class BatchedActivity(unittest.TestCase):
     """A client offering activity() is asked once, not twice.
 
@@ -444,3 +440,7 @@ class WriteConfirmation(unittest.TestCase):
         self.assertFalse(coord._force_status)
         asyncio.run(coord._async_update_data())   # 2 % 3 != 0, still skipping
         self.assertEqual(client.calls.count("hub_status"), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

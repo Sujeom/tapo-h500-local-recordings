@@ -163,10 +163,6 @@ class Repair(unittest.TestCase):
         self.assertIn("async_delete_issue", body)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 clips_mod = importlib.import_module("tapo_h500.clips")
 
 
@@ -453,3 +449,7 @@ class TheAlarmDoesNotSwitchItselfOff(unittest.TestCase):
         coord.clips_for = lambda index: [clip(NOW - 30)]
         self.assertFalse(sensor.is_on)
         self.assertFalse(coord.silent_latched(0))
+
+
+if __name__ == "__main__":
+    unittest.main()

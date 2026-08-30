@@ -211,10 +211,6 @@ class ItIsNamed(unittest.TestCase):
         self.assertEqual(fields - labels, set())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def _reauth_flow(entry=None, verdict=None, seen=None):
     flow = _flow(entry=entry, verdict=verdict, seen=seen)
     flow.source = "reauth"
@@ -296,3 +292,7 @@ class TheReauthForm(unittest.TestCase):
         self.assertFalse(getattr(flow, "reloaded", False))
         self.assertEqual(flow.entry.data["password"], "stored-camera",
                          "a refused retype must not overwrite the stored one")
+
+
+if __name__ == "__main__":
+    unittest.main()

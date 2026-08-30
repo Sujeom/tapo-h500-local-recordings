@@ -352,10 +352,6 @@ class Unload(_World):
         self.assertEqual(self.hass.services.removed, [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheDashboardCard(unittest.TestCase):
     """Registering the card reaches into Lovelace's own storage, whose shape
     differs across Home Assistant versions -- so what happens when it does
@@ -480,3 +476,7 @@ class TheDashboardCard(unittest.TestCase):
         run(self.init._async_register_card(hass))
         run(self.init._async_register_card(hass))
         self.assertEqual(len(hass.served), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

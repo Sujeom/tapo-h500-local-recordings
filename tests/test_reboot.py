@@ -116,10 +116,6 @@ class Entity(unittest.TestCase):
         self.assertIn('"scheduled_reboot"', listed)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FirmwareUpgradeInfo(unittest.TestCase):
     """What the cloud check said, read without guessing too hard.
 
@@ -229,3 +225,7 @@ class NothingPhonesHome(unittest.TestCase):
     def test_every_polled_hub_request_is_a_local_read(self):
         for name, _ in status.HUB_STATUS_REQUESTS:
             self.assertTrue(name.startswith("get"), name)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1335,10 +1335,6 @@ class _StubLiveClient:
                 "channel_id": 0}
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ApiTails(unittest.TestCase):
     """The client's remaining branches: the connect guard, the session's
     refusal shapes, and the small wrappers around the hub lock."""
@@ -1618,3 +1614,7 @@ class WhatConnectDoesWithAFailure(unittest.TestCase):
         window = repr(seen)
         self.assertIn("1000", window)
         self.assertIn("1100", window)
+
+
+if __name__ == "__main__":
+    unittest.main()

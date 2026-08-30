@@ -130,10 +130,6 @@ class TheNotesDoNotContradictThemselves(unittest.TestCase):
         self.assertIn("`alarm_type` 17", DOCS["reference.md"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheArchitectureMapIsCurrent(unittest.TestCase):
     """A map that drifts is worse than no map.
 
@@ -192,3 +188,7 @@ class TheArchitectureMapIsCurrent(unittest.TestCase):
     def test_it_covers_the_card_too(self):
         """1,500 lines of JavaScript is a module by any measure."""
         self.assertIn("tapo-h500-card.js", self.MAP)
+
+
+if __name__ == "__main__":
+    unittest.main()

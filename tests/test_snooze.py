@@ -187,10 +187,6 @@ class Removal(unittest.TestCase):
         self.assertEqual(registered - listed, set())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class VoiceSnooze(unittest.TestCase):
     """"Quiet the doorbell for an hour" works out loud.
 
@@ -218,3 +214,7 @@ class VoiceSnooze(unittest.TestCase):
         self.assertIn("TapoH500Snooze:", self.SENTENCES)
         for phrase in ("snooze", "quiet"):
             self.assertIn(phrase, self.SENTENCES)
+
+
+if __name__ == "__main__":
+    unittest.main()
