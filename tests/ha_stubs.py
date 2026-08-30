@@ -169,6 +169,9 @@ class _StubCoordinatorBase:
         # until the failure was made audible.
         self.last_update_success = True
 
+    def async_update_listeners(self):
+        """The real base pushes state to every entity; nothing to push here."""
+
     def __class_getitem__(cls, item):
         return cls
 
@@ -531,6 +534,25 @@ def install(component_path=None):
     _module("homeassistant.const",
             CONF_HOST="host", CONF_USERNAME="username",
             CONF_PASSWORD="password")
+    # The siren platform's constants are read as dictionary keys, so the
+    # manufactured module -- whose every attribute is a class -- made
+    # `kwargs.get(ATTR_TONE)` a lookup of a class in a dict keyed by "tone":
+    # always None, so a siren test could never pass a tone, volume or
+    # duration and the config-before-sound path was untestable.
+    import enum
+
+    class _SirenFeature(enum.IntFlag):
+        TURN_ON = 1
+        TURN_OFF = 2
+        TONES = 4
+        VOLUME_SET = 8
+        DURATION = 16
+
+    _module("homeassistant.components.siren",
+            ATTR_TONE="tone", ATTR_VOLUME_LEVEL="volume_level",
+            ATTR_DURATION="duration",
+            SirenEntity=type("SirenEntity", (_Entity,), {}),
+            SirenEntityFeature=_SirenFeature)
     _module("homeassistant.components.http.auth",
             async_sign_path=lambda hass, path, expiry: f"{path}?authSig=stub")
 
