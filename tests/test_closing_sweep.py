@@ -549,8 +549,10 @@ class TheDownloadsTwoSkips(unittest.TestCase):
         async def pruned(*args, **kwargs):
             return []
 
-        for name, value in (("existing_clip",
-                             lambda hass, camera, start: existing),
+        async def found(hass, camera, start):
+            return existing
+
+        for name, value in (("async_existing_clip", found),
                             ("async_download_clip", download),
                             ("async_verify", verified),
                             ("async_prune", pruned)):
@@ -608,27 +610,24 @@ class AClipThatDoesNotDecode(unittest.TestCase):
         async def pruned(*args, **kwargs):
             return []
 
-        for name, value in (("existing_clip",
-                             lambda hass, camera, start: Stored()),
+        # It answers for the check after the download as well as the one
+        # before it, so the skip has to be stepped over deliberately: nothing
+        # on disk the first time, the stored file every time after.
+        calls = {"n": 0}
+
+        async def once(hass, camera, start):
+            calls["n"] += 1
+            return None if calls["n"] == 1 else Stored()
+
+        for name, value in (("async_existing_clip", once),
                             ("async_download_clip", download),
                             ("async_verify", verify),
                             ("async_prune", pruned)):
             self.addCleanup(setattr, module, name, getattr(module, name, None))
             setattr(module, name, value)
-        # existing_clip answers for the check after the download as well as
-        # the one before it, so the skip has to be stepped over deliberately.
         coord._seen_clips[0] = {(NOW,)}
-        original_skip = module.existing_clip
-        calls = {"n": 0}
-
-        def once(hass, camera, start):
-            calls["n"] += 1
-            return None if calls["n"] == 1 else Stored()
-
-        module.existing_clip = once
         run(coord._download(0, {"device_id": "cam0", "alias": "F"},
                             {"startTime": NOW, "endTime": NOW + 15}))
-        module.existing_clip = original_skip
         return coord, removed
 
     def test_a_file_that_does_not_decode_is_removed_so_it_can_be_refetched(self):
@@ -673,8 +672,10 @@ class AClipTheHubWillNotServe(unittest.TestCase):
         async def refuse(*args, **kwargs):
             raise error
 
-        for name, value in (("existing_clip",
-                             lambda hass, camera, start: None),
+        async def nothing_yet(hass, camera, start):
+            return None
+
+        for name, value in (("async_existing_clip", nothing_yet),
                             ("async_download_clip", refuse)):
             self.addCleanup(setattr, module, name, getattr(module, name, None))
             setattr(module, name, value)

@@ -99,11 +99,30 @@ def signed_url(hass: HomeAssistant, path: Path) -> str:
 
 
 def existing_clip(hass: HomeAssistant, camera, start_time: int) -> Path | None:
+    """Where this clip is on disk, or None. Blocking; two stat calls.
+
+    Kept synchronous because scan_downloaded calls it from inside an executor
+    job, where an await would be wrong. Anything on the event loop wants
+    async_existing_clip below.
+    """
     for suffix in (".mp4", ".ts"):
         path = clip_path(hass, camera, start_time, suffix)
         if path.exists():
             return path
     return None
+
+
+async def async_existing_clip(hass: HomeAssistant, camera,
+                              start_time: int) -> Path | None:
+    """existing_clip, off the event loop.
+
+    Two stat calls, and the automatic download makes them once per new clip
+    per poll. Home Assistant does not trap Path.exists, so doing this on the
+    loop never warns -- it only ever shows up as latency nobody can attribute,
+    paid by every other integration in the installation.
+    """
+    return await hass.async_add_executor_job(
+        existing_clip, hass, camera, start_time)
 
 
 def describe(hass: HomeAssistant, path: Path) -> dict:
@@ -368,7 +387,7 @@ async def async_export(hass: HomeAssistant, camera, start_time: int,
     The destination has to be allowed by Home Assistant. Writing anywhere the
     process can reach would let a service call reach the whole filesystem.
     """
-    source = existing_clip(hass, camera, start_time)
+    source = await async_existing_clip(hass, camera, start_time)
     if source is None:
         raise HomeAssistantError(
             "That recording has not been downloaded, so there is nothing to "

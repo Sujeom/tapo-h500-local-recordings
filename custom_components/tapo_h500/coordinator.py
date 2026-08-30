@@ -43,7 +43,7 @@ from .media_health import MediaHealth
 from .media import (
     EmptyRecordingError, async_download_clip, async_latest_image,
     async_preview_clip, async_prune, async_prune_previews, async_verify,
-    existing_clip,
+    async_existing_clip,
 )
 from .status import hub_readings, hours_until_full, trend_samples
 
@@ -1342,7 +1342,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         end_time = end_of(clip)
         if start_time is None or end_time is None or end_time <= start_time:
             return
-        if existing_clip(self.hass, camera, start_time) is not None:
+        if await async_existing_clip(self.hass, camera, start_time) is not None:
             return
         try:
             result = await async_download_clip(
@@ -1370,7 +1370,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Verified now, while the hub still holds the original. A truncated
         # file looks identical to a good one on disk, and the only moment it
         # can be fetched again is before retention evicts the source.
-        stored = existing_clip(self.hass, camera, start_time)
+        stored = await async_existing_clip(self.hass, camera, start_time)
         if stored is not None and not await async_verify(self.hass, stored):
             _LOGGER.warning(
                 "Downloaded clip %s does not decode; removing it so it can be "

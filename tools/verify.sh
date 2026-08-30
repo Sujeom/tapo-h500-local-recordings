@@ -35,6 +35,15 @@ if ! card_coverage=$(python -B tools/card_coverage.py --gate 2>&1); then
     exit 1
 fi
 printf '%s\n' "$card_coverage" | tail -1
+# Filesystem work on the event loop. Home Assistant does not trap Path.exists,
+# so this class of mistake never warns -- it only ever shows up as latency
+# nobody can attribute. Three calls to one two-line helper were live when this
+# was written.
+if ! loop_audit=$(python -B tools/loop_audit.py 2>&1); then
+    printf '%s\n' "$loop_audit"
+    exit 1
+fi
+printf '%s\n' "$loop_audit"
 python -B tools/lint.py
 
 python -B - <<'PY'

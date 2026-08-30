@@ -49,7 +49,10 @@ class Counting(unittest.TestCase):
         self._patch("async_download_clip", fake_download)
         self._patch("async_verify", fake_verify)
         self._patch("async_prune", self._nothing)
-        self._patch("existing_clip", lambda hass, camera, start: None)
+        self._patch("async_existing_clip", self._nothing_on_disk)
+
+    async def _nothing_on_disk(self, hass, camera, start):
+        return None
 
     async def _nothing(self, *args):
         return []
@@ -92,25 +95,26 @@ class Counting(unittest.TestCase):
         async def bad_verify(hass, path):
             return False
 
+        async def stored(hass, camera, start):
+            return Path("/media/x.mp4")
+
         self._patch("async_verify", bad_verify)
-        self._patch("existing_clip",
-                    lambda hass, camera, start: Path("/media/x.mp4"))
+        self._patch("async_existing_clip", stored)
 
         async def fake_unlink(fn, *args):
             return None
 
         self.coord.hass.async_add_executor_job = fake_unlink
         self.outcomes = [{}]
-        # existing_clip returning a path would early-return before the
-        # download; only the post-download check should see it.
-        real = coordinator_mod.existing_clip
+        # A path answered before the download would early-return; only the
+        # post-download check should see one.
         calls = {"n": 0}
 
-        def once(hass, camera, start):
+        async def once(hass, camera, start):
             calls["n"] += 1
             return None if calls["n"] == 1 else Path("/media/x.mp4")
 
-        self._patch("existing_clip", once)
+        self._patch("async_existing_clip", once)
         self._run()
         self.assertEqual(self.coord.download_failures, {"Front": 1})
 
