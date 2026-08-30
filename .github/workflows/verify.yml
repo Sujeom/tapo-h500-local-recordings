@@ -33,7 +33,7 @@ jobs:
           # everywhere else.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           # The floor hacs.json declares Home Assistant needs, and the version
           # the suite is developed on. A syntax error that only 3.13 rejects is
