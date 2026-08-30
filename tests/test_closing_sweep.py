@@ -378,3 +378,104 @@ class TriggerListingEdges(unittest.TestCase):
                 types_mod.SimpleNamespace(domain="switch",
                                           unique_id="hub_led", id="reg-l")]
         self.assertEqual(self._triggers(rows), [])
+
+
+class TheLastRegistrars(unittest.TestCase):
+    """Every platform's setup, so a renamed constant cannot silently stop a
+    whole class of entity appearing."""
+
+    def _added(self, module_name, cameras=2):
+        module = importlib.import_module(f"tapo_h500.{module_name}")
+        coord, _ = harness._build()
+        coord.cameras = [{"device_id": f"cam{n}", "alias": f"C{n}"}
+                         for n in range(cameras)]
+        hass = harness._Hass()
+        hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        entry = harness._Entry(20)
+        entry.async_on_unload = lambda unsub: None
+        added = []
+        run(module.async_setup_entry(hass, entry, added.extend))
+        return added
+
+    def test_the_button_and_the_calendar_register_theirs(self):
+        self.assertEqual(len(self._added("button")), 1, "one per hub")
+        self.assertEqual(len(self._added("calendar")), 2, "one per camera")
+
+    def test_a_hub_with_no_cameras_still_gets_its_button(self):
+        """A hub whose cameras have not been read yet must not leave the
+        entry with no entities at all."""
+        self.assertEqual(len(self._added("button", cameras=0)), 1)
+        self.assertEqual(self._added("calendar", cameras=0), [])
+
+
+class TheHubSensorProperties(unittest.TestCase):
+    def _sensor(self, attributes=None, value=lambda readings: 42):
+        sensor_mod = importlib.import_module("tapo_h500.sensor")
+        coord, _ = harness._build()
+        coord.readings = {"storage_used": 61}
+        description = sensor_mod.HubSensor(
+            key="probe", value=value, attributes=attributes)
+        return sensor_mod.H500HubSensor(coord, coord.entry, description)
+
+    def test_a_reading_with_nothing_to_add_has_no_attributes_at_all(self):
+        """Not {}. An empty dictionary is a set of attributes, and Home
+        Assistant records it on every state change of every hub sensor."""
+        self.assertIsNone(self._sensor().extra_state_attributes)
+
+    def test_a_reading_that_has_something_to_add_says_it(self):
+        sensor = self._sensor(
+            attributes=lambda readings: {"used": readings["storage_used"]})
+        self.assertEqual(sensor.extra_state_attributes, {"used": 61})
+
+    def test_the_value_is_read_from_the_coordinators_readings(self):
+        sensor = self._sensor(value=lambda readings: readings["storage_used"])
+        self.assertEqual(sensor.native_value, 61)
+
+
+class TheForecastSensor(unittest.TestCase):
+    def _forecast(self, trend):
+        sensor_mod = importlib.import_module("tapo_h500.sensor")
+        coord, _ = harness._build()
+        coord.storage_trend = list(trend)
+        coord.days_until_full = lambda: None if len(trend) < 2 else 9
+        return sensor_mod.H500StorageForecast(coord, coord.entry)
+
+    def test_too_little_history_reads_as_measuring_not_as_never_filling(self):
+        """The attributes are how somebody tells those two apart, and they
+        are the difference between "fine" and "no data yet"."""
+        forecast = self._forecast([(0, 10.0)])
+        self.assertIsNone(forecast.native_value)
+        attributes = forecast.extra_state_attributes
+        self.assertIsNone(attributes["percent_per_hour"])
+        self.assertEqual(attributes["samples"], 1)
+
+    def test_a_measured_rate_is_reported_with_its_sample_count(self):
+        forecast = self._forecast([(0, 10.0), (3600, 11.0), (7200, 12.0)])
+        attributes = forecast.extra_state_attributes
+        self.assertIsNotNone(attributes["percent_per_hour"])
+        self.assertEqual(attributes["samples"], 3)
+        self.assertEqual(forecast.native_value, 9)
+
+
+class TheFaceSensorsName(unittest.TestCase):
+    def _named(self, face_id, names):
+        sensor_mod = importlib.import_module("tapo_h500.sensor")
+        coord, _ = harness._build()
+        # face_names is derived from the entry's options, and normalising
+        # the keys is part of what it does -- so set it where it reads from.
+        coord.entry.options = {**coord.entry.options, "face_names": dict(names)}
+        return sensor_mod.H500FaceLocationSensor(
+            coord, coord.entry, face_id).name
+
+    def test_a_named_face_is_called_by_its_name(self):
+        self.assertEqual(self._named("7", {"7": "Sam"}), "Sam last seen at")
+
+    def test_a_name_stored_under_a_numeric_id_is_still_found(self):
+        """The hub reports ids as numbers and the services API hands them
+        over as either; a map answering to 7 but not "7" reads as empty."""
+        self.assertEqual(self._named("7", {7: "Sam"}), "Sam last seen at")
+
+    def test_an_unnamed_face_still_reads_as_something(self):
+        """Before anybody names it, the entity is still in the list and has
+        to say which face it is."""
+        self.assertEqual(self._named("7", {}), "Face 7 last seen at")
