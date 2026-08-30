@@ -301,3 +301,129 @@ class Unload(_World):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheDashboardCard(unittest.TestCase):
+    """Registering the card reaches into Lovelace's own storage, whose shape
+    differs across Home Assistant versions -- so what happens when it does
+    not look the way this code expects is the part that matters."""
+
+    def setUp(self):
+        self.init = component
+        self.extra_js = []
+        # Both are imported into __init__'s own namespace, so that binding is
+        # the one the code reads.
+        self._patch(self.init, "add_extra_js_url",
+                    lambda hass, url: self.extra_js.append(url))
+
+        async def integration(hass, domain):
+            return type("I", (), {"version": "1.4.0"})()
+
+        self._patch(self.init, "async_get_integration", integration)
+
+    def _patch(self, module, name, value):
+        original = getattr(module, name, None)
+        setattr(module, name, value)
+        self.addCleanup(setattr, module, name, original)
+
+    def _hass(self, resources=None):
+        hass = harness._Hass()
+        hass.data = {}
+        served = []
+
+        async def register(paths):
+            served.extend(paths)
+
+        hass.http = type("H", (), {
+            "async_register_static_paths": staticmethod(register)})()
+        if resources is not None:
+            hass.data["lovelace"] = type("L", (), {"resources": resources})()
+        hass.served = served
+        return hass
+
+    class _Resources:
+        """Lovelace's storage collection, as much of it as this uses."""
+
+        def __init__(self, items=(), loaded=True, fails=None):
+            self.items = [dict(item) for item in items]
+            self.loaded = loaded
+            self.fails = fails
+            self.loads = 0
+
+        def async_items(self):
+            if self.fails:
+                raise self.fails
+            return list(self.items)
+
+        async def async_load(self):
+            self.loads += 1
+
+        async def async_create_item(self, item):
+            self.items.append({**item, "id": "new"})
+
+        async def async_update_item(self, item_id, changes):
+            for item in self.items:
+                if item["id"] == item_id:
+                    item.update(changes)
+
+    def test_the_card_is_served_and_listed_as_a_resource(self):
+        resources = self._Resources()
+        hass = self._hass(resources)
+        run(self.init._async_register_card(hass))
+        self.assertEqual(len(hass.served), 1)
+        self.assertEqual(resources.items[0]["res_type"], "module")
+        self.assertIn("?v=1.4.0", resources.items[0]["url"])
+
+    def test_the_version_is_what_makes_a_browser_refetch_it(self):
+        """A cached copy of the old card is the failure this prevents, and
+        it looks like nothing at all going wrong."""
+        resources = self._Resources()
+        run(self.init._async_register_card(self._hass(resources)))
+        self.assertTrue(resources.items[0]["url"].endswith("?v=1.4.0"))
+
+    def test_an_upgrade_rewrites_the_existing_entry_rather_than_adding_one(self):
+        resources = self._Resources(
+            [{"id": "old", "url": f"{self.init.CARD_URL}?v=1.0.0"}])
+        run(self.init._async_register_card(self._hass(resources)))
+        self.assertEqual(len(resources.items), 1)
+        self.assertIn("?v=1.4.0", resources.items[0]["url"])
+
+    def test_an_entry_already_current_is_left_alone(self):
+        resources = self._Resources(
+            [{"id": "old", "url": f"{self.init.CARD_URL}?v=1.4.0"}])
+        run(self.init._async_register_card(self._hass(resources)))
+        self.assertEqual(resources.items[0]["id"], "old")
+        self.assertEqual(len(resources.items), 1)
+
+    def test_an_unloaded_resource_list_is_loaded_first(self):
+        """Reading it before it has loaded reports no resources, and the card
+        would be added a second time on every restart."""
+        resources = self._Resources(loaded=False)
+        run(self.init._async_register_card(self._hass(resources)))
+        self.assertEqual(resources.loads, 1)
+
+    def test_only_one_mechanism_is_used_when_the_resource_took(self):
+        """Both, and the file loads twice -- the second define() throws and
+        the card is broken."""
+        run(self.init._async_register_card(self._hass(self._Resources())))
+        self.assertEqual(self.extra_js, [])
+
+    def test_a_lovelace_that_looks_different_falls_back_to_the_js_url(self):
+        """YAML mode, or a storage layout this does not recognise. Neither
+        is a reason to fail setting the integration up."""
+        run(self.init._async_register_card(self._hass(None)))
+        self.assertEqual(len(self.extra_js), 1)
+        self.assertIn("?v=1.4.0", self.extra_js[0])
+
+    def test_a_resource_list_that_raises_falls_back_too(self):
+        resources = self._Resources(fails=RuntimeError("storage moved"))
+        run(self.init._async_register_card(self._hass(resources)))
+        self.assertEqual(len(self.extra_js), 1)
+
+    def test_it_is_registered_once_however_many_hubs_there_are(self):
+        """Two entries would serve the same static path twice, which raises,
+        and would add the resource twice."""
+        hass = self._hass(self._Resources())
+        run(self.init._async_register_card(hass))
+        run(self.init._async_register_card(hass))
+        self.assertEqual(len(hass.served), 1)
