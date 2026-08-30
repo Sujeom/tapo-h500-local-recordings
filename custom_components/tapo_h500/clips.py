@@ -15,7 +15,44 @@ from .const import (
 )
 
 # Fields the hub has been seen to label activity with, most specific first.
-TYPE_FIELDS = ("video_type", "detection_type", "event_type", "type")
+# Every field name the hub uses, in one place.
+#
+# The protocol is undocumented and these are dictionaries, so a key that has
+# been renamed, or was never spelled the way the code guesses, fails by
+# returning None -- silently, forever, in a green suite. That is exactly how
+# the storage warning stayed dead for months: `hub_readings` looked up
+# `storage_total` where the parser produced `storage_total_gb`, and nothing
+# anywhere said so.
+#
+# There is no type checker here to catch that, and a dataclass wrapper would
+# only move the guess to its constructor. What does catch it is having one
+# list of the names, every accessor built from it, and a test that reads real
+# captured hub responses through those accessors -- so a rename fails on
+# recorded data rather than on somebody's doorbell.
+HUB_FIELDS = {
+    # A clip's own times; the detection log spells the same two differently.
+    "start": ("startTime", "start_time"),
+    "end": ("endTime", "end_time"),
+    # What fired. `alarm_type` is the highest set bit of `events_1` plus one;
+    # both are read because the two lookups do not always carry both.
+    "alarm": ("alarm_type",),
+    "mask": ("events_1",),
+    # Recognised faces ride in here, one entry each.
+    "faces": ("event_info",),
+    "face": ("face_id",),
+    # The hub's own label for the activity. Four spellings across firmwares
+    # and lookups, tried in order.
+    "label": ("video_type", "detection_type", "event_type", "type"),
+}
+
+TYPE_FIELDS = HUB_FIELDS["label"]
+
+# What `attach_detections` copies from a detection onto the clip it belongs
+# to, so one record carries both. Built from the list above rather than
+# repeated, because a field the accessors read and this does not copy is a
+# clip that answers None to a question the detection could have answered.
+COPIED_FIELDS = (HUB_FIELDS["alarm"] + HUB_FIELDS["mask"]
+                 + HUB_FIELDS["faces"])
 
 
 def camera_slug(camera: dict) -> str:
@@ -79,13 +116,26 @@ def _as_int(value) -> int | None:
         return None
 
 
+def _first(entry: dict, names: tuple[str, ...]):
+    """The first of these fields the entry actually carries."""
+    for name in names:
+        value = entry.get(name)
+        if value is not None:
+            return value
+    return None
+
+
+def _first_int(entry: dict, names: tuple[str, ...]) -> int | None:
+    return _as_int(_first(entry, names))
+
+
 def start_of(entry: dict) -> int | None:
     """Clips use startTime, detections use start_time."""
-    return _as_int(entry.get("startTime", entry.get("start_time")))
+    return _first_int(entry, HUB_FIELDS["start"])
 
 
 def end_of(entry: dict) -> int | None:
-    return _as_int(entry.get("endTime", entry.get("end_time")))
+    return _first_int(entry, HUB_FIELDS["end"])
 
 
 def hub_label(entry: dict) -> str | None:
@@ -112,10 +162,10 @@ def detection_types(entry: dict) -> list[int]:
     where alarm_type reports only the most significant. The mask is preferred
     and alarm_type is the fallback for a detection that carries no mask.
     """
-    mask = _as_int(entry.get("events_1"))
+    mask = _first_int(entry, HUB_FIELDS["mask"])
     if mask is not None and mask > 0:
         return [bit + 1 for bit in range(mask.bit_length()) if mask >> bit & 1]
-    alarm = _as_int(entry.get("alarm_type"))
+    alarm = _first_int(entry, HUB_FIELDS["alarm"])
     return [alarm] if alarm else []
 
 
@@ -133,10 +183,10 @@ def face_ids(entry: dict) -> list[int]:
     id, so an automation can match one and supply the name the hub will not.
     """
     found = []
-    for event in entry.get("event_info") or []:
+    for event in _first(entry, HUB_FIELDS["faces"]) or []:
         if not isinstance(event, dict):
             continue
-        identifier = _as_int(event.get("face_id"))
+        identifier = _first_int(event, HUB_FIELDS["face"])
         if identifier is not None and identifier not in found:
             found.append(identifier)
     return found
@@ -144,7 +194,7 @@ def face_ids(entry: dict) -> list[int]:
 
 def primary_type(entry: dict) -> int | None:
     """The most significant alarm type, which is what alarm_type reports."""
-    alarm = _as_int(entry.get("alarm_type"))
+    alarm = _first_int(entry, HUB_FIELDS["alarm"])
     if alarm:
         return alarm
     types = detection_types(entry)
@@ -238,7 +288,7 @@ def attach_detections(clips: list[dict], detections) -> list[dict]:
                      None)
         if match is None:
             continue
-        for field in ("alarm_type", "events_1", "event_info"):
+        for field in COPIED_FIELDS:
             if match.get(field) is not None:
                 clip[field] = match[field]
     return clips
@@ -251,7 +301,7 @@ def flatten_clips(result: dict) -> list[dict]:
         if not isinstance(group, dict):
             continue
         for clip in group.values():
-            if isinstance(clip, dict) and "startTime" in clip:
+            if isinstance(clip, dict) and start_of(clip) is not None:
                 found.append(clip)
     return found
 
