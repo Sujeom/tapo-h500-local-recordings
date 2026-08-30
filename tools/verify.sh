@@ -52,6 +52,32 @@ for path in modules:
     ast.parse(path.read_text(), str(path))
 print(f"{len(modules)} modules parse")
 
+# Every test file ends with unittest.main(). When content gets appended after
+# it, running that file directly collects only what was defined above it and
+# reports OK -- thirty files had drifted that way at once, one of them running
+# 23 of its 70 tests. Discovery hides it completely, so nothing but this
+# notices.
+stranded = []
+for path in sorted((root / "tests").glob("test_*.py")):
+    tree = ast.parse(path.read_text(), str(path))
+    guard = next((node.lineno for node in tree.body
+                  if isinstance(node, ast.If)
+                  and ast.dump(node.test).find("__main__") != -1), None)
+    if guard is None:
+        continue
+    below = [node.name for node in tree.body
+             if getattr(node, "lineno", 0) > guard
+             and isinstance(node, (ast.ClassDef, ast.FunctionDef,
+                                   ast.AsyncFunctionDef))]
+    if below:
+        stranded.append(f"{path.name}: {', '.join(below[:3])}")
+if stranded:
+    print("definitions below the unittest.main() guard, so running the file "
+          "directly skips them:")
+    for line in stranded:
+        print(f"  {line}")
+    sys.exit(1)
+
 documents = [path for path in sorted(root.rglob("*.yaml"))
              if ".venv" not in path.parts and ".git" not in path.parts]
 for path in documents:
