@@ -1337,3 +1337,186 @@ class _StubLiveClient:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApiTails(unittest.TestCase):
+    """The client's remaining branches: the connect guard, the session's
+    refusal shapes, and the small wrappers around the hub lock."""
+
+    def _connect(self, info=None, model_raises=False, user_id_raises=True):
+        client = H500Client("host", "admin", "local", "cloud")
+
+        class Hub:
+            basicInfo = {"device_info": {"basic_info": dict(info or {
+                "device_model": "H500(EU)", "sw_version": "1.3.20"})}}
+            superSecretKey = "k"
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def getUserID(self):
+                if user_id_raises:
+                    raise RuntimeError("get_user_id rejected")
+                return 42
+
+            def getEncryptionMethod(self):
+                return "AES"
+
+        with patch.object(api, "Tapo", Hub):
+            client.connect()
+        return client
+
+    def test_a_region_suffixed_model_is_still_an_h500(self):
+        """"H500(EU)", "H500 V2": an exact match would refuse every one at
+        setup with an error that reads like a wrong address."""
+        client = self._connect()
+        self.assertEqual(client.info["device_model"], "H500(EU)")
+
+    def test_some_other_device_is_refused_by_name(self):
+        with self.assertRaises(ValueError) as caught:
+            self._connect(info={"device_model": "C200"})
+        self.assertIn("C200", str(caught.exception))
+
+    def test_a_hub_that_rejects_user_id_defaults_to_the_apps_one(self):
+        self.assertEqual(self._connect()._client_id, 1)
+
+    def test_a_hub_that_grants_one_keeps_it(self):
+        self.assertEqual(self._connect(user_id_raises=False)._client_id, 42)
+
+    def test_close_is_safe_twice(self):
+        client = H500Client("host", "admin", "local", "cloud")
+
+        class Hub:
+            closes = 0
+
+            def close(self):
+                Hub.closes += 1
+
+        client._hub = Hub()
+        client.close()
+        client.close()
+        self.assertEqual(Hub.closes, 1)
+
+    def test_camera_at_refuses_an_index_off_the_list(self):
+        client = H500Client("host", "admin", "local", "cloud")
+
+        class Hub:
+            def executeFunction(self, *_):
+                return {"general_camera_manage": {
+                    "paired_general_device_list": [{"device_id": "cam0"}]}}
+
+        client._hub = Hub()
+        self.assertEqual(client.camera_at(0)["device_id"], "cam0")
+        for bad in (-1, 1):
+            with self.assertRaises(ValueError):
+                client.camera_at(bad)
+
+    def test_recordings_refuses_dates_it_cannot_mean(self):
+        client = H500Client("host", "admin", "local", "cloud")
+
+        class Hub:
+            def executeFunction(self, *_):
+                return {"general_camera_manage": {
+                    "paired_general_device_list": [{"device_id": "cam0"}]}}
+
+        client._hub = Hub()
+        with self.assertRaises(ValueError) as caught:
+            client.recordings(0, "2026-08-30", "20260830")
+        self.assertIn("YYYYMMDD", str(caught.exception))
+        with self.assertRaises(ValueError):
+            client.recordings(0, "20260830", "20260828")
+
+    def test_hub_status_is_one_batched_request(self):
+        """One multipleRequest costs the hub the same as one getter, and
+        this hub is easy to wedge."""
+        client = H500Client("host", "admin", "local", "cloud")
+        seen = {}
+
+        class Hub:
+            def performRequest(self, request):
+                seen.update(request)
+                return {"result": {"responses": [
+                    {"method": "getLedStatus", "error_code": 0,
+                     "result": {"led": {"config": {"enabled": "on"}}}}]}}
+
+        client._hub = Hub()
+        result = client.hub_status()
+        self.assertEqual(seen["method"], "multipleRequest")
+        self.assertIn("getLedStatus", result)
+
+    def test_an_empty_siren_change_asks_the_hub_nothing(self):
+        client = H500Client("host", "admin", "local", "cloud")
+        client._hub = None  # would explode if any call were made
+        self.assertIsNone(client.set_siren_config())
+
+
+class SessionRefusals(unittest.TestCase):
+    """The two ways a session says no, and the noise it must survive."""
+
+    def _client(self):
+        client = H500Client("host", "admin", "local", "cloud")
+        client._super_secret_key = ""
+        client._encryption_method = object()
+        return client
+
+    def _stream(self, *responses):
+        client = self._client()
+
+        class FakeSession:
+            def __init__(self, **_):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return None
+
+            async def transceive(self, *_, **__):
+                for response in responses:
+                    yield response
+
+        async def consume():
+            with patch.object(api, "H500MediaSession", FakeSession):
+                return [part async for part in
+                        client.iter_recording(CAMERA, 10, 20)]
+
+        return client, consume
+
+    @staticmethod
+    def _json(payload: bytes):
+        return type("R", (), {"mimetype": "application/json",
+                              "plaintext": payload})()
+
+    @staticmethod
+    def _video(payload: bytes):
+        return type("R", (), {"mimetype": "video/mp2t",
+                              "plaintext": payload})()
+
+    FINISHED = (b'{"type":"notification","params":'
+                b'{"event_type":"stream_status","status":"finished"}}')
+
+    def test_a_coded_rejection_names_its_code(self):
+        client, consume = self._stream(self._json(
+            b'{"type":"response","params":{"error_code":-40401}}'))
+        with self.assertRaises(IncompleteRecordingError) as caught:
+            asyncio.run(consume())
+        self.assertIn("-40401", str(caught.exception))
+        self.assertEqual(client.session_health["failed"], 1)
+
+    def test_undecodable_json_is_skipped_not_fatal(self):
+        client, consume = self._stream(
+            self._json(b"\xff\xfe not json"),
+            self._video(b"\x47" * 188),
+            self._json(self.FINISHED))
+        received = asyncio.run(consume())
+        self.assertEqual(len(received), 1)
+        self.assertEqual(client.session_health["served"], 1)
+
+    def test_video_flows_through_and_counts_as_served(self):
+        client, consume = self._stream(
+            self._video(b"\x47" * 188), self._video(b"\x47" * 188),
+            self._json(self.FINISHED))
+        self.assertEqual(len(asyncio.run(consume())), 2)
+        health = client.session_health
+        self.assertEqual((health["served"], health["sessions"]), (1, 1))
