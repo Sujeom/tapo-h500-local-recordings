@@ -10,7 +10,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 python -B -m unittest discover -s tests -p 'test_*.py' 2>&1 | tail -3
-node tests/test_cards.mjs >/dev/null && echo "card tests OK"
+# NOT `node ... && echo OK`. Under `set -e` bash suppresses errexit for the
+# left side of an AND list, so a failing command there is stepped over and the
+# script carries on to exit 0. This gate silently passed a broken card suite
+# that way, and the commit it was guarding went in.
+if ! card_output=$(node tests/test_cards.mjs 2>&1); then
+    printf '%s\n' "$card_output" | grep -E "^ *FAIL" || true
+    echo "card tests FAILED"
+    exit 1
+fi
+echo "card tests OK"
 python -B tools/lint.py
 
 python -B - <<'PY'

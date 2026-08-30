@@ -516,6 +516,9 @@ test("every recording button says which recording it is for", () => {
   // timestamp beside them on screen carries none of that to anybody who
   // cannot see the row.
   const card = build(TapoH500Card, {});
+  // Two on disk, so there are two Delete buttons to tell apart. The shared
+  // fixture has one of each, which is the wrong shape for this question.
+  card._recordings = CLIPS.map((clip) => ({ ...clip, downloaded: true }));
   card._render();
   const deletes = [...card._card.innerHTML.matchAll(/aria-label="([^"]*)"/g)]
     .map(([, label]) => label)
