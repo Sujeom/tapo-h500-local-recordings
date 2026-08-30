@@ -26,7 +26,7 @@ do:
 - **Leave NTP (UDP 123) open if you can.** A hub that cannot set its clock
   drifts, and recordings get filed under the wrong day.
   `sensor.<hub>_clock_offset` shows the drift either way.
-- **Turn the auto-upgrade switch off** (`switch.<hub>_auto_upgrade`) — it
+- **Turn the auto-upgrade switch off** (`switch.<hub>_automatic_firmware_updates`) — it
   cannot fetch anything without internet, and disabling it stops the hub
   trying on its schedule. The firmware `update` entity only reads what the
   hub already knows and shows "up to date" on a blocked hub, which is the
@@ -114,7 +114,7 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Unusual activity:** each camera flags an hour that stands out against its
   own recent rate, so a busy street and a back gate are judged separately. Set how
   far above that counts under **Configure → Unusual activity**.
-- **In one word:** `sensor.<camera>_activity_level` — quiet, active, busy or
+- **In one word:** `sensor.<camera>_activity` — quiet, active, busy or
   unusual — instead of joining a count, a flag and a timestamp up by eye.
 - **Do something about it:** a second
   [blueprint](blueprints/automation/tapo_h500/respond_to_activity.yaml) turns

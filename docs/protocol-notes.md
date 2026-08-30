@@ -568,16 +568,20 @@ is always its highest set bit plus one — checked against every observed record
 So the mask is the richer field: `2097442` is bits 1, 5, 8 and 21 — four
 concurrent detections where `alarm_type` reports only the last.
 
-**Only two codes are named**, and only where the evidence carries: `2` is set
+~~**Only two codes are named**, and only where the evidence carries: `2` is set
 on nearly every detection, and `20` is the only code observed carrying a
-`face_id`. The rest are real and unnamed, and are displayed as `type 22` rather
-than guessed at. The hub cannot name them either — `getAlertTypeList` is
-`-40106` and `getAlertConfig` returns `{}`.
+`face_id`. The rest are real and unnamed.~~ **(superseded — see "What the
+alarm_type codes mean" above.)** Nine codes are named now, each against
+observed detections, and anything outside that set is still displayed as its
+number rather than guessed at. The hub cannot name them either —
+`getAlertTypeList` is `-40106` and `getAlertConfig` returns `{}`.
 
-**Which code means a doorbell press is still unknown.** `RING_ALARM_TYPES` in
-`const.py` is deliberately empty; add the code there once a real press has been
-captured and the event entity, the download filter and every card pick it up at
-once.
+~~**Which code means a doorbell press is still unknown.** `RING_ALARM_TYPES` in
+`const.py` is deliberately empty.~~ **(superseded.)** `alarm_type` 17 is a
+press, confirmed against a real one, and `RING_ALARM_TYPES` is `{17}`. Code 10
+rides along with it every time and has never been seen alone, so it is read as
+a missed press rather than added to the set — that would claim more than was
+observed.
 
 ### Why it looked dead for so long
 
@@ -612,8 +616,11 @@ firmware 1.3.20:
   both cameras across a seven-day window, with and without child addressing.
   It is a live method that yields nothing here.
 - Every clip is `video_type: "2"`, whatever triggered it. There is no per-clip
-  classification, which is the same reason a doorbell press cannot be told
-  apart from motion.
+  classification in the *clip index*. ~~which is the same reason a doorbell
+  press cannot be told apart from motion.~~ **(superseded.)** The detection
+  log carries it: `searchDetectionList` answers with an `alarm_type` per
+  event, and `attach_detections` puts the two together so one record carries
+  both.
 - Person, pet and vehicle config getters are camera-level, and a camera child
   cannot be addressed (see `controlChild` above).
 

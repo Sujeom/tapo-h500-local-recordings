@@ -83,9 +83,11 @@ lives on the camera, and the hub exposes no way to address a camera child. See
 Cameras are enumerated when the config entry loads. Pair a new camera, then
 reload the integration to pick it up.
 
-**Doorbell presses are not distinguishable yet, but finding the code is now a
-one-minute job.** Nothing classifies as a `ring`, so the presses-only download
-mode still matches nothing.
+**Doorbell presses are identified.** `alarm_type` 17 is a press, confirmed
+against a real one, so the event entity raises `ring` rather than `motion` and
+the presses-only download mode matches what it says it does. Code 10 rides
+along with every press and is read as "missed doorbell"; it has never been
+seen on its own.
 
 Every event and every listed recording now carries what the hub reported:
 
@@ -734,7 +736,7 @@ that is not about something outside the house — it is about the camera itself,
 and if it is real then the recordings after it are the ones that will be
 missing.
 
-`binary_sensor.<camera>_theft` reports it for 30 seconds, which is right for a
+`binary_sensor.<camera>_tampering` reports it for 30 seconds, which is right for a
 history graph and useless for a fact somebody needs whenever they next open
 Home Assistant. So it also raises a **repair issue** naming the camera, the
 local time, and how many reports there have been in the last day — once is a
