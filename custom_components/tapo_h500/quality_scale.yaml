@@ -122,8 +122,26 @@ rules:
       Allow-list, not deny-list -- the hub's replies change between firmwares
       and a deny-list would leak whatever the next one adds. No credentials,
       no MACs, no aliases, no wall-clock times.
-  discovery: todo
-  discovery-update-info: todo
+  discovery:
+    status: todo
+    comment: |
+      Blocked on evidence rather than on work. A dhcp matcher needs this
+      hub's actual OUI prefix and hostname, and a wrong one makes Home
+      Assistant offer this integration for every unrelated TP-Link device on
+      the network -- which is worse than no discovery at all. The values are
+      in the hub's own basicInfo (mac) and in the router's lease table;
+      neither is recorded anywhere in this repository, and asking the hub
+      costs a login to a device that wedges under them.
+
+      tests/test_discovery.py refuses a matcher that arrives without its
+      provenance written down, so this cannot be added on a guess.
+  discovery-update-info:
+    status: todo
+    comment: |
+      Follows discovery: once the hub can be recognised, a changed DHCP lease
+      should update the entry's host instead of the owner noticing the
+      integration broke and running the reconfigure flow. The reconfigure
+      flow already exists and does the same job by hand.
   docs-data-update: todo
   docs-examples: done
   docs-known-limitations: done
