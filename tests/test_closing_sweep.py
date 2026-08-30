@@ -479,3 +479,99 @@ class TheFaceSensorsName(unittest.TestCase):
         """Before anybody names it, the entity is still in the list and has
         to say which face it is."""
         self.assertEqual(self._named("7", {}), "Face 7 last seen at")
+
+
+class ThingsAPollSurvives(unittest.TestCase):
+    """A poll is how every entity in this integration learns anything, so
+    the bonuses hung off it must not be able to take it down."""
+
+    def _poll_with(self, attribute, error=RuntimeError("no")):
+        coord, client = harness._build()
+
+        def boom(*args, **kwargs):
+            raise error
+
+        setattr(coord, attribute, boom)
+        return run(coord._async_update_data())
+
+    def test_arrival_tracking_failing_does_not_fail_the_poll(self):
+        self.assertIn("clips", self._poll_with("_note_arrivals"))
+
+    def test_visit_tracking_failing_does_not_fail_the_poll(self):
+        self.assertIn("clips", self._poll_with("_note_visits"))
+
+    def test_the_clips_still_arrive_when_both_fail(self):
+        """Neither is worth a poll: the detections are the reason for it."""
+        coord, client = harness._build()
+        coord._note_arrivals = coord._note_visits = self._explode
+        self.assertIn("clips", run(coord._async_update_data()))
+
+    @staticmethod
+    def _explode(*args, **kwargs):
+        raise RuntimeError("no")
+
+
+class CameraRanksFromOptions(unittest.TestCase):
+    """The layout is typed in by hand, so it arrives however YAML felt."""
+
+    def _ranks(self, stored):
+        coord, _ = harness._build()
+        coord.entry.options = {**coord.entry.options, "camera_order": stored}
+        return coord.camera_ranks
+
+    def test_numbers_written_as_text_are_still_numbers(self):
+        self.assertEqual(self._ranks({"Front": "1"}), {"Front": 1})
+
+    def test_an_entry_that_is_not_a_number_is_dropped_not_fatal(self):
+        """One bad row must not cost the whole layout, and the trail reads
+        this on every detection."""
+        self.assertEqual(self._ranks({"Front": 1, "Side": "near", "Back": 3}),
+                         {"Front": 1, "Back": 3})
+
+    def test_nothing_configured_is_an_empty_layout(self):
+        self.assertEqual(self._ranks({}), {})
+
+
+class TheDownloadsTwoSkips(unittest.TestCase):
+    def _attempt(self, clip, existing=None):
+        """Run one automatic download with the disk stubbed out, and report
+        whether the hub was actually asked for the recording."""
+        coord, _ = harness._build()
+        asked = []
+        module = sys.modules["tapo_h500.coordinator"]
+
+        async def download(*args, **kwargs):
+            asked.append(args)
+            return {"path": "/x.ts", "bytes": 4096}
+
+        async def verified(*args, **kwargs):
+            return True
+
+        async def pruned(*args, **kwargs):
+            return []
+
+        for name, value in (("existing_clip",
+                             lambda hass, camera, start: existing),
+                            ("async_download_clip", download),
+                            ("async_verify", verified),
+                            ("async_prune", pruned)):
+            self.addCleanup(setattr, module, name, getattr(module, name, None))
+            setattr(module, name, value)
+        run(coord._download(0, {"device_id": "cam0", "alias": "F"}, clip))
+        return asked
+
+    def test_a_clip_already_on_disk_is_not_fetched_again(self):
+        """Each fetch is a whole media session against a hub that wedges."""
+        clip = {"startTime": NOW, "endTime": NOW + 15}
+        self.assertEqual(self._attempt(clip, existing="/already.ts"), [])
+
+    def test_a_clip_with_no_usable_span_is_not_fetched(self):
+        for clip in ({"endTime": NOW + 15}, {"startTime": NOW},
+                     {"startTime": NOW, "endTime": NOW},
+                     {"startTime": NOW + 15, "endTime": NOW}):
+            with self.subTest(clip=clip):
+                self.assertEqual(self._attempt(clip), [])
+
+    def test_an_ordinary_clip_is_fetched(self):
+        clip = {"startTime": NOW, "endTime": NOW + 15}
+        self.assertEqual(len(self._attempt(clip)), 1)
