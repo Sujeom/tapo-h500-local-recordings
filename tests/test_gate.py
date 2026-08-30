@@ -67,3 +67,49 @@ class EveryCheckIsWiredToFail(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AFailureSaysWhichOne(unittest.TestCase):
+    """A gate that fails without saying why costs an afternoon.
+
+    The suite was piped straight to `tail -3`, so a failure printed
+    "FAILED (errors=1)" and threw away the name of the test and its
+    traceback. In a CI log that is unrecoverable: the run is over, and the
+    only way to find out what broke is to reproduce the runner locally --
+    which is what it took.
+    """
+
+    def test_the_suite_is_captured_rather_than_piped_away(self):
+        self.assertIn("if ! suite=$(python -B -m unittest discover", VERIFY)
+
+    def test_a_failure_prints_more_than_the_summary(self):
+        failing = VERIFY.split("if ! suite=", 1)[1].split("fi", 1)[0]
+        self.assertIn("tail -60", failing)
+        self.assertIn("exit 1", failing)
+
+    def test_a_pass_still_prints_only_the_summary(self):
+        """Sixty lines of dots on every green run is a log nobody reads."""
+        self.assertIn('printf \'%s\\n\' "$suite" | tail -3', VERIFY)
+
+
+class TheCheckoutHasWhatTheTestsRead(unittest.TestCase):
+    """Two tests read git history, and a shallow checkout has none.
+
+    `actions/checkout` fetches one commit and no tags unless asked. The
+    release tool's tag parsing then had nothing to parse, and the check that
+    the manifest version is at or ahead of the last release skipped itself.
+    One failed in CI and passed everywhere else; the other quietly checked
+    nothing.
+    """
+
+    WORKFLOW = (ROOT / ".github" / "workflows" / "verify.yml").read_text()
+
+    def test_the_verify_job_asks_for_the_whole_history(self):
+        self.assertIn("fetch-depth: 0", self.WORKFLOW)
+
+    def test_the_tests_that_need_it_skip_rather_than_error_without_it(self):
+        """A source tarball has no `.git` at all, and that is not a bug in
+        the release tool."""
+        source = (ROOT / "tests" / "test_release_tool.py").read_text()
+        self.assertIn("skipTest", source)
+        self.assertIn("CalledProcessError", source)

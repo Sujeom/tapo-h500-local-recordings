@@ -9,7 +9,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-python -B -m unittest discover -s tests -p 'test_*.py' 2>&1 | tail -3
+# The summary when it passes, the failures when it does not. Piping straight
+# to `tail -3` printed "FAILED (errors=1)" and threw away the name of the test
+# and its traceback -- which is exactly what you need, and is unrecoverable
+# from a CI log that has already scrolled past.
+if ! suite=$(python -B -m unittest discover -s tests -p 'test_*.py' 2>&1); then
+    printf '%s\n' "$suite" | grep -vE '^(\.|ok |test_)' | tail -60
+    echo "tests FAILED"
+    exit 1
+fi
+printf '%s\n' "$suite" | tail -3
 # NOT `node ... && echo OK`. Under `set -e` bash suppresses errexit for the
 # left side of an AND list, so a failing command there is stepped over and the
 # script carries on to exit 0. This gate silently passed a broken card suite

@@ -236,7 +236,15 @@ def _unnamed_faces(hass: HomeAssistant, entry_id: str, coordinator) -> None:
         # Fixable: the notice takes the name itself instead of pointing at
         # the Configure page. `data` is what the flow gets handed.
         is_fixable=True,
-        data={"entry_id": entry_id, "face_id": str(top["id"])},
+        # Everything the flow's own wording needs. A fixable issue may carry a
+        # title and a fix flow but not a description -- Home Assistant's
+        # translation schema treats those as alternatives -- so the counts
+        # that used to be in the description have to reach the form itself or
+        # they are not shown anywhere.
+        data={"entry_id": entry_id, "face_id": str(top["id"]),
+              "sightings": str(top.get("sightings", 0)),
+              "cameras": ", ".join(top.get("cameras") or []) or "a camera",
+              "others": str(len(frequent) - 1)},
         severity=ir.IssueSeverity.WARNING,
         translation_key=UNNAMED_FACE_ISSUE,
         translation_placeholders={
@@ -348,7 +356,8 @@ async def async_create_fix_flow(hass: HomeAssistant, issue_id: str,
                 step_id="init",
                 data_schema=vol.Schema({vol.Required("name"): str}),
                 description_placeholders={
-                    "face_id": str(fix.get("face_id", ""))},
+                    key: str(fix.get(key, ""))
+                    for key in ("face_id", "sightings", "cameras", "others")},
             )
 
     return NameFaceFlow()

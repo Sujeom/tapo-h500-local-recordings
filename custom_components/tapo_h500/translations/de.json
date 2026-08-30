@@ -403,12 +403,11 @@
     },
     "unnamed_face": {
       "title": "Ein Gesicht, das die Basis immer wieder sieht, hat keinen Namen",
-      "description": "Gesicht {face_id} wurde {sightings}-mal an {cameras} gesehen und hat keinen Namen. Mit einem Namen sagen jede Karte, jeder Sensor und jede Benachrichtigung, wer es ist, statt einer Nummer – „Alice hat an der Haustür geklingelt“.\n\nBenennen unter „Konfigurieren“ → „Gesichter benennen“, wo jedes Gesicht mit einem Link zu seinem Foto aufgeführt ist, oder mit der Schaltfläche „Dieses Gesicht benennen“ auf der Gesichterkarte.\n\n{others} weitere(s) Gesicht(er) warten ebenfalls auf einen Namen.",
       "fix_flow": {
         "step": {
           "init": {
             "title": "Dieses Gesicht benennen",
-            "description": "Die Basis erkennt Gesicht {face_id} immer wieder. Geben Sie ihm einen Namen, und jede Karte, jeder Sensor und jede Benachrichtigung verwendet ihn. Das Foto ist auf der Gesichterkarte, falls Sie zuerst nachsehen möchten. Ein leeres Feld abzusenden schließt diesen Hinweis einfach.",
+            "description": "Gesicht {face_id} wurde {sightings}-mal an {cameras} gesehen und hat keinen Namen. Geben Sie ihm einen, und jede Karte, jeder Sensor und jede Benachrichtigung sagt, wer es ist, statt einer Nummer – „Alice hat an der Haustür geklingelt“. Das Foto ist auf der Gesichterkarte, falls Sie zuerst nachsehen möchten. Ein leeres Feld abzusenden schließt diesen Hinweis einfach.\n\n{others} weitere(s) Gesicht(er) warten ebenfalls auf einen Namen.",
             "data": {
               "name": "Name"
             }

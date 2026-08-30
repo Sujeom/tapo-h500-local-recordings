@@ -403,12 +403,11 @@
     },
     "unnamed_face": {
       "title": "A face the hub keeps seeing has no name",
-      "description": "Face {face_id} has been seen {sightings} times on {cameras} and has not been named. Naming it makes every card, sensor and notification say who it is instead of a number — \"Alice rang the Front Doorbell\".\n\nName it under Configure → Name faces, where each face is listed with a link to its photograph, or with the Name this face button on the faces card.\n\n{others} other face(s) are also waiting to be named.",
       "fix_flow": {
         "step": {
           "init": {
             "title": "Name this face",
-            "description": "The hub keeps recognising face {face_id}. Give them a name and every card, sensor and notification will use it. Their photo is on the faces card if you need a look first. Submitting an empty box just closes this notice.",
+            "description": "Face {face_id} has been seen {sightings} times on {cameras} and has no name. Give them one and every card, sensor and notification will say who it is instead of a number — “Alice rang the Front Doorbell”. Their photo is on the faces card if you want a look first. Submitting an empty box just closes this notice.\n\n{others} other face(s) are also waiting to be named.",
             "data": {
               "name": "Name"
             }

@@ -1,7 +1,6 @@
 {
   "domain": "tapo_h500",
   "name": "Tapo H500 Local Recordings",
-  "version": "0.123.0",
   "codeowners": [],
   "config_flow": true,
   "dependencies": [
@@ -11,10 +10,11 @@
     "media_source"
   ],
   "documentation": "https://github.com/Sujeom/tapo-h500-local-recordings",
-  "issue_tracker": "https://github.com/Sujeom/tapo-h500-local-recordings/issues",
   "integration_type": "hub",
   "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/Sujeom/tapo-h500-local-recordings/issues",
   "requirements": [
     "pytapo==3.4.18"
-  ]
+  ],
+  "version": "0.123.0"
 }

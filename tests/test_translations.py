@@ -130,10 +130,19 @@ class EverythingShownHasWords(unittest.TestCase):
         self.assertEqual(used - set(EN["issues"]), set())
 
     def test_every_notice_says_what_to_do_as_well_as_what_happened(self):
+        """A notice carries a title and then either a description or a fix
+        flow -- Home Assistant's schema treats those two as alternatives, and
+        hassfest rejects a notice that has both."""
         for key, body in EN["issues"].items():
             with self.subTest(key):
                 self.assertTrue(body.get("title", "").strip())
-                self.assertTrue(body.get("description", "").strip())
+                if "fix_flow" in body:
+                    self.assertNotIn("description", body)
+                    said = (body["fix_flow"]["step"]["init"]
+                            .get("description", ""))
+                else:
+                    said = body.get("description", "")
+                self.assertTrue(said.strip())
 
     def test_every_entity_translation_key_resolves(self):
         """Anywhere under entity, issues or selector. A missing one is not an

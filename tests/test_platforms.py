@@ -240,10 +240,31 @@ class NamePrompt(unittest.TestCase):
         body = REPAIRS.split("def _unnamed_faces", 1)[1]
         self.assertIn("async_delete_issue", body)
 
-    def test_the_prompt_says_where_to_do_it(self):
-        text = STRINGS["issues"]["unnamed_face"]["description"]
-        self.assertIn("Name faces", text)
+    def test_the_prompt_takes_the_name_rather_than_pointing_at_a_page(self):
+        """It is a fixable issue, so the notice asks for the name itself.
+
+        Home Assistant's translation schema treats a description and a fix
+        flow as alternatives -- a fixable issue carries a title and a flow --
+        so what used to be said in the description is said on the form, which
+        is where somebody is standing when they act on it.
+        """
+        issue = STRINGS["issues"]["unnamed_face"]
+        self.assertNotIn("description", issue,
+                         "a fixable issue may not carry one")
+        text = issue["fix_flow"]["step"]["init"]["description"]
         self.assertIn("{face_id}", text)
+        self.assertIn("{sightings}", text)
+        self.assertIn("{cameras}", text)
+
+    def test_the_flow_is_handed_what_its_wording_needs(self):
+        """Those placeholders come from the flow's own dictionary, not the
+        issue's, so they have to be passed through the issue's `data`."""
+        body = REPAIRS.split("def _unnamed_faces", 1)[1]
+        for key in ("sightings", "cameras", "others"):
+            with self.subTest(key):
+                self.assertIn(f'"{key}"', body)
+        flow = REPAIRS.split("class NameFaceFlow", 1)[1]
+        self.assertIn('("face_id", "sightings", "cameras", "others")', flow)
 
 
 class Image(unittest.TestCase):
