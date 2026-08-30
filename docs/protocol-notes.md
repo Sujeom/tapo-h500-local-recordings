@@ -791,31 +791,44 @@ A delete verb was deliberately **not** brute-forced. Any probe specific enough
 to prove one exists is specific enough to erase a recording, and hub footage
 cannot be recovered.
 
-### `subg` has never been asked
+### `subg` is unreachable too — asked and answered, 2026-08-30
 
-The component list advertises it and no probe has ever touched it. It is the
-sub-GHz link between the hub and the TD21 doorbells, which is to say it is the
-layer the failure this project exists around lives in: the cameras keep their
-radio link, still answer live view, and record nothing, and nothing on the LAN
-can see that link's state at all.
+`subg` is the sub-GHz link between the hub and the TD21 doorbells, which is to
+say it is the layer the failure this project exists around lives in: the
+cameras keep their radio link, still answer live view, and record nothing. It
+was advertised in `app_component_list` and had never been probed.
 
-`tools/probe_subg.py` asks, in one login: the five section spellings that work
-for `app_component` and `general_camera_manage`, ten more from a radio's own
-vocabulary, and ten method names. Read-only by construction, and not by
-convention -- every request is walked before it is sent, and any `method` that
-is not a getter or any key that is a write verb refuses the run. `do` is
-checked as a key rather than a method name, because that is how Tapo's write
-verb travels, and the walk goes into lists because sub-requests arrive in one.
+`tools/probe_subg.py` asked, in one login: fifteen section spellings — the five
+that work for `app_component` and `general_camera_manage`, plus ten from a
+radio's own vocabulary (`rf`, `signal`, `channel`, `paired_list` and the rest)
+— and ten method names through `executeFunction`.
 
-It has not been run. It touches a hub that stops responding under repeated
-authentication, so it is somebody's decision to make and not a script's.
+**Every one returned `-40106`.** `subg` joins `playbackDelete`, `snapshot`,
+`eventCenter` and `ringLog`: advertised and not addressable.
 
-Any section that does not answer `-40106` would be the first LAN-visible fact
-about the camera radio anybody has had. Signal strength or a last-heard time
-per camera would turn "the cameras are dark" from an inference drawn from
-silence into a reading -- and would say whether a dark camera has lost the
-radio or is holding it and refusing to record. Those are different faults with
-different cures, and today they are indistinguishable.
+That is a useful negative. There is no LAN-readable state for the camera
+radio, so "have the cameras gone dark" cannot be answered by a reading and
+must be inferred. Every camera falling silent at once, on a hub still
+answering every poll, is the whole of the available signal — which is what the
+"Cameras not recording" sensor is built on, and why it is built that way.
+
+Two traps caught this probe on the way, both already written up in this file
+and both worth repeating because they produce confident wrong answers:
+
+- A bare `{"method": name, "params": {}}` sent down `performRequest` comes
+  back `40210` whatever the name is. The envelope is rejected before the hub
+  looks at the method, so the reply says nothing about whether it exists.
+  `executeFunction` builds the envelope that gets evaluated.
+- A rejected envelope reports `err_code`; an evaluated one carries
+  `error_code` inside its result. Reading only the second made ten rejected
+  envelopes look like ten answers.
+
+The probe is read-only by construction rather than by convention: every
+request is walked before it is sent, and any `method` that is not a getter, or
+any key that is a write verb, refuses the run. `do` is checked as a key rather
+than a method name, because that is how Tapo's write verb travels, and the
+walk descends into lists because sub-requests arrive in one. `multipleRequest`
+is allowed by name as a carrier and its contents are still walked.
 
 ### What cannot be answered from the LAN at all
 
@@ -830,10 +843,9 @@ Three questions are left, and none of them can be settled by asking the hub.
   video arrives. Every step this end can perform has been performed. What is
   missing is whatever the app sends that this does not, which is the same
   capture.
-- **The radio itself.** If `subg` turns out to be unreachable too, what is
-  left is listening to the link rather than asking about it: a software-defined
-  radio at 868 or 915MHz, which is a different project with different
-  equipment.
+- **The radio itself.** `subg` is unreachable, so what is left is listening to
+  the link rather than asking about it: a software-defined radio at 868 or
+  915MHz, which is a different project with different equipment.
 
 None of that is a matter of more probing. It is a matter of instruments this
 repository does not have.

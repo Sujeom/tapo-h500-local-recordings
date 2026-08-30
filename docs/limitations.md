@@ -189,7 +189,10 @@ lookup is 19ms per camera, the clip index 17ms, the camera list 58ms, and the
 14-request batched hub status 430ms. Those numbers set the poll interval.
 
 "Cameras not recording" is on when every camera has gone quiet at the same
-time on a hub that is still answering. One quiet camera is a quiet back gate;
+time on a hub that is still answering. Confirmed on 2026-08-30 that there is
+nothing better to build it on: `subg`, the sub-GHz link the cameras talk over,
+is advertised by the hub and answers `-40106` to all twenty-five namespace and
+method probes, so the radio's state is not readable from the LAN at all. One quiet camera is a quiet back gate;
 all of them at once is the failure this project exists around, where the
 cameras keep their radio link and still answer live view and record nothing.
 There is no online flag, signal strength or battery in the hub's

@@ -31,6 +31,17 @@ class NothingButReads(unittest.TestCase):
             with self.subTest(method):
                 self.assertFalse(probe._safe({"method": method, "params": {}}))
 
+    def test_the_batching_envelope_is_allowed_as_a_carrier(self):
+        """It performs nothing itself, and `executeFunction` builds one."""
+        self.assertTrue(probe._safe({
+            "method": "multipleRequest",
+            "params": {"requests": [{"method": "getSubgStatus"}]}}))
+
+    def test_but_only_as_a_carrier(self):
+        self.assertFalse(probe._safe({
+            "method": "multipleRequest",
+            "params": {"requests": [{"method": "setSubgChannel"}]}}))
+
     def test_a_setter_hidden_inside_a_read_is_refused(self):
         """A batched request can carry sub-methods, so checking only the outer
         name would let a write through in a read-shaped envelope."""
@@ -74,6 +85,19 @@ class WhatItAsks(unittest.TestCase):
 
     def test_it_knows_what_absent_looks_like(self):
         self.assertEqual(probe.NOT_A_METHOD, -40106)
+
+    def test_it_knows_a_rejected_envelope_is_not_an_answer(self):
+        """40210 means the hub never looked at the method, so it says nothing
+        about whether it exists. Counting one as a hit would be a lie."""
+        self.assertEqual(probe.ENVELOPE_REJECTED, 40210)
+
+    def test_it_reads_both_spellings_of_the_error_code(self):
+        """A rejected envelope comes back `err_code`; an evaluated one carries
+        `error_code` inside. Reading only the second made a run of rejections
+        look like a run of answers."""
+        self.assertEqual(probe._error_code({"err_code": 40210}), 40210)
+        self.assertEqual(probe._error_code({"error_code": -40106}), -40106)
+        self.assertIsNone(probe._error_code({"subg": {}}))
 
     def test_it_asks_about_one_namespace(self):
         self.assertEqual(probe.NAMESPACE, "subg")
