@@ -1,7 +1,9 @@
 {
   "domain": "tapo_h500",
   "name": "Tapo H500 Local Recordings",
-  "codeowners": [],
+  "codeowners": [
+    "@Sujeom"
+  ],
   "config_flow": true,
   "dependencies": [
     "ffmpeg",

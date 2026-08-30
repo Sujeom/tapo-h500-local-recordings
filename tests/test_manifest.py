@@ -126,5 +126,26 @@ class TheVersionMatchesTheHistory(unittest.TestCase):
             f"manifest {MANIFEST['version']} is behind release {released}")
 
 
+
+class TheOwner(unittest.TestCase):
+    """Who to talk to.
+
+    Home Assistant shows the code owner on the integration page, and an empty
+    list reads as abandoned. It is also what the Silver integration-owner
+    rule asks for.
+    """
+
+    def test_somebody_owns_this(self):
+        self.assertTrue(MANIFEST["codeowners"])
+
+    def test_every_owner_is_a_github_handle(self):
+        """hassfest rejects a bare name, and a handle without the @ silently
+        attributes the project to nobody."""
+        for owner in MANIFEST["codeowners"]:
+            with self.subTest(owner=owner):
+                self.assertTrue(owner.startswith("@"), owner)
+                self.assertGreater(len(owner), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
