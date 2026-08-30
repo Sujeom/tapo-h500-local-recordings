@@ -201,6 +201,7 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 | [reference.md](docs/reference.md) | Every entity, card option and action |
 | [limitations.md](docs/limitations.md) | What doesn't work, and what's verified |
 | [protocol-notes.md](docs/protocol-notes.md) | The reverse-engineering evidence |
+| [architecture.md](docs/architecture.md) | Which module does what, and which ones go together |
 
 MIT. Depends on the separately distributed MIT-licensed `pytapo`. Not
 affiliated with TP-Link; the `brand/` artwork is original to this project.

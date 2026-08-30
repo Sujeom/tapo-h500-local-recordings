@@ -132,3 +132,63 @@ class TheNotesDoNotContradictThemselves(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheArchitectureMapIsCurrent(unittest.TestCase):
+    """A map that drifts is worse than no map.
+
+    Every module appears, described by its own first docstring line, and
+    nothing appears that is gone. Line counts go stale by a line or two and
+    that is fine; being out by a third is not.
+    """
+
+    MAP = (ROOT / "docs" / "architecture.md").read_text()
+    MODULES = sorted(COMPONENT.glob("*.py"))
+
+    @staticmethod
+    def _summary(path):
+        import ast
+        doc = ast.get_docstring(ast.parse(path.read_text())) or ""
+        return doc.splitlines()[0] if doc else ""
+
+    def _rows(self):
+        return {name: (int(lines), summary.strip()) for name, lines, summary
+                in re.findall(r"\| `([\w.]+)` \| (\d+) \| ([^|]+) \|", self.MAP)}
+
+    def test_every_module_is_on_the_map(self):
+        missing = [p.name for p in self.MODULES if p.name not in self._rows()]
+        self.assertEqual(missing, [])
+
+    def test_nothing_on_the_map_has_been_deleted(self):
+        real = {p.name for p in self.MODULES}
+        self.assertEqual(sorted(set(self._rows()) - real), [])
+
+    def test_each_is_described_in_its_own_words(self):
+        """Copied from the module's docstring, so the two cannot disagree
+        about what a file is for."""
+        rows = self._rows()
+        wrong = []
+        for path in self.MODULES:
+            claimed = rows[path.name][1]
+            actual = self._summary(path)
+            if claimed != actual:
+                wrong.append(f"{path.name}: {claimed!r} != {actual!r}")
+        self.assertEqual(wrong, [])
+
+    def test_the_sizes_are_not_wildly_out(self):
+        rows = self._rows()
+        stale = []
+        for path in self.MODULES:
+            claimed = rows[path.name][0]
+            actual = len(path.read_text().splitlines())
+            if not 0.7 * actual <= claimed <= 1.3 * actual:
+                stale.append(f"{path.name}: says {claimed}, is {actual}")
+        self.assertEqual(stale, [])
+
+    def test_the_readme_points_at_it(self):
+        """A map nobody is told about is a map nobody reads."""
+        self.assertIn("docs/architecture.md", DOCS["README.md"])
+
+    def test_it_covers_the_card_too(self):
+        """1,500 lines of JavaScript is a module by any measure."""
+        self.assertIn("tapo-h500-card.js", self.MAP)
