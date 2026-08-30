@@ -595,6 +595,23 @@ def install(component_path=None):
     _module("homeassistant.helpers.network",
             NoURLAvailableError=type("NoURLAvailableError", (Exception,), {}),
             get_url=lambda hass, **kwargs: "http://stub.local:8123")
+    # The fix-flow base. Manufactured, NameFaceFlow could not show a form
+    # or finish; this records like the options-flow stub does.
+    class _RepairsFlow:
+        def __init__(self):
+            self.hass = None
+
+        def async_show_form(self, step_id=None, data_schema=None,
+                            description_placeholders=None, errors=None):
+            return {"type": "form", "step_id": step_id,
+                    "data_schema": data_schema,
+                    "description_placeholders": description_placeholders,
+                    "errors": errors or {}}
+
+        def async_create_entry(self, title=None, data=None):
+            return {"type": "create_entry", "title": title, "data": data}
+
+    _module("homeassistant.components.repairs", RepairsFlow=_RepairsFlow)
     _module("homeassistant.components.http.auth",
             async_sign_path=lambda hass, path, expiry: f"{path}?authSig=stub")
 
