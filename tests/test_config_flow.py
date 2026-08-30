@@ -85,26 +85,16 @@ def _schema_fields(after: str) -> set[str]:
 
 
 class SetupForm(unittest.TestCase):
-    def test_the_poll_interval_can_be_set_while_adding_the_hub(self):
-        """It is the setting that decides whether notifications feel instant,
-        so it should not be reachable only after the fact."""
-        self.assertIn(const.CONF_POLL_INTERVAL, _schema_fields("async_step_user"))
-
-    def test_the_interval_is_stored_where_the_coordinator_reads_it(self):
-        """The coordinator reads entry.options. Left in data the value would be
-        recorded, ignored, and replaced by the default."""
-        self.assertRegex(
-            SOURCE, r"options=\{CONF_POLL_INTERVAL: interval\}")
-        # ...and removed from data, so one setting does not live in two places.
-        self.assertRegex(SOURCE, r"user_input\.pop\(\s*CONF_POLL_INTERVAL")
-
-    def test_both_forms_share_one_bound(self):
-        """Two copies drifted apart once: the floor ended up above the default,
-        so the default could not be saved. There must be exactly one."""
-        self.assertEqual(len(re.findall(r"vol\.Range\(min=1, max=600\)", SOURCE)), 1)
-        self.assertGreaterEqual(len(re.findall(r"\): POLL_INTERVAL,", SOURCE)), 2)
+    # The form offering the interval, both forms validating it with the same
+    # object, and both starting at the same default are driven in
+    # test_options_flow.OneBoundForBothForms; where the value is stored is
+    # driven in test_small_gaps.TheOneSetupLogin. Counting how many times a
+    # regex matched said there was one bound, not that both forms used it.
 
     def test_the_default_is_inside_the_bound(self):
+        """The one claim a run cannot make: voluptuous is stubbed, so no test
+        that submits a value can find out what the real bound rejects. This
+        compares the two constants directly."""
         low, high = re.search(
             r"vol\.Range\(min=(\d+), max=(\d+)\)", SOURCE).groups()
         self.assertGreaterEqual(const.DEFAULT_POLL_INTERVAL, int(low))

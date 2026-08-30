@@ -30,6 +30,58 @@ def run(coro):
     return asyncio.run(coro)
 
 
+class OneBoundForBothForms(unittest.TestCase):
+    """The poll interval appears on the setup form and on the Configure page,
+    and the two must agree about what a valid interval is.
+
+    Two copies drifted apart once: the floor ended up above the default, so
+    the default could not be saved. Identity, not a matching pair of literals
+    -- there is deliberately one object, and this is what says so.
+    """
+
+    def _fields(self, result):
+        return {str(key): key for key in result["data_schema"].schema}
+
+    def test_the_interval_is_offered_while_adding_the_hub(self):
+        """It decides whether notifications feel instant, so it should not be
+        reachable only after the fact."""
+        flow = config_flow.TapoH500ConfigFlow()
+        flow.hass = harness._Hass()
+        setup = self._fields(run(flow.async_step_user(None)))
+        self.assertIn("poll_interval", setup)
+
+    def test_both_forms_validate_it_with_the_same_object(self):
+        flow = config_flow.TapoH500ConfigFlow()
+        flow.hass = harness._Hass()
+        setup = run(flow.async_step_user(None))["data_schema"].schema
+
+        coord, _ = harness._build()
+        options_flow = config_flow.TapoH500OptionsFlow()
+        options_flow.hass = harness._Hass()
+        options_flow.config_entry = coord.entry
+        settings = run(options_flow.async_step_settings(None))[
+            "data_schema"].schema
+
+        def bound(schema):
+            return next(value for key, value in schema.items()
+                        if str(key) == "poll_interval")
+
+        self.assertIs(bound(setup), bound(settings))
+
+    def test_both_start_at_the_same_default(self):
+        flow = config_flow.TapoH500ConfigFlow()
+        flow.hass = harness._Hass()
+        setup = self._fields(run(flow.async_step_user(None)))
+        coord, _ = harness._build()
+        coord.entry.options = {}
+        options_flow = config_flow.TapoH500OptionsFlow()
+        options_flow.hass = harness._Hass()
+        options_flow.config_entry = coord.entry
+        settings = self._fields(run(options_flow.async_step_settings(None)))
+        self.assertEqual(setup["poll_interval"].default(),
+                         settings["poll_interval"].default())
+
+
 class _World(unittest.TestCase):
     def setUp(self):
         self.coord, self.client = harness._build()
