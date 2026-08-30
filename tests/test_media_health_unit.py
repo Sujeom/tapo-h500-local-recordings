@@ -126,6 +126,15 @@ class TheClock(unittest.TestCase):
         self.assertEqual(media.wedges_since(7 * 86400), 2)
         self.assertEqual(media.wedges_since(86400), 1)
 
+    def test_an_onset_exactly_at_the_cutoff_is_still_evidence(self):
+        """The window is inclusive: ninety days means ninety days, and the
+        boundary entry going missing is the kind of off-by-one nobody sees."""
+        media = media_health.MediaHealth()
+        media.wedges = [{"at": NOW - const.WEDGE_HISTORY_SECONDS,
+                         "tried": [], "ended": None}]
+        media.note_status("wedged")
+        self.assertEqual(len(media.wedges), 2)
+
     def test_the_log_does_not_grow_without_end(self):
         media = media_health.MediaHealth()
         media.wedges = [

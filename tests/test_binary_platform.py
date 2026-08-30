@@ -164,6 +164,31 @@ class TheWorkedOutSignals(unittest.TestCase):
         entity, _ = self._entity(binary.H500Loitering, stay)
         self.assertFalse(entity.is_on)
 
+    def _stay_of_exactly_the_minimum(self, ending):
+        """Sightings close enough to be one visit, spanning LOITER_SECONDS
+        exactly -- first start to last end, which is what a visit measures."""
+        first = ending - const.LOITER_SECONDS
+        return [clip(start, self.UNKNOWN_FACE)
+                for start in (first, first + 85, ending - 15)]
+
+    def test_a_wait_exactly_as_long_as_the_minimum_counts(self):
+        """LOITER_SECONDS means "at least this", and the person who stood
+        there for exactly three minutes is the case the constant names."""
+        entity, _ = self._entity(binary.H500Loitering,
+                                 self._stay_of_exactly_the_minimum(NOW))
+        self.assertTrue(entity.is_on)
+        self.assertEqual(entity.extra_state_attributes["seconds"],
+                         const.LOITER_SECONDS)
+
+    def test_a_visit_that_ended_exactly_a_gap_ago_is_still_open(self):
+        """The gap is what joins two sightings into one visit, so a visit is
+        over only once MORE than a gap has passed -- otherwise someone still
+        standing there flickers off between recordings."""
+        entity, _ = self._entity(
+            binary.H500Loitering,
+            self._stay_of_exactly_the_minimum(NOW - const.LOITER_GAP))
+        self.assertTrue(entity.is_on)
+
     def test_a_wait_that_ended_hours_ago_is_over(self):
         gone = [clip(NOW - 7500, self.UNKNOWN_FACE),
                 clip(NOW - 7260, self.UNKNOWN_FACE)]

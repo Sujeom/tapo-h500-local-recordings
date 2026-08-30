@@ -50,6 +50,15 @@ CRITICAL = {
     "api:is_auth_failure": "test_config_flow.py",   # can strand a hub forever
     "repairs:_storage": "test_platforms.py",        # the pre-overwrite warning
     "clips:attach_detections": "test_api.py",       # how a clip is classified
+    # The paths this session built, each scoped to the file that drives it.
+    "media_health:_note_edge": "test_media_health_unit.py",   # the wedge log
+    "media_health:note_served": "test_media_health_unit.py",  # recovery
+    "coordinator:_pace": "test_poll_cadence.py",    # the login-storm guard
+    "media:async_prune": "test_media_live.py",      # what retention deletes
+    "media:async_prune_previews": "test_preview_prune.py",  # the frame cache
+    "clips:loitering": "test_binary_platform.py",   # the wait-at-door signal
+    "api:session_outcome": "test_session_health.py",  # served/empty/failed
+    "status:hub_volume": "test_hub_controls.py",    # the 1-10 clamp
 }
 
 # Written longest-first so `<=` is matched before `<`, and with a lookahead so
@@ -67,9 +76,18 @@ SWAPS = [
 #            items[:-keep], which is [] at the boundary either way.
 #   newest_matching: `keep <= 0` falls through to moments[:keep], and
 #            moments[:0] is empty, which is what the guard returns.
+#   async_prune: the same `keep <= 0` twin -- at keep == 0 the fall-through
+#            reaches surplus(), whose own guard returns [] identically.
+#   _note_edge `and -> or`: guards reading wedges[-1] on the healthy edge.
+#            _was_wedged is only ever True after an onset appended an entry,
+#            and pruning cannot remove the entry just appended (its `at` is
+#            now), so the list is provably non-empty whenever the branch
+#            runs; `or` differs only in a state unreachable through the API.
 KNOWN_EQUIVALENT = {
     ("clips:surplus", "<= -> <"),
     ("clips:newest_matching", "<= -> <"),
+    ("media:async_prune", "<= -> <"),
+    ("media_health:_note_edge", "and -> or"),
 }
 
 _RESTORE: dict[Path, str] = {}
