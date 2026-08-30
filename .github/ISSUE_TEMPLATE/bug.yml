@@ -1,0 +1,90 @@
+name: Something is not working
+description: A hub, a camera or an entity behaving in a way it should not.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This integration was reverse engineered against one firmware on one
+        person's hardware, so the versions below are not boilerplate — they
+        are usually the answer.
+
+        Before filing: **there is no live view**, and that is a hardware
+        limitation rather than a missing feature. See
+        [docs/limitations.md](../blob/main/docs/limitations.md).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, and what the integration did instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: input
+    id: ha
+    attributes:
+      label: Home Assistant version
+      placeholder: "2025.8.1"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Integration version
+      description: Settings → Devices & services → Tapo H500, or HACS.
+      placeholder: "0.123.0"
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Hub firmware
+      description: >
+        The hub's device page shows it. Behaviour differs between firmwares
+        more than between anything else.
+      placeholder: "1.3.20"
+    validations:
+      required: true
+
+  - type: input
+    id: cameras
+    attributes:
+      label: Cameras paired
+      description: Models and how many.
+      placeholder: "2 × TD21"
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >
+        Settings → Devices & services → Tapo H500 → the three dots →
+        **Download diagnostics**, then drag the file in here.
+
+        It carries no credentials, no MAC addresses, no camera names and no
+        wall-clock times — the file is built from an allow-list, so a field
+        has to be added deliberately to appear in it. Attaching it usually
+        saves a round trip.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: >
+        Settings → Devices & services → Tapo H500 → **Enable debug logging**,
+        reproduce, then disable it again and paste what came out.
+      render: text

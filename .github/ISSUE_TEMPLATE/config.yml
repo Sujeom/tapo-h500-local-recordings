@@ -1,0 +1,12 @@
+# Blank issues arrive without a firmware version, which is the field that most
+# often turns out to be the answer.
+blank_issues_enabled: false
+contact_links:
+  - name: There is no live view
+    url: https://github.com/Sujeom/tapo-h500-local-recordings/blob/main/docs/limitations.md
+    about: >
+      And several other things the hub cannot be asked to do. Worth reading
+      before filing — most of it is the hardware, not the integration.
+  - name: A question, or an idea
+    url: https://github.com/Sujeom/tapo-h500-local-recordings/discussions
+    about: Discussions, rather than an issue.

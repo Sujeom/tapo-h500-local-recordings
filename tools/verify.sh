@@ -93,7 +93,12 @@ if stranded:
         print(f"  {line}")
     sys.exit(1)
 
-documents = [path for path in sorted(root.rglob("*.yaml"))
+# Both extensions. Globbing only *.yaml meant every workflow, the dependabot
+# config and the issue templates were never parsed here at all -- a broken one
+# was found by pushing it.
+documents = [path
+             for pattern in ("*.yaml", "*.yml")
+             for path in sorted(root.rglob(pattern))
              if ".venv" not in path.parts and ".git" not in path.parts]
 for path in documents:
     yaml.load(path.read_text(), Loader=Loader)

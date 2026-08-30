@@ -239,5 +239,56 @@ class TheChangelog(unittest.TestCase):
                       self.PATH.read_text())
 
 
+
+class TheRepositoryTellsPeopleHowToUseIt(unittest.TestCase):
+    """Issue templates, a security policy and contributing notes.
+
+    Every bug report that arrives without the firmware version is a round
+    trip, and firmware is usually the answer -- the integration was reverse
+    engineered against one.
+    """
+
+    TEMPLATES = ROOT / ".github" / "ISSUE_TEMPLATE"
+
+    def test_the_bug_template_asks_for_what_is_always_needed(self):
+        import yaml
+        form = yaml.safe_load((self.TEMPLATES / "bug.yml").read_text())
+        required = {field["id"] for field in form["body"]
+                    if field.get("validations", {}).get("required")}
+        for field in ("ha", "version", "firmware", "cameras", "diagnostics"):
+            with self.subTest(field=field):
+                self.assertIn(field, required)
+
+    def test_blank_issues_are_off(self):
+        """A blank issue arrives without a firmware version."""
+        import yaml
+        config = yaml.safe_load((self.TEMPLATES / "config.yml").read_text())
+        self.assertFalse(config["blank_issues_enabled"])
+
+    def test_the_no_live_view_answer_is_linked_before_filing(self):
+        """It will otherwise be the most reported thing that is not a bug."""
+        import yaml
+        config = yaml.safe_load((self.TEMPLATES / "config.yml").read_text())
+        self.assertTrue(any("limitations" in link["url"]
+                            for link in config["contact_links"]))
+
+    def test_contributing_names_the_gate(self):
+        """The one instruction that must never go missing."""
+        self.assertIn("tools/verify.sh",
+                      (ROOT / "CONTRIBUTING.md").read_text())
+
+    def test_contributing_warns_about_the_hardware(self):
+        """Somebody who does not know the hub wedges will write a test that
+        talks to one."""
+        text = (ROOT / "CONTRIBUTING.md").read_text().lower()
+        self.assertIn("wedges", text)
+        self.assertIn("no test may talk to real hardware", text)
+
+    def test_security_says_where_the_credentials_live(self):
+        text = (ROOT / "SECURITY.md").read_text()
+        self.assertIn("config entry", text)
+        self.assertIn("allow-list", text)
+
+
 if __name__ == "__main__":
     unittest.main()
