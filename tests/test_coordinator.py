@@ -48,7 +48,10 @@ class _Services:
 
     def async_register(self, domain, service, handler, schema=None,
                        supports_response=None):
+        # Registration makes has_service true, as it does in the real one --
+        # unload's "last hub out removes the services" reads it back.
         self.registered[service] = handler
+        self.available.add((domain, service))
 
     def has_service(self, domain, service):
         return (domain, service) in self.available
