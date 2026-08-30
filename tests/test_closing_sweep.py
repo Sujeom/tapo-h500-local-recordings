@@ -650,3 +650,95 @@ class TheSirenToneSelect(unittest.TestCase):
     def test_a_hub_that_will_not_say_gets_no_entity_either(self):
         """Not a failed setup: everything else about the hub still works."""
         self.assertEqual(self._added(RuntimeError("-40209")), [])
+
+
+class TheLastFewRules(unittest.TestCase):
+    """Small functions with one decision each, and the decision is the test."""
+
+    def test_the_alarm_field_outranks_the_detection_list(self):
+        """alarm_type reports the most significant thing that happened, and
+        the hub says which that was when it says anything at all."""
+        clips_mod = importlib.import_module("tapo_h500.clips")
+        entry = {"alarm_type": 17, "events_1": (1 << 1) | (1 << 5)}
+        self.assertEqual(clips_mod.primary_type(entry), 17)
+
+    def test_with_no_alarm_field_the_last_detection_stands_in(self):
+        clips_mod = importlib.import_module("tapo_h500.clips")
+        entry = {"events_1": (1 << 1) | (1 << 5)}
+        self.assertEqual(clips_mod.primary_type(entry), 6)
+
+    def test_an_entry_with_neither_has_no_type(self):
+        clips_mod = importlib.import_module("tapo_h500.clips")
+        self.assertIsNone(clips_mod.primary_type({}))
+
+    def test_unknown_faces_are_counted_by_their_own_code(self):
+        """Code 22 is "a face, matched to nobody" -- the one that makes a
+        stranger at the door different from a stranger in the street."""
+        clips_mod = importlib.import_module("tapo_h500.clips")
+        seen = [clip(NOW, mask=1 << 21), clip(NOW + 30, mask=1 << 19),
+                clip(NOW + 60, mask=1 << 21), clip(NOW + 90, mask=1 << 1)]
+        self.assertEqual(clips_mod.unknown_face_count(seen), 2)
+
+
+class WhatTheMediaPortSays(unittest.TestCase):
+    """The three answers, which are how the wedge is told from a hub that is
+    merely unreachable -- and the reason this probe exists at all."""
+
+    def _check(self, behaviour):
+        api_mod = importlib.import_module("tapo_h500.api")
+        socket_mod = sys.modules["socket"]
+
+        class Probe:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return None
+
+            def settimeout(self, _seconds):
+                return None
+
+            def sendall(self, _request):
+                if isinstance(behaviour, Exception):
+                    raise behaviour
+
+            def recv(self, _size):
+                if isinstance(behaviour, Exception):
+                    raise behaviour
+                return behaviour
+
+        original = socket_mod.create_connection
+        socket_mod.create_connection = (
+            lambda *args, **kwargs: (_ for _ in ()).throw(behaviour)
+            if isinstance(behaviour, OSError)
+            and not isinstance(behaviour, (TimeoutError, ConnectionError))
+            else Probe())
+        try:
+            return api_mod.check_media_port("192.168.11.5")
+        finally:
+            socket_mod.create_connection = original
+
+    def test_a_hub_that_answers_is_healthy(self):
+        self.assertEqual(self._check(b"\x00\x01"), "healthy")
+
+    def test_a_hub_that_accepts_and_says_nothing_is_wedged(self):
+        """The shape of the wedge: the port is open, the handshake never
+        comes, and it recovers on a timeout rather than on a retry."""
+        self.assertEqual(self._check(b""), "wedged")
+
+    def test_no_answer_at_all_is_silent_not_wedged(self):
+        for error in (TimeoutError("timed out"),):
+            with self.subTest(error=type(error).__name__):
+                self.assertEqual(self._check(error), "silent")
+
+    def test_a_reset_mid_exchange_reads_as_wedged_too(self):
+        """The hub closes on the request instead of answering it; depending
+        on timing that is an empty read or a reset, and both mean the same
+        thing."""
+        self.assertEqual(self._check(ConnectionError("reset")), "wedged")
+
+    def test_a_hub_that_never_accepted_is_unreachable(self):
+        """A different answer from all three: nothing was reached, so
+        nothing can be said about whether it is wedged."""
+        self.assertEqual(self._check(OSError("no route to host")),
+                         "unreachable")
