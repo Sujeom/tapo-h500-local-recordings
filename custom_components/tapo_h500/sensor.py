@@ -22,6 +22,7 @@ from .clips import (
     unknown_face_count, unusual_threshold,
 )
 from .const import (
+    OFF_BY_DEFAULT_READINGS,
     DOMAIN, FACE_PRESENCE_WINDOW, LOITER_GAP, LOOKBACK_SECONDS,
     SIGNAL_FACES_CHANGED,
     PICTURE_RESIGN_SECONDS,
@@ -332,6 +333,8 @@ class H500HubSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
+        if description.key in OFF_BY_DEFAULT_READINGS:
+            self._attr_entity_registry_enabled_default = False
         self._attr_device_info = hub_device(coordinator, entry)
 
     @property
@@ -355,6 +358,8 @@ class H500CameraSensor(H500Entity, SensorEntity):
         super().__init__(coordinator, index, camera)
         self.entity_description = description
         self._attr_unique_id = f"{camera['device_id']}_{description.key}"
+        if description.key in OFF_BY_DEFAULT_READINGS:
+            self._attr_entity_registry_enabled_default = False
 
     @property
     def native_value(self):

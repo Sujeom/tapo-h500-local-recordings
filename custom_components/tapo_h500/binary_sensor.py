@@ -20,6 +20,7 @@ from .clips import (
     unusually_busy,
 )
 from .const import (
+    OFF_BY_DEFAULT_DETECTIONS, OFF_BY_DEFAULT_READINGS,
     CONF_NIGHT_END, CONF_NIGHT_START, CONF_SILENT_HOURS, DEFAULT_NIGHT_END, DEFAULT_NIGHT_START, DEFAULT_SILENT_HOURS,
     DELIVERY_HOLD, DELIVERY_SECONDS, DETECTION_HOLD,
     DETECTION_NAMES, FACE_PRESENCE_WINDOW,
@@ -148,6 +149,8 @@ class H500HubFlag(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = hub_device(coordinator, entry)
+        if description.key in OFF_BY_DEFAULT_READINGS:
+            self._attr_entity_registry_enabled_default = False
 
     @property
     def is_on(self) -> bool | None:
@@ -159,6 +162,8 @@ class H500CameraFlag(H500Entity, BinarySensorEntity):
         super().__init__(coordinator, index, camera)
         self.entity_description = description
         self._attr_unique_id = f"{camera['device_id']}_{description.key}"
+        if description.key in OFF_BY_DEFAULT_READINGS:
+            self._attr_entity_registry_enabled_default = False
 
     @property
     def is_on(self) -> bool | None:
@@ -193,6 +198,8 @@ class H500DetectionFlag(H500Entity, BinarySensorEntity):
     def __init__(self, coordinator, index: int, camera: dict, code: int) -> None:
         super().__init__(coordinator, index, camera)
         self._code = code
+        if code in OFF_BY_DEFAULT_DETECTIONS:
+            self._attr_entity_registry_enabled_default = False
         slug = DETECTION_NAMES[code].replace(" ", "_")
         self._attr_translation_key = f"detected_{slug}"
         self._attr_unique_id = f"{camera['device_id']}_detected_{slug}"

@@ -139,7 +139,14 @@ rules:
       and a reload is another login.
   entity-category: done
   entity-device-class: done
-  entity-disabled-by-default: todo
+  entity-disabled-by-default:
+    status: done
+    comment: |
+      A two-camera hub creates 105 entities; 27 of them start off. Every one
+      is either a reading that mirrors a control already showing the same
+      state, static for the life of the device, or one of four niche
+      detections. Nothing anybody automates on is among them, and the tests
+      hold that half too.
   entity-translations: done
   exception-translations:
     status: done

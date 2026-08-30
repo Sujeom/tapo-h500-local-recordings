@@ -74,8 +74,8 @@ DEFAULT_KEEP_RINGS = 0
 # person code beside it.
 CONF_KEEP_PERSON = "keep_person"
 DEFAULT_KEEP_PERSON = 0
-# Code 6. Named against three app-labelled events and confirmed by a doorbell
-# press that carried it; see DETECTION_NAMES.
+# Code 6. Named against three app-labelled events and confirmed by a
+# doorbell press that carried it; see DETECTION_NAMES.
 PERSON_CODES: set[int] = {6}
 
 # Code 19, and the one detection that must not be allowed to scroll past.
@@ -652,3 +652,28 @@ PREVIEW_KEEP = 200
 # for something the card renders at 96x54; 640 wide is ~65 KB and still sharp
 # on a high-DPI screen. Height -2 keeps the aspect ratio even.
 THUMBNAIL_ARGS = ["-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "4"]
+
+
+# Entities created but not switched on.
+#
+# A two-camera hub makes 105 of them, and most of a hundred is noise: every
+# one writes to the recorder on every change, appears in every entity picker,
+# and makes the ones people actually use harder to find. Nothing here is
+# removed -- each is one checkbox away in the entity registry -- and nothing
+# anybody automates on is in these lists.
+#
+# The readings: each one either mirrors a control that already shows the same
+# state, or is static for the life of the device.
+OFF_BY_DEFAULT_READINGS = frozenset({
+    "ai_enhance", "network_mode", "model",          # per camera
+    "timezone", "custom_sounds",                    # static hub config
+    "auto_upgrade_time", "scheduled_reboot",        # mirror the schedules
+    "hub_storage", "continuous_recording",          # mirror hub settings
+    "ai_enhance_enabled", "wifi_backup",
+    "media_encrypted",
+})
+
+# The detections: motion, person and the doorbell press are what a doorbell
+# household automates on. The rest are real and stay available, but a house
+# that never wanted a pet flag should not carry one per camera.
+OFF_BY_DEFAULT_DETECTIONS = frozenset({8, 9, 10, 19})
