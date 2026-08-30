@@ -148,13 +148,26 @@ def main() -> int:
 # shipped at 0.0% and nothing said so until somebody went looking.
 FLOOR_TOTAL = 99.0
 FLOOR_MODULE = 90.0
+# Modules held higher than the general floor, and why.
+#
+#   config_flow: the one part of an integration nobody can route around. The
+#   Bronze config-flow-test-coverage rule asks for all of it, and the line
+#   that had never run was the accessor Home Assistant calls to open the
+#   Configure screen -- if that had raised, Configure would have failed for
+#   everybody and nothing would have said so.
+FLOOR_EXACT = {"config_flow.py": 100.0}
 
 
 def _gate(rows: list, total: float) -> int:
     failed = False
     for name, covered, runnable, _missing in sorted(rows):
         pct = 100 * covered / runnable if runnable else 100.0
-        if pct < FLOOR_MODULE:
+        held = FLOOR_EXACT.get(name)
+        if held is not None and pct < held:
+            print(f"GATE: {name} is {pct:.1f}% covered, and is held at "
+                  f"{held:.0f}%")
+            failed = True
+        elif pct < FLOOR_MODULE:
             print(f"GATE: {name} is {pct:.1f}% covered, "
                   f"floor {FLOOR_MODULE:.0f}%")
             failed = True

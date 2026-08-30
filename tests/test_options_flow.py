@@ -30,6 +30,18 @@ def run(coro):
     return asyncio.run(coro)
 
 
+class TheConfigureButton(unittest.TestCase):
+    def test_it_reaches_the_options_flow(self):
+        """Constructed directly by every other test in this file, so the
+        accessor Home Assistant actually calls had never run. If it returned
+        the wrong class or raised, Configure would fail for everybody and no
+        test would notice."""
+        coord, _ = harness._build()
+        flow = config_flow.TapoH500ConfigFlow.async_get_options_flow(
+            coord.entry)
+        self.assertIsInstance(flow, config_flow.TapoH500OptionsFlow)
+
+
 class OneBoundForBothForms(unittest.TestCase):
     """The poll interval appears on the setup form and on the Configure page,
     and the two must agree about what a valid interval is.

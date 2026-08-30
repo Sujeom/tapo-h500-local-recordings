@@ -36,7 +36,12 @@ rules:
     status: done
     comment: The coordinator is in coordinator.py, the base entity in entity.py.
   config-flow: done
-  config-flow-test-coverage: todo
+  config-flow-test-coverage:
+    status: done
+    comment: |
+      100%, and held there by a per-module floor in tools/coverage.py rather
+      than by the total. The line that had never run was the accessor Home
+      Assistant calls to open the Configure screen.
   dependency-transparency:
     status: done
     comment: One requirement, pytapo, pinned to an exact version.
