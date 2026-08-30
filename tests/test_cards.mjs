@@ -469,6 +469,132 @@ test("a button that threw still re-enables", async () => {
   assert.equal(card._error, "hub not answering");
 });
 
+// --- every button the card draws ------------------------------------------
+
+/** A card whose loads and service calls are recorded rather than made. */
+const clickable = (config = {}) => {
+  const card = build(TapoH500Card, { entry_id: "abc", ...config });
+  card.calls = [];
+  card.loads = 0;
+  card._load = async () => { card.loads += 1; };
+  card._call = async (service, data) => { card.calls.push([service, data]); };
+  card._render = () => { card.renders = (card.renders || 0) + 1; };
+  return card;
+};
+
+const press = (card, dataset) => {
+  const button = { dataset, disabled: false, closest() { return button; } };
+  return card._onClick({ target: button }).then(() => button);
+};
+
+test("a click on nothing in particular does nothing", async () => {
+  const card = clickable();
+  await card._onClick({ target: { closest: () => null } });
+  assert.equal(card.loads, 0);
+  assert.equal(card.calls.length, 0);
+});
+
+test("choosing a camera clears what was on screen before loading", async () => {
+  // Leaving the previous camera's recordings up while the new ones arrive
+  // shows one camera's clips under another camera's name.
+  const card = clickable();
+  card._playing = 1000;
+  await press(card, { action: "camera", index: "2" });
+  assert.equal(card._index, 2);
+  assert.equal(card._recordings, null);
+  assert.equal(card._playing, null, "and stops playing the old camera's clip");
+  assert.equal(card.loads, 1);
+});
+
+test("the day buttons walk backwards and stop at today", async () => {
+  const card = clickable();
+  await press(card, { action: "day-back" });
+  await press(card, { action: "day-back" });
+  assert.equal(card._dayOffset, 2);
+  await press(card, { action: "day-forward" });
+  assert.equal(card._dayOffset, 1);
+  await press(card, { action: "day-forward" });
+  await press(card, { action: "day-forward" });
+  assert.equal(card._dayOffset, 0, "there is no tomorrow to walk into");
+});
+
+test("today jumps straight back however far away it is", async () => {
+  const card = clickable();
+  for (let n = 0; n < 5; n += 1) await press(card, { action: "day-back" });
+  await press(card, { action: "day-today" });
+  assert.equal(card._dayOffset, 0);
+});
+
+test("filtering redraws without asking the hub again", async () => {
+  // The recordings are already here. Refetching a list to hide part of it
+  // costs a round trip and a visible flicker for nothing.
+  const card = clickable();
+  await press(card, { action: "filter", code: "6" });
+  assert.equal(card._filter, 6);
+  assert.equal(card.loads, 0, "no reload to filter what is already loaded");
+  await press(card, { action: "filter", code: "" });
+  assert.equal(card._filter, null, "and the empty code means everything");
+});
+
+test("the table view toggles", async () => {
+  const card = clickable();
+  await press(card, { action: "view" });
+  assert.equal(card._showTable, true);
+  await press(card, { action: "view" });
+  assert.equal(card._showTable, false);
+  assert.equal(card.loads, 0);
+});
+
+test("pressing play twice closes the recording again", async () => {
+  const card = clickable();
+  await press(card, { action: "play", start: "1000" });
+  assert.equal(card._playing, "1000");
+  await press(card, { action: "play", start: "1000" });
+  assert.equal(card._playing, null, "the same button closes it");
+});
+
+test("playing a different recording swaps rather than closes", async () => {
+  const card = clickable();
+  await press(card, { action: "play", start: "1000" });
+  await press(card, { action: "play", start: "2000" });
+  assert.equal(card._playing, "2000");
+});
+
+test("download asks for exactly the clip that was pressed", async () => {
+  const card = clickable();
+  await press(card, { action: "download", start: "1000", end: "1015" });
+  assert.deepEqual(card.calls, [["download_recording", {
+    config_entry_id: "abc", camera_index: 0,
+    start_time: 1000, end_time: 1015 }]]);
+  assert.equal(card.loads, 1, "and the list is refreshed so it shows as held");
+});
+
+test("delete closes the recording it was playing", async () => {
+  // Otherwise the player stays open on a file that is gone.
+  const card = clickable();
+  card._playing = "1000";
+  await press(card, { action: "delete", start: "1000" });
+  assert.deepEqual(card.calls[0], ["delete_recording", {
+    config_entry_id: "abc", camera_index: 0, start_time: 1000 }]);
+  assert.equal(card._playing, null);
+  assert.equal(card.loads, 1);
+});
+
+test("deleting something else leaves the player alone", async () => {
+  const card = clickable();
+  card._playing = "2000";
+  await press(card, { action: "delete", start: "1000" });
+  assert.equal(card._playing, "2000");
+});
+
+test("an action nobody wrote does nothing rather than throwing", async () => {
+  const card = clickable();
+  const button = await press(card, { action: "teleport" });
+  assert.equal(card.calls.length, 0);
+  assert.equal(card.loads, 0);
+  assert.equal(button.disabled, false, "and the button comes back");
+});
+
 // --- nothing from the hub reaches markup unescaped -------------------------
 
 /** The source with every `esc(...)` call cut out, parens matched.

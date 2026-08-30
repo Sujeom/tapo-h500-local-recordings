@@ -24,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CARD = ROOT / "custom_components" / "tapo_h500" / "www" / "tapo-h500-card.js"
-FLOOR = 90.0
+FLOOR = 95.0
 
 
 def _uncovered_ranges(entries) -> list[tuple[int, int]]:
