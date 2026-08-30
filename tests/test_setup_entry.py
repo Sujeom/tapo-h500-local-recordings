@@ -223,6 +223,27 @@ class _FailingConnect(_Client):
 
 
 class TheHappyPath(_World):
+    def test_the_actions_exist_before_any_hub_is_set_up(self):
+        """An action that exists only while an entry is loaded breaks
+        automation validation: the hub is unreachable at startup, the entry
+        does not load, and every automation calling one fails with "action
+        not found"."""
+        run(component.async_setup(self.hass, {}))
+        self.assertEqual(len(self.hass.services.registered), 13)
+        self.assertEqual(self.hass.data.get("tapo_h500", {}).get("hubs"), None)
+
+    def test_calling_one_with_no_hub_says_so_plainly(self):
+        """Every handler resolves its own entry, so this is a validation
+        error naming the entry rather than a KeyError from inside."""
+        from homeassistant.exceptions import ServiceValidationError
+        run(component.async_setup(self.hass, {}))
+        call = types.SimpleNamespace(data={"config_entry_id": "nothing"})
+        for name, handler in self.hass.services.registered.items():
+            with self.subTest(action=name):
+                with self.assertRaises(ServiceValidationError) as caught:
+                    run(handler(call))
+                self.assertIn("nothing", str(caught.exception))
+
     def test_the_coordinator_lives_on_the_entry_and_nowhere_else(self):
         """Home Assistant clears runtime_data when the entry unloads, so
         nothing has to remember to -- and no other integration can reach the
@@ -249,8 +270,10 @@ class TheHappyPath(_World):
         self.assertEqual(len(self.hass.forwarded), 1)
         self.assertEqual(len(self.hass.http.views), 1)
         self.assertEqual(len(self.hass.http.static), 1)
-        self.assertIn("list_recordings", self.hass.services.registered)
         self.assertEqual(len(self.entry.listeners), 1)
+        # The actions are not part of setting an entry up any more; they are
+        # registered once at startup and checked in
+        # TheActionsBelongToTheIntegration.
 
     def test_a_second_hub_reuses_the_shared_pieces(self):
         """The card, the view and the services belong to Home Assistant, not
@@ -394,20 +417,24 @@ class Unload(_World):
             self.entry.runtime_data,
             "the coordinator stays while entities still hold it")
 
-    def test_the_last_hub_out_turns_the_lights_off(self):
+    def test_the_last_hub_out_closes_its_login(self):
         self._setup()
         self.assertTrue(run(component.async_unload_entry(self.hass,
                                                          self.entry)))
         self.assertEqual(_Client.instances[0].closes, 1)
-        self.assertIn("list_recordings", self.hass.services.removed)
 
-    def test_services_survive_while_another_hub_remains(self):
+    def test_but_it_leaves_the_actions_alone(self):
+        """They belong to the integration rather than to any one entry. An
+        automation calling one while the hub is down should hear "no hub is
+        set up", not "action not found" -- which reads as a broken
+        automation."""
+        run(component.async_setup(self.hass, {}))
         self._setup()
-        second = _Entry()
-        second.entry_id = "second"
-        self._setup(second)
         run(component.async_unload_entry(self.hass, self.entry))
         self.assertEqual(self.hass.services.removed, [])
+        self.assertIn("list_recordings", self.hass.services.registered)
+
+
 
 
 class TheDashboardCard(unittest.TestCase):

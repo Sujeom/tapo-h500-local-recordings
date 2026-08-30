@@ -12,18 +12,18 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from . import services
 from .api import H500AuthError, H500Client
 from .const import (
     CARD_URL, CONF_CLOUD_PASSWORD, DATA_CARD, DATA_PREVIEW, DOMAIN,
-    RELOAD_ON_CHANGE, SERVICE_LIST_RECORDINGS, SIGNAL_FACES_CHANGED,
+    RELOAD_ON_CHANGE, SIGNAL_FACES_CHANGED,
 )
 from .coordinator import H500Coordinator
 from .media import media_root
 from .preview import H500PreviewView
-from .services import SERVICES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +31,20 @@ PLATFORMS = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.CALENDAR,
              Platform.CAMERA, Platform.EVENT, Platform.IMAGE, Platform.NUMBER,
              Platform.SELECT, Platform.SENSOR, Platform.SIREN, Platform.SWITCH,
              Platform.UPDATE]
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the actions once, whether or not a hub is loaded.
+
+    An action that exists only while an entry is loaded breaks automation
+    validation: if the hub is unreachable at startup the entry does not load,
+    the actions do not exist, and every automation calling one fails with
+    "action not found" -- which reads as a broken automation rather than an
+    offline hub. Each handler resolves its own config entry when it is
+    called, and says so plainly when there is none.
+    """
+    services.async_register(hass)
+    return True
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     media_root(hass)  # fails the entry early with a usable message
@@ -81,8 +95,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.http.register_view(H500PreviewView())
         hass.data[DOMAIN][DATA_PREVIEW] = True
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    if not hass.services.has_service(DOMAIN, SERVICE_LIST_RECORDINGS):
-        services.async_register(hass)
     # What the options looked like at setup, so the listener can tell a
     # connection-affecting change from a cosmetic one.
     coordinator.options_snapshot = _reload_snapshot(entry)
@@ -172,13 +184,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = getattr(entry, "runtime_data", None)
     if coordinator is not None:
         await hass.async_add_executor_job(coordinator.client.close)
-    # Everything except this entry, which is on its way out.
-    others = [other for other in hass.config_entries.async_loaded_entries(DOMAIN)
-              if other.entry_id != entry.entry_id]
-    if not others:
-        for service in SERVICES:
-            if hass.services.has_service(DOMAIN, service):
-                hass.services.async_remove(DOMAIN, service)
+    # The actions are not removed. They belong to the integration rather than
+    # to any one entry, and an automation calling one while the hub is down
+    # should get "no hub is set up" rather than "action not found".
     return True
 
 

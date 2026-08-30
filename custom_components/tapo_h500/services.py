@@ -174,15 +174,20 @@ def _public_camera(camera):
 
 
 def _coordinator(hass, entry_id) -> H500Coordinator:
-    try:
-        entry = hass.config_entries.async_get_entry(entry_id)
-        coordinator = getattr(entry, "runtime_data", None) if entry else None
-        if coordinator is None:
-            raise KeyError(entry_id)
-        return coordinator
-    except KeyError as err:
+    """The hub an action was aimed at.
+
+    The actions are registered once, whether or not any hub is loaded, so
+    every one of them arrives here first and this is where "there is no such
+    hub" is answered. A validation error, not a failure: the card sends
+    whatever entry id it stored, and a stale one means "reconfigure the
+    card" rather than "the hub is broken".
+    """
+    entry = hass.config_entries.async_get_entry(entry_id)
+    coordinator = getattr(entry, "runtime_data", None) if entry else None
+    if coordinator is None:
         raise ServiceValidationError(
-            "Unknown or unloaded Tapo H500 config entry") from err
+            f"No Tapo H500 hub is set up for config entry {entry_id}")
+    return coordinator
 
 
 async def _resolve(hass, call: ServiceCall):

@@ -158,22 +158,20 @@ class Cards(unittest.TestCase):
             self.assertIn("_entryId()", call)
 
 
-class Setup(unittest.TestCase):
-    def test_services_are_registered_once_rather_than_per_hub(self):
-        self.assertIn(
-            "if not hass.services.has_service(DOMAIN, SERVICE_LIST_RECORDINGS)",
-            INIT)
-
-    # Unloading one of two hubs leaving the actions in place is driven in
-    # test_setup_entry.Unload, with both entries really set up and really
-    # unloaded. Reading the source for the word "hubs" said an early return
-    # existed, not that the second hub kept its actions.
-
-    # Setting a second hub up is driven in test_setup_entry.ASecondHub: the
-    # preview endpoint is served once, since registering the same view twice
-    # raises and fails that hub's setup outright, and each hub is its own
-    # device. The card being registered once is driven in
-    # TheDashboardCard.test_it_is_registered_once_however_many_hubs.
+# Setting a second hub up is driven end to end in test_setup_entry rather
+# than read out of the source here:
+#
+#   ASecondHub                       the preview endpoint served once, since
+#                                    registering the same view twice fails
+#                                    that hub's setup outright, and each hub
+#                                    getting its own device
+#   TheDashboardCard                 the card registered once however many
+#                                    hubs there are
+#   Unload                           one hub of two going away without taking
+#                                    the actions with it
+#
+# The actions themselves are registered in async_setup now, once for the
+# whole integration, so they exist even when no hub is loaded at all.
 
 
 if __name__ == "__main__":

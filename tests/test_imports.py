@@ -101,7 +101,7 @@ class TheServicesLiveInTheirOwnModule(unittest.TestCase):
 
     def test_the_package_body_reaches_them_through_one_call(self):
         self.assertIn("services.async_register(hass)", self.INIT)
-        self.assertIn("from .services import SERVICES", self.INIT)
+        self.assertIn("from . import services", self.INIT)
 
 
 if __name__ == "__main__":

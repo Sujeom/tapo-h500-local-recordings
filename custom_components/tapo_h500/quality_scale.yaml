@@ -8,7 +8,13 @@
 
 rules:
   # ---------------- Bronze ----------------
-  action-setup: todo
+  action-setup:
+    status: done
+    comment: |
+      Registered in async_setup, so an automation calling one validates even
+      when the hub is unreachable and the entry never loaded. Every handler
+      resolves its own config entry when called and says plainly that no hub
+      is set up for it, naming the entry.
   appropriate-polling:
     status: done
     comment: |
