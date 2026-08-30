@@ -14,6 +14,7 @@ so "which file should get the next behavioural test" stops being a guess.
     tools/coverage.py --missing  # and the unexecuted line numbers
     tools/coverage.py --gate     # exit nonzero below the floors
 """
+import ast
 import sys
 import types
 import unittest
@@ -38,7 +39,8 @@ def executable_lines(path: Path) -> set[int]:
     so counting them charged every multi-line `def` in the component as
     permanently uncovered: debt that no test could ever pay off.
     """
-    code = compile(path.read_text(), str(path), "exec")
+    source = path.read_text()
+    code = compile(source, str(path), "exec")
     lines: set[int] = set()
     pending = [code]
     while pending:
@@ -50,7 +52,33 @@ def executable_lines(path: Path) -> set[int]:
                 lines.add(lineno)
         pending.extend(const for const in current.co_consts
                        if isinstance(const, types.CodeType))
-    return lines
+    return lines - _excluded(source)
+
+
+def _excluded(source: str) -> set[int]:
+    """Lines under a `# pragma: no cover`, the whole block of them.
+
+    One marker in this component and it is the shape the convention exists
+    for: an import fallback for a Home Assistant older than the one the tests
+    run against. Unreachable here by construction, so counting it is counting
+    debt that can never be paid, and writing the marker and then ignoring it
+    is worse than not supporting it at all.
+    """
+    marked = {number for number, text in enumerate(source.splitlines(), 1)
+              if "pragma: no cover" in text}
+    if not marked:
+        return set()
+    skipped = set(marked)
+    for node in ast.walk(ast.parse(source)):
+        # A marked block header takes its body with it: the point of putting
+        # it on an `except` is the handler, not the word "except".
+        for handler in getattr(node, "handlers", []):
+            if handler.lineno in marked:
+                skipped.update(range(handler.lineno, handler.end_lineno + 1))
+        if getattr(node, "lineno", None) in marked \
+                and getattr(node, "end_lineno", None):
+            skipped.update(range(node.lineno, node.end_lineno + 1))
+    return skipped
 
 
 def main() -> int:

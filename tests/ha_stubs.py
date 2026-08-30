@@ -188,6 +188,20 @@ class _EventEntity(_Entity):
         self.triggered.append((event_type, dict(event_attributes or {})))
 
 
+class _ImageEntity(_Entity):
+    """An ImageEntity whose stamp starts empty, the way the real one does.
+
+    Manufactured, the attribute simply did not exist until something set it,
+    so an entity that had never been stamped raised on being read instead of
+    reporting that it has no picture yet.
+    """
+
+    _attr_image_last_updated = None
+
+    def __init__(self, hass=None) -> None:
+        self.hass = hass
+
+
 class _Marker(str):
     """A voluptuous key. It is the key's own string, with its default on it.
 
@@ -544,6 +558,7 @@ def install(component_path=None):
     # attributes; what a test needs is the type and the payload.
     _module("homeassistant.components.event",
             EventEntity=_EventEntity)
+    _module("homeassistant.components.image", ImageEntity=_ImageEntity)
     # The three config keys, as the strings they actually are. Manufactured
     # they were classes, so `data[CONF_HOST]` looked up a class in a dict
     # keyed by "host" and raised -- which no test noticed until one tried to

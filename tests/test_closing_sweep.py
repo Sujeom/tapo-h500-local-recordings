@@ -14,6 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import test_coordinator as harness  # noqa: E402  (installs the HA stubs)
+import ha_stubs  # noqa: E402
+
+component = ha_stubs.real_module("init")
 
 calendar_mod = importlib.import_module("tapo_h500.calendar")
 event_mod = importlib.import_module("tapo_h500.event")
@@ -575,3 +578,75 @@ class TheDownloadsTwoSkips(unittest.TestCase):
     def test_an_ordinary_clip_is_fetched(self):
         clip = {"startTime": NOW, "endTime": NOW + 15}
         self.assertEqual(len(self._attempt(clip)), 1)
+
+
+class TheContactSheetEntity(unittest.TestCase):
+    def _sheet(self):
+        image_mod = importlib.import_module("tapo_h500.image")
+        coord, _ = harness._build()
+        hass = harness._Hass()
+        entity = image_mod.H500ContactSheet(
+            hass, coord, 1, {"device_id": "cam1", "alias": "Side"})
+        entity.hass = hass
+        entity.async_write_ha_state = lambda: None
+        entity.async_on_remove = lambda unsub: None
+        return image_mod, entity
+
+    def test_it_follows_the_download_signal_not_the_event_one(self):
+        """A sheet is built from thumbnails and a thumbnail is written by the
+        download. Stamping on the event would make the frontend re-fetch an
+        unchanged picture seconds before the new frame exists."""
+        image_mod, entity = self._sheet()
+        seen = []
+        original = image_mod.async_dispatcher_connect
+        image_mod.async_dispatcher_connect = (
+            lambda hass, signal, target: seen.append(signal) or (lambda: None))
+        try:
+            run(entity.async_added_to_hass())
+        finally:
+            image_mod.async_dispatcher_connect = original
+        self.assertEqual(len(seen), 1)
+        self.assertIn("image", seen[0])
+        self.assertNotIn("event", seen[0])
+
+    def test_a_new_download_restamps_it(self):
+        """Home Assistant fetches only when the stamp changes, which is why
+        the picture is built on request rather than held in memory."""
+        _, entity = self._sheet()
+        self.assertIsNone(entity.image_last_updated)
+        entity._handle()
+        self.assertIsNotNone(entity.image_last_updated)
+
+
+class TheSirenToneSelect(unittest.TestCase):
+    def _added(self, tones):
+        select_mod = importlib.import_module("tapo_h500.select")
+        coord, client = harness._build()
+        if isinstance(tones, Exception):
+            def refuse():
+                raise tones
+            client.siren_tones = refuse
+        else:
+            client.siren_tones = lambda: list(tones)
+        coord.client = client
+        hass = harness._Hass()
+        hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        added = []
+        entry = harness._Entry(20)
+        entry.async_on_unload = lambda unsub: None
+        run(select_mod.async_setup_entry(hass, entry, added.extend))
+        return added
+
+    def test_the_hubs_own_list_becomes_the_choices(self):
+        added = self._added(["Doorbell", "Alarm"])
+        self.assertEqual(len(added), 1)
+        self.assertEqual(added[0].options, ["Doorbell", "Alarm"])
+
+    def test_a_hub_that_offers_no_tones_gets_no_entity(self):
+        """There is nothing to choose between, and a free text box would just
+        produce -40209s."""
+        self.assertEqual(self._added([]), [])
+
+    def test_a_hub_that_will_not_say_gets_no_entity_either(self):
+        """Not a failed setup: everything else about the hub still works."""
+        self.assertEqual(self._added(RuntimeError("-40209")), [])

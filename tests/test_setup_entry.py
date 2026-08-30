@@ -283,6 +283,20 @@ class TheResourceList(_World):
 
 
 class Unload(_World):
+    def test_platforms_that_will_not_unload_stop_the_unload(self):
+        """Closing the login under entities still holding it would strand
+        them, and Home Assistant retries the unload afterwards."""
+        self._setup()
+        async def refuse(entry, platforms):
+            return False
+        self.hass.config_entries.async_unload_platforms = refuse
+        self.assertFalse(run(component.async_unload_entry(
+            self.hass, self.entry)))
+        self.assertEqual(_Client.instances[0].closes, 0,
+                         "the login stays open while entities still hold it")
+        self.assertIn(self.entry.entry_id,
+                      self.hass.data["tapo_h500"]["hubs"])
+
     def test_the_last_hub_out_turns_the_lights_off(self):
         self._setup()
         self.assertTrue(run(component.async_unload_entry(self.hass,
