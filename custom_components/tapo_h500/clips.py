@@ -207,6 +207,18 @@ def event_type(entry: dict) -> str:
 # and covers a clock that rounds.
 MATCH_SECONDS = 2
 
+# The seconds to try, nearest first. Both times are whole seconds, so the
+# slack is five keys to look up rather than a window to search: the old code
+# walked every detection for every clip that did not match exactly, which is
+# fine while they all do and quadratic the moment a clock rounds. Two thousand
+# recordings a second out took 80ms per camera, inside the poll, every poll.
+#
+# Nearest first also makes the answer definite. Picking whichever of a second
+# early and a second late came out of the dictionary first meant the order the
+# hub happened to list its detections in decided which one a clip got.
+NEARBY = (0, *(offset for distance in range(1, MATCH_SECONDS + 1)
+               for offset in (-distance, distance)))
+
 
 def attach_detections(clips: list[dict], detections) -> list[dict]:
     """Copy each clip's detection fields onto it, so one record carries both."""
@@ -221,9 +233,9 @@ def attach_detections(clips: list[dict], detections) -> list[dict]:
         moment = start_of(clip)
         if moment is None:
             continue
-        match = by_time.get(moment) or next(
-            (found for when, found in by_time.items()
-             if abs(when - moment) <= MATCH_SECONDS), None)
+        match = next((found for offset in NEARBY
+                      if (found := by_time.get(moment + offset)) is not None),
+                     None)
         if match is None:
             continue
         for field in ("alarm_type", "events_1", "event_info"):

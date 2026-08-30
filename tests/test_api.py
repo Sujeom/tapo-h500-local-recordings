@@ -746,6 +746,64 @@ class DetectionTest(unittest.TestCase):
         self.assertNotIn("alarm_type", past_it[0],
                          "one second beyond must not match")
 
+    def test_the_nearest_detection_wins(self):
+        """Deterministic, and the closer one.
+
+        The old code took whichever of "a second early" and "a second late"
+        the dictionary handed it first, so the order the hub happened to list
+        its detections in decided which detection a clip was classified by.
+        Two different answers for the same data.
+        """
+        clip_list = [{"startTime": 1_000_000, "endTime": 0}]
+        clips.attach_detections(clip_list, [
+            {"start_time": 1_000_002, "alarm_type": 8},
+            {"start_time": 1_000_001, "alarm_type": 6},
+        ])
+        self.assertEqual(clip_list[0]["alarm_type"], 6)
+
+    def test_the_order_the_hub_lists_them_in_does_not_decide(self):
+        first, second = ({"start_time": 999_999, "alarm_type": 6},
+                         {"start_time": 1_000_001, "alarm_type": 8})
+        one = [{"startTime": 1_000_000, "endTime": 0}]
+        other = [{"startTime": 1_000_000, "endTime": 0}]
+        clips.attach_detections(one, [first, second])
+        clips.attach_detections(other, [second, first])
+        self.assertEqual(one[0]["alarm_type"], other[0]["alarm_type"])
+
+    def test_the_slack_is_a_handful_of_keys_not_a_search(self):
+        """Both times are whole seconds, so every second within the slack is
+        a key that can be looked up. Searching instead is fine while every
+        clip matches exactly and quadratic the moment a clock rounds."""
+        self.assertEqual(len(clips.NEARBY), 2 * clips.MATCH_SECONDS + 1)
+        self.assertEqual(clips.NEARBY[0], 0, "the exact second comes first")
+        self.assertEqual(sorted(clips.NEARBY),
+                         list(range(-clips.MATCH_SECONDS,
+                                    clips.MATCH_SECONDS + 1)))
+        self.assertEqual([abs(offset) for offset in clips.NEARBY],
+                         sorted(abs(offset) for offset in clips.NEARBY),
+                         "nearest first, or the nearest one does not win")
+
+    def test_a_whole_day_off_by_one_does_not_take_seconds(self):
+        """Two thousand recordings a second out took 80ms per camera, inside
+        the poll, every poll -- and sixteen cameras of that is most of the
+        interval. The bound is loose enough not to fail on a busy machine and
+        far under what a search of every detection costs at this size."""
+        import time
+        base, many = 1_000_000, 8000
+        clip_list = [{"startTime": base + n * 40, "endTime": 0}
+                     for n in range(many)]
+        detections = [{"start_time": base + n * 40 + 1, "alarm_type": 6}
+                      for n in range(many)]
+        started = time.perf_counter()
+        clips.attach_detections(clip_list, detections)
+        elapsed = time.perf_counter() - started
+        self.assertTrue(all(clip.get("alarm_type") == 6
+                            for clip in clip_list), "and all of them match")
+        # 7ms here against 1.4 seconds for a search of every detection, so
+        # the bound is thirty times what this costs and seven times under
+        # what the version it replaced did.
+        self.assertLess(elapsed, 0.2)
+
     def test_a_clip_with_no_detection_is_left_alone(self):
         clip_list = [{"startTime": 1, "endTime": 2}]
         clips.attach_detections(clip_list, self.REAL)
