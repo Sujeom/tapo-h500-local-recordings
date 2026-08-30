@@ -67,6 +67,20 @@ class Registration(_World):
     def test_all_thirteen_answer(self):
         self.assertEqual(len(self.handlers), 13)
 
+    def test_every_one_registered_is_one_that_gets_removed(self):
+        """Services are removed when the last hub unloads. One missing from
+        that list lingers after the integration is gone and fails when the
+        card calls it; one listed but never registered is a no-op."""
+        self.assertEqual(set(self.handlers), set(services.SERVICES))
+
+    def test_the_ui_describes_every_one_of_them(self):
+        """A service with no entry in services.yaml is invisible in the
+        Actions list, so nobody can call it without writing YAML by hand."""
+        import yaml
+        described = yaml.safe_load(
+            (Path(services.__file__).parent / "services.yaml").read_text())
+        self.assertEqual(set(self.handlers) - set(described), set())
+
     def test_an_unknown_entry_is_a_validation_error(self):
         """The card sends whatever it stored; a stale entry id must read as
         "reconfigure the card", not a stack trace."""

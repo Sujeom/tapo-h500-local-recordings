@@ -144,49 +144,13 @@ class DoesNotStopRecording(unittest.TestCase):
             self.assertNotIn("snooz", body)
 
 
-class Entity(unittest.TestCase):
-    def test_the_hub_gets_a_snooze_switch(self):
-        setup = SWITCH.split("async_setup_entry", 1)[1].split("\nclass ", 1)[0]
-        self.assertIn("H500Snooze(coordinator, entry)", setup)
-
-    def test_turning_it_on_by_hand_is_indefinite(self):
-        """switch.turn_on carries nowhere to put a duration."""
-        # Scoped to the class: H500HubSwitch declares async_turn_on too, and
-        # splitting on the method name alone finds that one.
-        body = SWITCH.split("class H500Snooze", 1)[1]
-        body = body.split("    async def async_turn_on", 1)[1].split(
-            "\n    async def ", 1)[0]
-        self.assertIn("self.coordinator.snooze(None)", body)
-
-    def test_turning_it_off_cancels(self):
-        body = SWITCH.split("class H500Snooze", 1)[1]
-        body = body.split("    async def async_turn_off", 1)[1]
-        self.assertIn("self.coordinator.snooze(0)", body)
-
-
-class Action(unittest.TestCase):
-    def test_the_service_is_registered(self):
-        self.assertIn("(SERVICE_SNOOZE, snooze, SNOOZE_SCHEMA)", SERVICES_SRC)
-
-    def test_minutes_are_optional(self):
-        schema = SERVICES_SRC.split("SNOOZE_SCHEMA = vol.Schema(", 1)[1].split(
-            "})", 1)[0]
-        self.assertIn('vol.Optional("minutes")', schema)
-
-    def test_minutes_are_converted_to_seconds(self):
-        body = SERVICES_SRC.split("    async def snooze(", 1)[1].split(
-            "\n    for service", 1)[0]
-        self.assertIn("minutes * 60", body)
-
-    def test_it_is_described_for_the_ui(self):
-        actions = (COMPONENT / "services.yaml").read_text()
-        self.assertIn("\nsnooze:", actions)
-
-    def test_the_service_appears_in_the_removal_list(self):
-        """Services are removed when the last hub unloads; one missing from
-        that tuple lingers and fails when called."""
-        removal = SERVICES_SRC.split("SERVICES = (", 1)[1].split(")", 1)[0]
-        self.assertIn("SERVICE_SNOOZE", removal)
+# The switch is driven in test_hub_controls.TheSnoozeSwitch -- flipping it on
+# mutes indefinitely, since switch.turn_on carries nowhere to put a duration,
+# and flipping it off unmutes. The action is driven in
+# test_services_live.Snooze: minutes become a deadline, no minutes means
+# indefinite, zero cancels. That it is registered, described for the UI and
+# removed with the others is checked there too, for every service at once
+# rather than for this one by name.
 
 
 class Blueprint(unittest.TestCase):
