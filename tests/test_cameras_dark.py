@@ -86,7 +86,7 @@ class TheSignal(unittest.TestCase):
         telling those apart is the point of having it."""
         sensor, coord = self._sensor(
             {0: [clip(NOW - 30 * 3600)], 1: [clip(NOW - 9 * 3600)]})
-        coord.media_status = "healthy"
+        coord.media.status = "healthy"
         attributes = sensor.extra_state_attributes
         self.assertEqual(attributes["cameras"], 2)
         self.assertEqual(attributes["media_status"], "healthy")

@@ -81,7 +81,7 @@ class RecoveryDrivesIt(unittest.TestCase):
         coord._seen_clips[0] = {(START,)}
         coord._remember_failed_clip(0, START)
         # Put the coordinator into the state a wedge leaves it in.
-        coord._empty_downloads = 99
+        coord.media._empty = 99
         self.assertTrue(coord.media_serving_empty)
         coord.note_served_download()
         self.assertNotIn((START,), coord._seen_clips[0],
@@ -93,7 +93,7 @@ class RecoveryDrivesIt(unittest.TestCase):
         coord = build()
         coord._seen_clips[0] = {(START,)}
         coord._remember_failed_clip(0, START)
-        coord._empty_downloads = 0          # nothing was wrong
+        coord.media._empty = 0          # nothing was wrong
         self.assertFalse(coord.media_serving_empty)
         coord.note_served_download()
         self.assertIn((START,), coord._seen_clips[0])

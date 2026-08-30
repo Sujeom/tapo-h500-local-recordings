@@ -36,10 +36,10 @@ from .const import (
     FIRMWARE_CHECK_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
     MEDIA_EVIDENCE_MAX_AGE,
     POLL_BACKOFF_MAX, POLL_IDLE_AFTER, POLL_IDLE_INTERVAL, PROWL_WINDOW,
-    WEDGE_HISTORY_SECONDS,
     SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
 )
+from .media_health import MediaHealth
 from .media import (
     EmptyRecordingError, async_download_clip, async_latest_image,
     async_preview_clip, async_prune, async_prune_previews, async_verify,
@@ -139,16 +139,15 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             1, round(FIRMWARE_CHECK_SECONDS / interval))
         # What the last cloud firmware check said; the update entity reads it.
         self.firmware_info: dict = {}
-        # What the last media-port handshake said: "healthy", "wedged",
-        # "silent", "unreachable", or None before the first check. The wedge
-        # is the hub's known failure mode and this is how it is noticed
-        # before anyone misses a photograph; repairs.py reads it.
-        self.media_status: str | None = None
+        # Whether the hub is serving recordings, and the log of when it was
+        # not. Its own object: that state answers to itself and to nothing
+        # else, and spread across a coordinator that also polls, downloads,
+        # tracks faces and manages retention, "is it wedged, and when did
+        # that start" was a question you answered by reading eleven
+        # attributes in four places.
+        self.media = MediaHealth()
         # The hub's last status answer as it arrived, unparsed.
         self.raw_status: dict = {}
-        # Whether this wedge episode has already had its one player_id
-        # rotation; see the case-D note where it happens.
-        self._wedge_rotated = False
         # Consecutive automatic-download failures per camera index, reset by
         # any success. Three in a row is a pattern -- ffmpeg missing, disk
         # full, media service refusing -- and repairs.py turns it into a
@@ -161,32 +160,6 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # Whether the repair checks are currently failing, so the warning is
         # said once rather than every two seconds.
         self._repairs_broken = False
-        # Consecutive downloads that completed cleanly with zero video --
-        # the hub's second media failure (2026-08-18): every session works
-        # and carries nothing, for every clip, until a reboot. Hub state,
-        # so one counter, not per camera; the handshake sentinel cannot see
-        # it, so the downloads are the evidence.
-        self._empty_downloads = 0
-        # When the last automatic restart happened, if the owner opted in
-        # -- and whether one failed to cure, which stops further attempts
-        # until real recovery re-arms them.
-        self._auto_restarted = 0.0
-        self._auto_restart_broken = False
-        # When to force the deep check after an automatic restart, so the
-        # cure is verified rather than assumed. None means nothing pending.
-        self._recheck_at: float | None = None
-        # When a media session last taught us anything -- bytes served or a
-        # confirmed empty answer. Stale evidence plus an indexed clip is
-        # what triggers the deep check.
-        self._media_evidence = 0.0
-        # The wedge record. One entry per outage: when it started, what was
-        # tried, and when it ended. The hub keeps no such history, and by the
-        # time anybody asks how often this happens -- or whether restarting
-        # ever actually helped -- the evidence is a month of anecdote.
-        self.wedges: list[dict] = []
-        self._healthy_since = dt_util.utcnow().timestamp()
-        self._longest_healthy = 0.0
-        self._was_wedged = False
 
     def signal(self, name: str, index: int) -> str:
         return f"{SIGNAL_NEW_CLIP}_{name}_{self.entry.entry_id}_{index}"
@@ -980,13 +953,13 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             # is keyed to the reused id. Once, not per poll -- repeating it
             # would erase the evidence of whether one rotation was enough.
             rotate = getattr(self.client, "rotate_player_id", None)
-            if self.media_status == "wedged" and not self._wedge_rotated:
+            if self.media_status == "wedged" and not self.media.rotated:
                 if rotate is not None:
                     rotate()
                     self.note_recovery_attempt("player id rotated")
-                self._wedge_rotated = True
+                self.media.rotated = True
             elif self.media_status == "healthy":
-                self._wedge_rotated = False
+                self.media.rotated = False
 
         # The deep check: when no media session has taught us anything for
         # an hour and an indexed clip exists, fetch two seconds of it in the
@@ -999,15 +972,15 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         # force the deep check due. Bytes prove the cure and re-arm
         # everything; an empty answer feeds the breaker while the failure
         # is still inside its cure window.
-        if self._recheck_at is not None and now >= self._recheck_at:
-            self._recheck_at = None
-            self._media_evidence = 0.0
+        if self.media.recheck_at is not None and now >= self.media.recheck_at:
+            self.media.recheck_at = None
+            self.media.evidence_at = 0.0
 
         fetchable = getattr(self.client, "iter_recording", None)
         spawn = getattr(self.entry, "async_create_background_task", None)
         lock = getattr(self.client, "_lock", None)
         if (fetchable is not None and spawn is not None
-                and now - self._media_evidence >= MEDIA_EVIDENCE_MAX_AGE
+                and now - self.media.evidence_at >= MEDIA_EVIDENCE_MAX_AGE
                 and not (lock is not None and lock.locked())):
             newest = None
             for index in clips_by_camera:
@@ -1020,7 +993,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 index, start, end = newest
                 # Provisional stamp so the next 2-second poll does not
                 # spawn a second fetch while this one runs.
-                self._media_evidence = now
+                self.media.evidence_at = now
                 spawn(self.hass,
                       self._deep_media_check(cameras[index], start, end),
                       f"{DOMAIN} media health check")
@@ -1036,29 +1009,29 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             reason = ("wedged" if self.media_status == "wedged"
                       else "empty" if self.media_serving_empty else None)
             reboot = getattr(self.client, "reboot", None)
-            elapsed = now - self._auto_restarted
+            elapsed = now - self.media.restarted_at
             # The circuit breaker: a failure back within half an hour of a
             # restart means restarting is not the cure -- a new failure in
             # a familiar coat, which a reboot every six hours would mask
             # forever. Only real recovery (bytes served) re-arms it.
-            if (reason is not None and not self._auto_restart_broken
+            if (reason is not None and not self.media.restart_broken
                     and 0 < elapsed <= AUTO_RESTART_CURE_WINDOW):
-                self._auto_restart_broken = True
+                self.media.restart_broken = True
                 _LOGGER.warning(
                     "The automatic restart did not cure the media failure "
                     "(%s is back within %.0f minutes); automatic restarts "
                     "are paused until recordings actually serve again",
                     reason, elapsed / 60)
             if (reason is not None and reboot is not None
-                    and not self._auto_restart_broken
+                    and not self.media.restart_broken
                     and elapsed >= AUTO_RESTART_COOLDOWN):
-                self._auto_restarted = now
+                self.media.restarted_at = now
                 self.note_restarting()
                 _LOGGER.warning(
                     "Restarting the hub automatically: media service %s. "
                     "Expect about two minutes of downtime. Turn this off "
                     "under Configure if it was not wanted.", reason)
-                self._recheck_at = now + AUTO_RESTART_RECHECK
+                self.media.recheck_at = now + AUTO_RESTART_RECHECK
                 self.hass.bus.async_fire(EVENT_AUTO_RESTART, {
                     "entry_id": self.entry.entry_id, "reason": reason})
                 try:
@@ -1201,27 +1174,17 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             )
 
     def note_empty_download(self) -> None:
-        self._empty_downloads += 1
-        self._media_evidence = dt_util.utcnow().timestamp()
-        self._note_wedge_state()
+        self.media.note_empty()
 
     def note_served_download(self) -> None:
-        recovering = self.media_serving_empty
-        self._empty_downloads = 0
-        self._media_evidence = dt_util.utcnow().timestamp()
-        # Real bytes flowed: whatever was wrong is over, so a tripped
-        # breaker re-arms and future failures may be auto-cured again.
-        self._auto_restart_broken = False
-        if recovering:
+        if self.media.note_served():
             # Every clip during the outage burned its one frame-fetch
-            # attempt on an empty answer. Clearing the marks lets the
-            # camera picture repair itself at the next look instead of
-            # staying stale until the next event. Only on recovery: a
-            # routine download clearing them would invite a redundant
-            # refetch per clip.
+            # attempt on an empty answer. Clearing the marks lets the camera
+            # picture repair itself at the next look instead of staying stale
+            # until the next event. Only on recovery: a routine download
+            # clearing them would invite a redundant refetch per clip.
             self._frame_attempts.clear()
             self._retry_failed_clips()
-        self._note_wedge_state()
 
     def _remember_failed_clip(self, index: int, start_time: int) -> None:
         """Remember a clip that did not download, for one more try later.
@@ -1263,124 +1226,47 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
 
     def note_media_status(self, status: str) -> None:
         """Record the sentinel's verdict, noticing recovery on the way."""
-        if status == "healthy" and self.media_status == "wedged":
+        if self.media.note_status(status):
             self._frame_attempts.clear()
-        self.media_status = status
-        self._note_wedge_state()
+
+    # Everything below reads through `self.media`. Kept on the coordinator
+    # because entities, repairs and diagnostics all hold a coordinator and
+    # nothing else, and a rename here would be a rename in nine files.
+    @property
+    def media_status(self) -> str | None:
+        return self.media.status
 
     @property
     def media_wedged(self) -> bool:
-        """Whether the hub is refusing to serve recordings right now.
+        return self.media.wedged
 
-        Either signal is enough and they are independent: the sentinel's
-        handshake against port 8800, and two clean-but-empty downloads in a
-        row. Serving-empty counts whether or not a handshake has ever run,
-        because the downloads themselves are the evidence.
-        """
-        return self.media_serving_empty or self.media_status == "wedged"
+    @property
+    def media_serving_empty(self) -> bool:
+        return self.media.serving_empty
 
-    def _note_wedge_state(self) -> None:
-        """Keep the log of when this hub stopped serving and started again.
-
-        The hub keeps no such history, and neither does Home Assistant in any
-        form that outlives a purge: binary sensors get no long-term
-        statistics, so the wedge sensor's own history ends there. This is what
-        makes "how often, and how long between" answerable months later, which
-        is the question a support case turns on.
-        """
-        wedged = self.media_wedged
-        if wedged == self._was_wedged:
-            return
-        self._was_wedged = wedged
-        now = dt_util.utcnow().timestamp()
-        if wedged:
-            self._longest_healthy = max(
-                self._longest_healthy, now - self._healthy_since)
-            self.wedges.append({"at": now, "tried": [], "ended": None})
-            # A wedge every twelve hours over the kept window is a few hundred
-            # small records. Older than that has stopped being evidence about
-            # the hub as it is now.
-            cutoff = now - WEDGE_HISTORY_SECONDS
-            self.wedges = [w for w in self.wedges if w["at"] >= cutoff]
-        else:
-            self._healthy_since = now
-            if self.wedges and self.wedges[-1]["ended"] is None:
-                self.wedges[-1]["ended"] = now
-
-    def note_recovery_attempt(self, what: str) -> None:
-        """Record something tried to cure the outage that is running.
-
-        Every wedge used to start the diagnosis from nothing: the log showed
-        that it happened and never what was done about it, so "does
-        restarting actually help?" stayed a matter of memory. Attached to the
-        open episode, beside when it ended, which is what makes the two
-        readable together.
-
-        Ignored when nothing is wrong, because there is no episode for it to
-        belong to and inventing one would report an outage that never was.
-        """
-        if self.wedges and self.wedges[-1]["ended"] is None:
-            self.wedges[-1]["tried"].append(
-                {"what": what, "at": dt_util.utcnow().timestamp()})
-
-    def note_restarting(self) -> None:
-        """The hub is being rebooted to cure a media failure.
-
-        The empty-download counter starts fresh, because sessions from before
-        a reboot say nothing about the hub after it. Deliberately not
-        `note_served_download`, which this borrowed: that one means bytes
-        arrived. It clears the frame marks, retries the failed clips and
-        closes the episode in the wedge log -- all of it claiming a recovery
-        that at this point is only a hope. Whether the restart worked is what
-        the next session gets to decide.
-        """
-        self._empty_downloads = 0
-        self._media_evidence = dt_util.utcnow().timestamp()
-        self.note_recovery_attempt("hub restart")
-
-    def recovery_log(self, limit: int = 10) -> list[dict]:
-        """The newest episodes first, in the shape a person reads.
-
-        Times as ISO strings and lengths in minutes, because the audience is
-        somebody reading a diagnostics file or a support thread, not code.
-        """
-        entries = []
-        for wedge in reversed(self.wedges[-limit:]):
-            ended = wedge["ended"]
-            entries.append({
-                "at": dt_util.utc_from_timestamp(wedge["at"]).isoformat(),
-                "lasted_minutes": (
-                    None if ended is None
-                    else round((ended - wedge["at"]) / 60, 1)),
-                "tried": [
-                    {"what": attempt["what"],
-                     "after_minutes":
-                         round((attempt["at"] - wedge["at"]) / 60, 1)}
-                    for attempt in wedge["tried"]],
-            })
-        return entries
+    @property
+    def wedges(self) -> list[dict]:
+        return self.media.wedges
 
     @property
     def healthy_seconds(self) -> float:
-        """How long the media path has been serving, this run.
-
-        Zero while it is not, climbing while it is -- so the recorder's
-        long-term graph is a sawtooth whose peaks are the times to wedge and
-        whose resets are the wedges. One number answering how often, how long
-        between, and what the best run was.
-        """
-        if self.media_wedged:
-            return 0.0
-        return max(0.0, dt_util.utcnow().timestamp() - self._healthy_since)
-
-    def wedges_since(self, seconds: float) -> int:
-        cutoff = dt_util.utcnow().timestamp() - seconds
-        return sum(1 for wedge in self.wedges if wedge["at"] >= cutoff)
+        return self.media.healthy_seconds
 
     @property
     def longest_healthy_seconds(self) -> float:
-        """The best run yet, the one in progress included."""
-        return max(self._longest_healthy, self.healthy_seconds)
+        return self.media.longest_healthy_seconds
+
+    def wedges_since(self, seconds: float) -> int:
+        return self.media.wedges_since(seconds)
+
+    def note_recovery_attempt(self, what: str) -> None:
+        self.media.note_attempt(what)
+
+    def note_restarting(self) -> None:
+        self.media.note_restarting()
+
+    def recovery_log(self, limit: int = 10) -> list[dict]:
+        return self.media.recovery_log(limit)
 
     async def _deep_media_check(self, camera, start: int, end: int) -> None:
         """Two bounded seconds of the newest clip, as evidence.
@@ -1413,18 +1299,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
     @property
     def auto_restart_broken(self) -> bool:
         """An automatic restart failed to cure the failure it fired for."""
-        return self._auto_restart_broken
+        return self.media.restart_broken
 
-    @property
-    def media_serving_empty(self) -> bool:
-        """Two clean-but-empty downloads in a row: the hub serves nothing.
-
-        One could be a freak clip; two consecutive recordings with real
-        durations answering zero bytes is the state measured on hardware,
-        where it held for every clip of every age. A single served download
-        clears it.
-        """
-        return self._empty_downloads >= 2
 
     @property
     def download_failures(self) -> dict[str, int]:

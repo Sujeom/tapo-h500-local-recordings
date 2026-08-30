@@ -208,7 +208,7 @@ class HealsWithTheHub(unittest.TestCase):
     def test_recovery_from_the_wedge_clears_the_marks(self):
         coord, _ = harness._build()
         coord._frame_attempts[0] = self.MARK
-        coord.media_status = "wedged"
+        coord.media.status = "wedged"
         coord.note_media_status("healthy")
         self.assertEqual(coord._frame_attempts, {})
 
@@ -221,7 +221,7 @@ class HealsWithTheHub(unittest.TestCase):
     def test_staying_healthy_does_not_either(self):
         coord, _ = harness._build()
         coord._frame_attempts[0] = self.MARK
-        coord.media_status = "healthy"
+        coord.media.status = "healthy"
         coord.note_media_status("healthy")
         self.assertEqual(coord._frame_attempts, {0: self.MARK})
 

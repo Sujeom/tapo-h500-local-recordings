@@ -74,7 +74,7 @@ def _poll(coord, entry):
 class DeepCheck(unittest.TestCase):
     def test_a_quiet_hour_triggers_one_bounded_fetch(self):
         coord, client, entry = _build()
-        coord._media_evidence = NOW - 3700
+        coord.media.evidence_at = NOW - 3700
         _poll(coord, entry)
         self.assertEqual(len(client.fetches), 1)
         start, end, kind = client.fetches[0]
@@ -83,7 +83,7 @@ class DeepCheck(unittest.TestCase):
 
     def test_fresh_evidence_means_no_fetch(self):
         coord, client, entry = _build()
-        coord._media_evidence = NOW - 60
+        coord.media.evidence_at = NOW - 60
         _poll(coord, entry)
         self.assertEqual(client.fetches, [])
 
@@ -91,7 +91,7 @@ class DeepCheck(unittest.TestCase):
         coord, client, entry = _build()
         coord.note_empty_download()
         coord.note_empty_download()
-        coord._media_evidence = NOW - 3700
+        coord.media.evidence_at = NOW - 3700
         _poll(coord, entry)
         self.assertFalse(coord.media_serving_empty)
 
@@ -100,7 +100,7 @@ class DeepCheck(unittest.TestCase):
         inside the same task, so the state is flagged within minutes -- not
         after a second quiet hour."""
         coord, client, entry = _build(chunks=0)
-        coord._media_evidence = NOW - 3700
+        coord.media.evidence_at = NOW - 3700
         _poll(coord, entry)
         self.assertEqual(len(client.fetches), 2)
         self.assertTrue(coord.media_serving_empty)
@@ -109,13 +109,13 @@ class DeepCheck(unittest.TestCase):
         coord, client, entry = _build()
         client.recent = lambda camera, start, end: (
             client.calls.append("recent") or [])
-        coord._media_evidence = NOW - 3700
+        coord.media.evidence_at = NOW - 3700
         _poll(coord, entry)
         self.assertEqual(client.fetches, [])
 
     def test_evidence_freshens_so_the_next_hour_is_quiet_again(self):
         coord, client, entry = _build()
-        coord._media_evidence = NOW - 3700
+        coord.media.evidence_at = NOW - 3700
         _poll(coord, entry)
         _poll(coord, entry)
         self.assertEqual(len(client.fetches), 1,
@@ -124,7 +124,7 @@ class DeepCheck(unittest.TestCase):
 
     def test_downloads_already_count_as_evidence(self):
         coord, client, entry = _build()
-        coord._media_evidence = NOW - 3700
+        coord.media.evidence_at = NOW - 3700
         coord.note_served_download()
         _poll(coord, entry)
         self.assertEqual(client.fetches, [])
@@ -137,7 +137,7 @@ class DeepCheck(unittest.TestCase):
             yield  # pragma: no cover - generator shape
 
         client.iter_recording = boom
-        coord._media_evidence = NOW - 3700
+        coord.media.evidence_at = NOW - 3700
         _poll(coord, entry)  # must not raise
         self.assertFalse(coord.media_serving_empty)
 
@@ -146,7 +146,7 @@ class DeepCheck(unittest.TestCase):
         and must keep working untouched."""
         coord, client, entry = _build()
         client.iter_recording = None
-        coord._media_evidence = NOW - 3700
+        coord.media.evidence_at = NOW - 3700
         _poll(coord, entry)  # must not raise
         self.assertEqual(entry.tasks, [])
 

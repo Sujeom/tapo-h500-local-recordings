@@ -250,8 +250,8 @@ class MediaProblemSensor(unittest.TestCase):
 
     def _sensor(self, status=None, empties=0):
         coord, _ = harness._build()
-        coord.media_status = status
-        coord._empty_downloads = empties
+        coord.media.status = status
+        coord.media._empty = empties
         return binary_sensor_mod.H500MediaProblem(coord, harness._Entry(20))
 
     def test_the_known_wedge_turns_it_on(self):

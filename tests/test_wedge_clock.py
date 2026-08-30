@@ -40,7 +40,7 @@ class TheRecord(unittest.TestCase):
 
     def _wedge(self, at):
         """Drive a wedge on and off through the real transitions."""
-        self.coord._healthy_since = at - 0  # left where the caller put it
+        self.coord.media._healthy_since = at - 0  # left where the caller put it
         self.coord.note_media_status("wedged")
 
     def test_a_fresh_start_is_healthy_and_counts_from_now(self):
@@ -49,11 +49,11 @@ class TheRecord(unittest.TestCase):
         self.assertFalse(self.coord.media_wedged)
 
     def test_the_clock_climbs_while_the_hub_serves(self):
-        self.coord._healthy_since = NOW - 5 * HOUR
+        self.coord.media._healthy_since = NOW - 5 * HOUR
         self.assertAlmostEqual(self.coord.healthy_seconds, 5 * HOUR, places=3)
 
     def test_it_is_zero_while_wedged(self):
-        self.coord._healthy_since = NOW - 5 * HOUR
+        self.coord.media._healthy_since = NOW - 5 * HOUR
         self.coord.note_media_status("wedged")
         self.assertEqual(self.coord.healthy_seconds, 0.0)
 
@@ -63,7 +63,7 @@ class TheRecord(unittest.TestCase):
         self.assertEqual(len(self.coord.wedges), 1)
 
     def test_recovery_restarts_the_clock(self):
-        self.coord._healthy_since = NOW - 5 * HOUR
+        self.coord.media._healthy_since = NOW - 5 * HOUR
         self.coord.note_media_status("wedged")
         self.coord.note_media_status("healthy")
         self.assertEqual(self.coord.healthy_seconds, 0.0)
@@ -92,7 +92,7 @@ class TheRecord(unittest.TestCase):
         outage is not a change of state and goes unrecorded -- the log stops
         at one entry and stays there.
         """
-        self.coord._healthy_since = NOW - 9 * HOUR
+        self.coord.media._healthy_since = NOW - 9 * HOUR
         self.coord.note_empty_download()
         self.coord.note_empty_download()
         self.coord.note_served_download()
@@ -113,26 +113,26 @@ class TheRecord(unittest.TestCase):
         self.assertEqual(len(self.coord.wedges), 1)
 
     def test_the_longest_run_survives_the_wedge_that_ended_it(self):
-        self.coord._healthy_since = NOW - 12 * HOUR
+        self.coord.media._healthy_since = NOW - 12 * HOUR
         self.coord.note_media_status("wedged")
         self.coord.note_media_status("healthy")
         self.assertAlmostEqual(self.coord.longest_healthy_seconds,
                                12 * HOUR, places=3)
 
     def test_the_run_in_progress_can_be_the_longest(self):
-        self.coord._healthy_since = NOW - 20 * HOUR
+        self.coord.media._healthy_since = NOW - 20 * HOUR
         self.assertAlmostEqual(self.coord.longest_healthy_seconds,
                                20 * HOUR, places=3)
 
     def test_counts_are_windowed(self):
-        self.coord.wedges = [wedge(NOW - 8 * 86400), wedge(NOW - 3 * 86400),
+        self.coord.media.wedges = [wedge(NOW - 8 * 86400), wedge(NOW - 3 * 86400),
                              wedge(NOW - 3600)]
         self.assertEqual(self.coord.wedges_since(7 * 86400), 2)
         self.assertEqual(self.coord.wedges_since(86400), 1)
 
     def test_the_log_does_not_grow_without_end(self):
         """Ninety days of onsets is evidence; a year of them is a leak."""
-        self.coord.wedges = [wedge(NOW - const.WEDGE_HISTORY_SECONDS - 1),
+        self.coord.media.wedges = [wedge(NOW - const.WEDGE_HISTORY_SECONDS - 1),
                              wedge(NOW - 86400)]
         self.coord.note_media_status("wedged")
         self.assertEqual(len(self.coord.wedges), 2,
@@ -149,7 +149,7 @@ class TheSensor(unittest.TestCase):
         """Twelve hours between wedges is the observed gap; a seconds axis
         would be unreadable at the span that matters."""
         coord, sensor = self._sensor()
-        coord._healthy_since = NOW - 90 * 60
+        coord.media._healthy_since = NOW - 90 * 60
         self.assertAlmostEqual(sensor.native_value, 1.5, places=3)
 
     def test_the_recorder_keeps_it_forever(self):
@@ -165,9 +165,9 @@ class TheSensor(unittest.TestCase):
 
     def test_the_attributes_carry_the_counts(self):
         coord, sensor = self._sensor()
-        coord.wedges = [wedge(NOW - 8 * 86400), wedge(NOW - 2 * 86400),
+        coord.media.wedges = [wedge(NOW - 8 * 86400), wedge(NOW - 2 * 86400),
                         wedge(NOW - 600)]
-        coord._longest_healthy = 30 * HOUR
+        coord.media._longest_healthy = 30 * HOUR
         attributes = sensor.extra_state_attributes
         self.assertEqual(attributes["wedges_7d"], 2)
         self.assertEqual(attributes["wedges_24h"], 1)
@@ -248,7 +248,7 @@ class TheRecoveryLog(unittest.TestCase):
         self.assertEqual(
             [a["what"] for a in self.coord.wedges[-1]["tried"]],
             ["hub restart"])
-        self.assertEqual(self.coord._empty_downloads, 0,
+        self.assertEqual(self.coord.media._empty, 0,
                          "it still starts counting fresh")
 
     def test_a_restart_that_did_not_work_reads_differently_from_one_that_did(self):
