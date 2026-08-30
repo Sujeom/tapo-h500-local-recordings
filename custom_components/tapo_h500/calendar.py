@@ -27,6 +27,10 @@ from .clips import describe_detection, end_of, face_ids, start_of
 from .const import DATA_HUBS, DOMAIN
 from .entity import H500Entity
 
+# Unlimited: nothing here polls the hub. Every value comes from the
+# coordinator's one poll, so there is nothing to serialise.
+PARALLEL_UPDATES = 0
+
 _LOGGER = logging.getLogger(__name__)
 
 # The longest span to ask the hub about in one go.

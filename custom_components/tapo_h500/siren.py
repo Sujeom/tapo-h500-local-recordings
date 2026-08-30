@@ -24,6 +24,11 @@ from .coordinator import H500Coordinator
 from .sensor import hub_device
 from .status import hub_volume
 
+# One at a time. Every write here is a call to a hub that wedges under
+# concurrent sessions and recovers only on a timeout, so a scene touching
+# four of these entities must not open four at once.
+PARALLEL_UPDATES = 1
+
 _LOGGER = logging.getLogger(__name__)
 
 

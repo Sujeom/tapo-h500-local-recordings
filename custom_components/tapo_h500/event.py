@@ -19,6 +19,10 @@ from .const import (
 from .entity import H500Entity
 from .media import clip_path, signed_url
 
+# Unlimited: nothing here polls the hub. Every value comes from the
+# coordinator's one poll, so there is nothing to serialise.
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback

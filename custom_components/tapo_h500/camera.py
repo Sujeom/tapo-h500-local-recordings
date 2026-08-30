@@ -14,6 +14,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_HUBS, DOMAIN
 from .entity import H500Entity
 
+# One at a time. Asking for a picture can reach the coordinator's frame
+# fetch, which opens a media session against a hub that wedges under
+# concurrent ones -- so two dashboards showing the same camera must not ask
+# twice at once.
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback

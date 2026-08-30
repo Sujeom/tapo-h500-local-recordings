@@ -31,6 +31,10 @@ from .coordinator import H500Coordinator
 from .entity import H500Entity
 from .sensor import hub_device
 
+# Unlimited: nothing here polls the hub. Every value comes from the
+# coordinator's one poll, so there is nothing to serialise.
+PARALLEL_UPDATES = 0
+
 
 
 @dataclass(frozen=True, kw_only=True)

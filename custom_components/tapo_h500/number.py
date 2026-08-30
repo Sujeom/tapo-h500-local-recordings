@@ -20,6 +20,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DATA_HUBS, DOMAIN, SIREN_VOLUME_MAX, SIREN_VOLUME_MIN
 from .hub_control import H500HubControl
 
+# One at a time. Every write here is a call to a hub that wedges under
+# concurrent sessions and recovers only on a timeout, so a scene touching
+# four of these entities must not open four at once.
+PARALLEL_UPDATES = 1
+
 SIREN_DURATION_MAX = 3600
 
 

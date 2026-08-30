@@ -24,6 +24,11 @@ from .const import DATA_HUBS, DOMAIN
 from .hub_control import H500HubControl
 from .status import auto_upgrade_config, face_detection_config
 
+# One at a time. Every write here is a call to a hub that wedges under
+# concurrent sessions and recovers only on a timeout, so a scene touching
+# four of these entities must not open four at once.
+PARALLEL_UPDATES = 1
+
 
 @dataclass(frozen=True, kw_only=True)
 class HubSwitch(SwitchEntityDescription):

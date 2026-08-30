@@ -30,6 +30,10 @@ from .const import DATA_HUBS, DOMAIN
 from .entity import H500Entity
 from .contact_sheet import async_contact_sheet
 
+# Unlimited: nothing here polls the hub. Every value comes from the
+# coordinator's one poll, so there is nothing to serialise.
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
