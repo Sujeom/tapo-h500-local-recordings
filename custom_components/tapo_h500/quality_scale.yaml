@@ -1,0 +1,152 @@
+# Home Assistant's integration quality scale, rule by rule.
+#
+# The point of the file is the honesty, not the tier. A `todo` here is a
+# statement that the rule is not met; an `exempt` is a statement that it
+# cannot be, with the reason. tests/test_quality_scale.py refuses a claimed
+# tier that has a `todo` at or below it, and refuses an `exempt` with no
+# comment -- so neither can be quietly used to inflate the claim.
+
+rules:
+  # ---------------- Bronze ----------------
+  action-setup: todo
+  appropriate-polling:
+    status: done
+    comment: |
+      Two seconds by default, which is the whole notification delay, with an
+      idle backoff and a slower cadence for hub status and the paired list.
+      The hub overloads easily, so the interval is the design.
+  brands: todo
+  common-modules:
+    status: done
+    comment: The coordinator is in coordinator.py, the base entity in entity.py.
+  config-flow: done
+  config-flow-test-coverage: todo
+  dependency-transparency:
+    status: done
+    comment: One requirement, pytapo, pinned to an exact version.
+  docs-actions: done
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: todo
+  entity-event-setup:
+    status: done
+    comment: |
+      Subscriptions are made in async_added_to_hass and released through
+      async_on_remove, including the detection flags' pending hold timers.
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: todo
+  test-before-configure:
+    status: done
+    comment: The config flow logs in once and lists the cameras before finishing.
+  test-before-setup:
+    status: done
+    comment: |
+      connect() runs in async_setup_entry. A refused credential raises
+      ConfigEntryAuthFailed; anything else raises ConfigEntryNotReady, and
+      both close the login they opened.
+  unique-config-entry:
+    status: done
+    comment: Keyed on the hub's host, with the reconfigure flow guarding identity.
+
+  # ---------------- Silver ----------------
+  action-exceptions:
+    status: done
+    comment: |
+      ServiceValidationError for the caller's mistake, HomeAssistantError for
+      the hub's. Getting that backwards tells somebody their input is wrong
+      when the hub is merely busy, which on this device is the common case.
+  config-entry-unloading: done
+  docs-configuration-parameters: done
+  docs-installation-parameters: done
+  entity-unavailable:
+    status: done
+    comment: |
+      Everything is a CoordinatorEntity, so a failed poll marks the lot
+      unavailable rather than leaving stale values on screen.
+  integration-owner: done
+  log-when-unavailable:
+    status: done
+    comment: |
+      DataUpdateCoordinator logs the first failure and stays quiet until it
+      recovers. UpdateFailed carries the reason.
+  parallel-updates:
+    status: done
+    comment: |
+      One at a time on everything that commands the hub, unlimited on the
+      platforms that only read the poll. The hub wedges under concurrent
+      sessions, so this is dictated by the hardware rather than convention.
+  reauthentication-flow:
+    status: done
+    comment: |
+      Credentials only, never the host -- offering a host box would turn a
+      credential refusal into a chance to point an existing entry at a
+      different device.
+  test-coverage: done
+
+  # ---------------- Gold ----------------
+  devices:
+    status: done
+    comment: |
+      A device per hub and per camera, with the cameras via_device the hub:
+      they reach Home Assistant only through it, over a sub-GHz link.
+  diagnostics:
+    status: done
+    comment: |
+      Allow-list, not deny-list -- the hub's replies change between firmwares
+      and a deny-list would leak whatever the next one adds. No credentials,
+      no MACs, no aliases, no wall-clock times.
+  discovery: todo
+  discovery-update-info: todo
+  docs-data-update: todo
+  docs-examples: done
+  docs-known-limitations: done
+  docs-supported-devices: done
+  docs-supported-functions: done
+  docs-troubleshooting: todo
+  docs-use-cases: todo
+  dynamic-devices:
+    status: done
+    comment: |
+      A camera paired after setup gets its entities on the next poll, and a
+      person gets theirs when they are first named -- neither needs a reload,
+      and a reload is another login.
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default: todo
+  entity-translations: done
+  exception-translations: todo
+  icon-translations: todo
+  reconfiguration-flow:
+    status: done
+    comment: |
+      A hub that changed address keeps its face names, settings and entity
+      ids. Deleting and re-adding loses all three.
+  repair-issues:
+    status: done
+    comment: |
+      Nine, each one clearing itself. A repair that never clears is worse
+      than one that never appears.
+  stale-devices:
+    status: done
+    comment: |
+      async_remove_config_entry_device lets go of a camera the hub no longer
+      lists, and refuses one it still does -- a delete button that undoes
+      itself is worse than one that is missing.
+
+  # ---------------- Platinum ----------------
+  async-dependency:
+    status: exempt
+    comment: |
+      pytapo 3.4.18 is synchronous. Every hub call goes through
+      hass.async_add_executor_job, and the media session is serialised behind
+      an asyncio lock because the hub wedges under concurrent ones. Satisfying
+      this rule means replacing the library, and the library is the
+      reverse-engineering. Re-check when pytapo ships an async API.
+  inject-websession:
+    status: exempt
+    comment: |
+      pytapo 3.4.18 builds its own requests session, and the media transport
+      on 8800 is a raw socket protocol rather than HTTP. There is no session
+      to inject. Re-check when pytapo accepts one.
+  strict-typing: todo
