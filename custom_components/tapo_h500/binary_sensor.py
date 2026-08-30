@@ -28,7 +28,7 @@ from .const import (
     LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED, SILENT_EXPECTED,
 )
 from .coordinator import H500Coordinator
-from .entity import H500Entity
+from .entity import add_cameras_as_they_appear, H500Entity
 from .sensor import hub_device
 
 # Unlimited: nothing here polls the hub. Every value comes from the
@@ -98,36 +98,24 @@ async def async_setup_entry(
     entities: list[BinarySensorEntity] = [
         H500HubFlag(coordinator, entry, description) for description in HUB_FLAGS
     ]
-    entities += [
-        H500CameraFlag(coordinator, index, camera, description)
-        for index, camera in enumerate(coordinator.cameras)
-        for description in CAMERA_FLAGS
-    ]
-    entities += [
-        H500UnusualActivity(coordinator, index, camera)
-        for index, camera in enumerate(coordinator.cameras)
-    ]
-    entities += [
-        H500Loitering(coordinator, index, camera)
-        for index, camera in enumerate(coordinator.cameras)
-    ]
-    entities += [
-        H500CameraSilent(coordinator, index, camera)
-        for index, camera in enumerate(coordinator.cameras)
-    ]
-    entities += [
-        H500Delivery(coordinator, index, camera)
-        for index, camera in enumerate(coordinator.cameras)
-    ]
     entities.append(H500Prowling(coordinator, entry))
     entities.append(H500MediaProblem(coordinator, entry))
     entities.append(H500CamerasDark(coordinator, entry))
-    entities += [
-        H500DetectionFlag(coordinator, index, camera, code)
-        for index, camera in enumerate(coordinator.cameras)
-        for code in DETECTION_NAMES
-    ]
     async_add_entities(entities)
+
+    def _for_camera(index, camera) -> list[BinarySensorEntity]:
+        return (
+            [H500CameraFlag(coordinator, index, camera, description)
+             for description in CAMERA_FLAGS]
+            + [H500UnusualActivity(coordinator, index, camera),
+               H500Loitering(coordinator, index, camera),
+               H500CameraSilent(coordinator, index, camera),
+               H500Delivery(coordinator, index, camera)]
+            + [H500DetectionFlag(coordinator, index, camera, code)
+               for code in DETECTION_NAMES])
+
+    add_cameras_as_they_appear(
+        coordinator, entry, async_add_entities, _for_camera)
 
     # One per named person, added as names appear rather than on a reload, the
     # same way the face sensors are -- and keyed the same way, on the lowest id

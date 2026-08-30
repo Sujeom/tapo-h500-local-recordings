@@ -247,11 +247,11 @@ class Platform(unittest.TestCase):
     def test_the_calendar_platform_is_set_up(self):
         self.assertIn("Platform.CALENDAR", INIT)
 
-    def test_one_per_camera(self):
-        setup = CALENDAR_SOURCE.split("async_setup_entry", 1)[1].split(
-            "\nclass ", 1)[0]
-        self.assertIn("for index, camera in enumerate(coordinator.cameras)",
-                      setup)
+    # One calendar per camera, including a camera the hub reports after
+    # setup, is driven in test_new_camera.APairedDoorbell -- the platform is
+    # run, a second camera appears, and the entities are counted. Reading the
+    # comprehension out of the source said the loop was written, not that
+    # every camera ends up with a calendar.
 
 
 if __name__ == "__main__":

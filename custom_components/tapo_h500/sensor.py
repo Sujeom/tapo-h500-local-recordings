@@ -27,7 +27,7 @@ from .const import (
     PICTURE_RESIGN_SECONDS,
 )
 from .coordinator import H500Coordinator
-from .entity import H500Entity
+from .entity import add_cameras_as_they_appear, H500Entity
 from .preview import preview_url
 
 # Unlimited: nothing here polls the hub. Every value comes from the
@@ -268,24 +268,21 @@ async def async_setup_entry(
         H500HubSensor(coordinator, entry, description)
         for description in HUB_SENSORS
     ]
-    entities += [
-        H500CameraSensor(coordinator, index, camera, description)
-        for index, camera in enumerate(coordinator.cameras)
-        for description in CAMERA_SENSORS
-    ]
-    entities += [
-        H500Visits(coordinator, index, camera)
-        for index, camera in enumerate(coordinator.cameras)
-    ]
-    entities += [
-        H500ActivityLevel(coordinator, index, camera)
-        for index, camera in enumerate(coordinator.cameras)
-    ]
     entities.append(H500StorageForecast(coordinator, entry))
     entities.append(H500WedgeClock(coordinator, entry))
     entities.append(H500MediaSessions(coordinator, entry))
     entities.append(H500Household(coordinator, entry))
     async_add_entities(entities)
+
+    def _for_camera(index, camera) -> list[SensorEntity]:
+        return (
+            [H500CameraSensor(coordinator, index, camera, description)
+             for description in CAMERA_SENSORS]
+            + [H500Visits(coordinator, index, camera),
+               H500ActivityLevel(coordinator, index, camera)])
+
+    add_cameras_as_they_appear(
+        coordinator, entry, async_add_entities, _for_camera)
 
     # One per named PERSON, added as names appear rather than on a reload.
     # Naming used to reload the whole entry, which cost a hub login and broke

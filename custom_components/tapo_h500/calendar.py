@@ -25,7 +25,7 @@ from homeassistant.util import dt as dt_util
 
 from .clips import describe_detection, end_of, face_ids, start_of
 from .const import DATA_HUBS, DOMAIN
-from .entity import H500Entity
+from .entity import add_cameras_as_they_appear, H500Entity
 
 # Unlimited: nothing here polls the hub. Every value comes from the
 # coordinator's one poll, so there is nothing to serialise.
@@ -51,10 +51,9 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
-    async_add_entities(
-        H500Calendar(coordinator, index, camera)
-        for index, camera in enumerate(coordinator.cameras)
-    )
+    add_cameras_as_they_appear(
+        coordinator, entry, async_add_entities,
+        lambda index, camera: [H500Calendar(coordinator, index, camera)])
 
 
 class H500Calendar(H500Entity, CalendarEntity):

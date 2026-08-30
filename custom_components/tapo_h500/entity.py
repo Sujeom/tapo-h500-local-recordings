@@ -1,6 +1,7 @@
-"""Shared device identity for the hub's paired cameras."""
+"""Shared device identity, and adding entities for a camera the hub reports after setup."""
 from __future__ import annotations
 
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -34,3 +35,35 @@ class H500Entity(CoordinatorEntity[H500Coordinator]):
             # the hub's own identifier, which is what makes them nest under it.
             via_device=(DOMAIN, coordinator.entry.entry_id),
         )
+
+
+def add_cameras_as_they_appear(coordinator, entry, async_add_entities,
+                               build) -> None:
+    """Build entities for cameras the hub reports later, not only now.
+
+    The paired list is refreshed on a schedule, so a doorbell paired after
+    setup is known to the coordinator within minutes -- and without this,
+    nothing ever builds its entities. Reloading the entry is the only other
+    route, it is not a thing anybody discovers on their own, and it costs a
+    fresh login to a hub that dislikes them.
+
+    `build(index, camera)` returns the entities for one camera. Indices
+    already served are remembered, because the listener fires on every poll
+    and adding the same entity twice is how a registry fills with hundreds of
+    them.
+    """
+    served: set[int] = set()
+
+    @callback
+    def _sync() -> None:
+        fresh = [(index, camera)
+                 for index, camera in enumerate(coordinator.cameras)
+                 if index not in served]
+        if not fresh:
+            return
+        served.update(index for index, _ in fresh)
+        async_add_entities(
+            entity for index, camera in fresh for entity in build(index, camera))
+
+    _sync()
+    entry.async_on_unload(coordinator.async_add_listener(_sync))

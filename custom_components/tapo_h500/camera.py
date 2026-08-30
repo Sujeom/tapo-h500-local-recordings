@@ -12,7 +12,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DATA_HUBS, DOMAIN
-from .entity import H500Entity
+from .entity import add_cameras_as_they_appear, H500Entity
 
 # One at a time. Asking for a picture can reach the coordinator's frame
 # fetch, which opens a media session against a hub that wedges under
@@ -25,10 +25,9 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
-    async_add_entities(
-        H500Camera(coordinator, index, camera)
-        for index, camera in enumerate(coordinator.cameras)
-    )
+    add_cameras_as_they_appear(
+        coordinator, entry, async_add_entities,
+        lambda index, camera: [H500Camera(coordinator, index, camera)])
 
 
 class H500Camera(H500Entity, Camera):

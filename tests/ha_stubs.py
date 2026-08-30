@@ -168,6 +168,21 @@ class _StubCoordinatorBase:
         # the repair checks raised on every poll and were skipped, silently
         # until the failure was made audible.
         self.last_update_success = True
+        # What DataUpdateCoordinator gives entities and platforms to hear
+        # about a finished poll. Real, because platforms use it to add
+        # entities for a camera the hub only just reported -- and a no-op
+        # would make those tests pass while adding nothing.
+        self._listeners: dict[object, object] = {}
+
+    def async_add_listener(self, update_callback, context=None):
+        """Register a callback, handing back the way to unregister it."""
+        key = object()
+        self._listeners[key] = (update_callback, context)
+
+        def _remove() -> None:
+            self._listeners.pop(key, None)
+
+        return _remove
 
     def async_update_listeners(self):
         """The real base pushes state to every entity; nothing to push here."""

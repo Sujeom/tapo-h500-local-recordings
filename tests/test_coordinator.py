@@ -110,6 +110,14 @@ class _Entry:
 
     def __init__(self, interval, **options):
         self.options = {"poll_interval": interval, **options}
+        # Real, not a no-op: platforms register their teardown here, and a
+        # test that never runs one cannot notice a listener outliving its
+        # entry.
+        self.unloaders: list = []
+
+    def async_on_unload(self, unsubscribe):
+        self.unloaders.append(unsubscribe)
+        return unsubscribe
 
 
 class _Client:

@@ -60,7 +60,7 @@ as the arithmetic they are.
 | --- | --- | --- |
 | `coordinator.py` | 1393 | Polls the hub, turns new activity into events, and downloads rings. |
 | `media_health.py` | 206 | Whether the hub is serving recordings, and the record of when it was not. |
-| `entity.py` | 36 | Shared device identity for the hub's paired cameras. |
+| `entity.py` | 69 | Shared device identity, and adding entities for a camera the hub reports after setup. |
 | `__init__.py` | 212 | Tapo H500 local recording integration. |
 | `const.py` | 655 | Constants for Tapo H500. |
 
