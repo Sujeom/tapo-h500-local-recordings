@@ -45,6 +45,8 @@ class _Hass:
         # real dict lets them actually run during a poll rather than raise
         # and be skipped.
         self.data = {}
+        # The config-entry registry, as much of it as a flow reads.
+        self.config_entries = _ConfigEntries()
 
     async def async_add_executor_job(self, fn, *args):
         return fn(*args)
@@ -54,6 +56,16 @@ class _Hass:
         the coroutine runs up to its first suspension before this returns."""
         return asyncio.get_running_loop().create_task(target, name=name,
                                                       eager_start=eager_start)
+
+
+class _ConfigEntries:
+    """What `hass.config_entries` offers a flow. Empty unless a test fills it."""
+
+    def __init__(self, entries=()):
+        self.entries = list(entries)
+
+    def async_entries(self, domain=None):
+        return list(self.entries)
 
 
 class _Entry:

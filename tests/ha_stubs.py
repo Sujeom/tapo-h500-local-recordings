@@ -173,6 +173,9 @@ class _StubCoordinatorBase:
         return cls
 
 
+_UNSET = object()
+
+
 class _EventEntity(_Entity):
     """An EventEntity that keeps what it fired, in order."""
 
@@ -180,6 +183,144 @@ class _EventEntity(_Entity):
         if not hasattr(self, "triggered"):
             self.triggered = []
         self.triggered.append((event_type, dict(event_attributes or {})))
+
+
+class _Marker(str):
+    """A voluptuous key. It is the key's own string, with its default on it.
+
+    Real enough for what a test needs to ask a schema: which fields are on
+    this form, and what does each start at. Manufactured, `vol.Schema` had no
+    `.schema` at all, so nothing could look inside a form -- which is why
+    every config-flow test read the source instead.
+    """
+
+    def __new__(cls, key, default=_UNSET, description=None, msg=None):
+        marker = super().__new__(cls, key)
+        marker.default = None if default is _UNSET else (
+            default if callable(default) else (lambda value=default: value))
+        return marker
+
+
+class _Schema:
+    def __init__(self, schema, extra=None):
+        self.schema = schema
+
+    def extend(self, other, **kwargs):
+        return _Schema({**self.schema, **getattr(other, "schema", other)})
+
+    def __call__(self, value):
+        return value
+
+
+class AbortFlow(Exception):
+    """What Home Assistant raises to end a flow from inside a step."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class _ConfigFlow:
+    """Enough of ConfigFlow to run a step and read what it decided.
+
+    Records rather than performs. A step either shows a form or finishes, and
+    what a test needs to know is which of those, with what in it -- so each
+    returns a plain dictionary the way the real flow's result reads.
+
+    412 lines of config flow had no test that imported the module, and the
+    reconfigure step below is the kind that cannot be checked any other way:
+    whether a blank password keeps the stored one is a fact about what is
+    written, not about what the source says.
+    """
+
+    def __init_subclass__(cls, **kwargs):
+        # `class Flow(ConfigFlow, domain=DOMAIN)`.
+        return None
+
+    def __init__(self) -> None:
+        self.hass = None
+        self.entry = None
+        self.unique_id = None
+        self.updated = None
+        self.reloaded = False
+
+    # -- what a step returns ------------------------------------------------
+    def async_show_form(self, step_id=None, data_schema=None, errors=None,
+                        description_placeholders=None):
+        return {"type": "form", "step_id": step_id, "data_schema": data_schema,
+                "errors": errors or {}}
+
+    def async_create_entry(self, title=None, data=None, options=None):
+        return {"type": "create_entry", "title": title, "data": data,
+                "options": options}
+
+    def async_abort(self, reason=None):
+        return {"type": "abort", "reason": reason}
+
+    def async_update_reload_and_abort(self, entry, data_updates=None,
+                                      title=None, unique_id=None, **kwargs):
+        self.updated = dict(data_updates or {})
+        self.reloaded = True
+        if data_updates:
+            entry.data = {**entry.data, **data_updates}
+        if title is not None:
+            entry.title = title
+        if unique_id is not None:
+            entry.unique_id = unique_id
+        reason = ("reauth_successful" if self.source == "reauth"
+                  else "reconfigure_successful")
+        return {"type": "abort", "reason": reason}
+
+    # -- what a step reads --------------------------------------------------
+    source = "user"
+
+    def _get_reconfigure_entry(self):
+        return self.entry
+
+    def _get_reauth_entry(self):
+        return self.entry
+
+    async def async_set_unique_id(self, unique_id, raise_on_progress=True):
+        self.unique_id = unique_id
+        return None
+
+    def _abort_if_unique_id_configured(self, updates=None):
+        return None
+
+    def _abort_if_unique_id_mismatch(self, reason="unique_id_mismatch"):
+        entry = self._get_reconfigure_entry()
+        expected = getattr(entry, "unique_id", None)
+        if expected is not None and expected != self.unique_id:
+            raise AbortFlow(reason)
+
+
+class _OptionsFlow:
+    """The options half, with the same recording behaviour."""
+
+    def __init__(self) -> None:
+        self.hass = None
+        self._config_entry = None
+
+    @property
+    def config_entry(self):
+        return self._config_entry
+
+    @config_entry.setter
+    def config_entry(self, entry):
+        self._config_entry = entry
+
+    def async_show_form(self, step_id=None, data_schema=None, errors=None,
+                        description_placeholders=None, **kwargs):
+        return {"type": "form", "step_id": step_id, "data_schema": data_schema,
+                "errors": errors or {},
+                "description_placeholders": description_placeholders}
+
+    def async_show_menu(self, step_id=None, menu_options=None, **kwargs):
+        return {"type": "menu", "step_id": step_id,
+                "menu_options": menu_options}
+
+    def async_create_entry(self, title=None, data=None):
+        return {"type": "create_entry", "title": title, "data": data}
 
 
 def _module(path: str, **names) -> types.ModuleType:
@@ -312,7 +453,10 @@ def install(component_path=None):
     # media_player, media_source and issue_registry, which individual tests
     # stub themselves and must be allowed to win.
     _module("homeassistant.config_entries",
-            ConfigEntry=type("ConfigEntry", (_Any,), {}))
+            ConfigEntry=type("ConfigEntry", (_Any,), {}),
+            ConfigFlow=_ConfigFlow,
+            OptionsFlow=_OptionsFlow,
+            ConfigFlowResult=dict)
     _module("homeassistant.core",
             HomeAssistant=type("HomeAssistant", (_Any,), {}),
             Event=type("Event", (_Any,), {}),
@@ -375,6 +519,18 @@ def install(component_path=None):
     # attributes; what a test needs is the type and the payload.
     _module("homeassistant.components.event",
             EventEntity=_EventEntity)
+    # The three config keys, as the strings they actually are. Manufactured
+    # they were classes, so `data[CONF_HOST]` looked up a class in a dict
+    # keyed by "host" and raised -- which no test noticed until one tried to
+    # run a config flow step rather than read its source.
+    # voluptuous, enough of it to read a form back. Everything else on the
+    # module is still manufactured.
+    _module("voluptuous",
+            Schema=_Schema, Required=_Marker, Optional=_Marker,
+            UNDEFINED=None)
+    _module("homeassistant.const",
+            CONF_HOST="host", CONF_USERNAME="username",
+            CONF_PASSWORD="password")
     _module("homeassistant.components.http.auth",
             async_sign_path=lambda hass, path, expiry: f"{path}?authSig=stub")
 

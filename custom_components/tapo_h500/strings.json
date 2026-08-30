@@ -12,6 +12,16 @@
           "cloud_password": "TP-Link cloud account password"
         }
       },
+      "reconfigure": {
+        "title": "Change your Tapo H500's address",
+        "description": "Point this hub at a new address without setting it up again -- everything on the entry stays, including your face names, your retention settings and the entity ids your automations and cards refer to. Leave the passwords blank to keep the stored ones.",
+        "data": {
+          "host": "Hub IP address or hostname",
+          "username": "Camera account username",
+          "password": "Camera account password",
+          "cloud_password": "TP-Link cloud account password"
+        }
+      },
       "reauth_confirm": {
         "title": "Reconnect to your Tapo H500",
         "description": "The hub refused the stored credentials outright rather than simply failing to answer. Retype the camera account -- the local account made in the Tapo app, not the TP-Link email used to sign in to it. All traffic remains local; the TP-Link cloud password is still used only for local media encryption.",
@@ -28,7 +38,9 @@
       "invalid_auth": "The H500 rejected these credentials."
     },
     "abort": {
-      "reauth_successful": "Reconnected. The stored credentials have been replaced."
+      "reauth_successful": "Reconnected. The stored credentials have been replaced.",
+      "reconfigure_successful": "Updated. This entry now talks to the hub at its new address.",
+      "already_configured": "Another entry is already set up at that address. Two entries on one hub means two pollers, each logging in to a device that stops responding under repeated authentication."
     }
   },
   "options": {
