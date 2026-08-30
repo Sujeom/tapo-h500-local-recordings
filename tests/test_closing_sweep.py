@@ -296,3 +296,85 @@ class ThePreviewUrl(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheRemainingRegistrars(unittest.TestCase):
+    def _setup(self, module, cameras=2):
+        coord, _ = harness._build()
+        coord.cameras = [{"device_id": f"cam{n}", "alias": f"C{n}"}
+                         for n in range(cameras)]
+        hass = harness._Hass()
+        hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        added = []
+        entry = harness._Entry(20)
+        entry.async_on_unload = lambda unsub: None
+        run(module.async_setup_entry(hass, entry, added.extend))
+        return added
+
+    def test_event_camera_and_update_register_theirs(self):
+        camera_mod = importlib.import_module("tapo_h500.camera")
+        update_mod = importlib.import_module("tapo_h500.update")
+        self.assertEqual(len(self._setup(event_mod)), 2, "one per camera")
+        self.assertEqual(len(self._setup(camera_mod)), 2)
+        self.assertEqual(len(self._setup(update_mod)), 1, "one per hub")
+
+    def test_the_event_entity_subscribes_to_its_own_camera(self):
+        entity = self._setup(event_mod)[1]
+        seen = []
+        original = event_mod.async_dispatcher_connect
+
+        def record(hass, signal, target):
+            seen.append(signal)
+            return lambda: None
+
+        event_mod.async_dispatcher_connect = record
+        try:
+            entity.hass = harness._Hass()
+            entity.async_on_remove = lambda unsub: None
+            run(entity.async_added_to_hass())
+        finally:
+            event_mod.async_dispatcher_connect = original
+        self.assertEqual(len(seen), 1)
+        self.assertIn("_1", seen[0], "camera 1's signal, not camera 0's")
+
+
+class TriggerListingEdges(unittest.TestCase):
+    def _triggers(self, entities=(), device=None):
+        import types as types_mod
+        trigger_mod = importlib.import_module("tapo_h500.device_trigger")
+        er = sys.modules["homeassistant.helpers.entity_registry"]
+        dr = sys.modules["homeassistant.helpers.device_registry"]
+        hass = harness._Hass()
+        coord, _ = harness._build()
+        hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        patches = [
+            (er, "async_get", lambda h: object()),
+            (er, "async_entries_for_device",
+             lambda reg, device_id: list(entities)),
+            (dr, "async_get",
+             lambda h: types_mod.SimpleNamespace(
+                 async_get=lambda device_id: device)),
+        ]
+        originals = [(m, n, getattr(m, n, None)) for m, n, _ in patches]
+        for module, name, value in patches:
+            setattr(module, name, value)
+        try:
+            return run(trigger_mod.async_get_triggers(hass, "device-1"))
+        finally:
+            for module, name, value in originals:
+                if value is not None:
+                    setattr(module, name, value)
+
+    def test_a_device_the_registry_has_forgotten_offers_nothing(self):
+        """dr.async_get answering None must not crash the automation
+        editor."""
+        self.assertEqual(self._triggers(device=None), [])
+
+    def test_unrelated_entity_domains_contribute_nothing(self):
+        import types as types_mod
+        rows = [types_mod.SimpleNamespace(domain="sensor",
+                                          unique_id="cam0_visits_24h",
+                                          id="reg-v"),
+                types_mod.SimpleNamespace(domain="switch",
+                                          unique_id="hub_led", id="reg-l")]
+        self.assertEqual(self._triggers(rows), [])
