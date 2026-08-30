@@ -300,6 +300,56 @@ const build = (Cls, config = {}) => {
   return card;
 };
 
+// --- finding the hub the card belongs to ------------------------------------
+
+test("a card told which entry to use never asks", () => {
+  const card = build(TapoH500Card, { entry_id: "configured" });
+  let asked = 0;
+  card._hass = { callWS: async () => { asked += 1; return []; } };
+  return card._entryId().then((entry) => {
+    assert.equal(entry, "configured");
+    assert.equal(asked, 0, "the configured entry is the answer");
+  });
+});
+
+test("a card that was not told finds the entry itself", () => {
+  // Most people have one hub and never open the card editor. Making
+  // entry_id required would mean every card starts broken.
+  const card = build(TapoH500Card, {});
+  card._hass = { callWS: async () => [{ entry_id: "found" }] };
+  return card._entryId().then((entry) => assert.equal(entry, "found"));
+});
+
+test("it asks once and remembers the answer", () => {
+  // Every recording, thumbnail and action needs it. Asking per call turns
+  // one screen into dozens of websocket round trips.
+  const card = build(TapoH500Card, {});
+  let asked = 0;
+  card._hass = { callWS: async () => { asked += 1; return [{ entry_id: "e" }]; } };
+  return card._entryId()
+    .then(() => card._entryId())
+    .then(() => card._entryId())
+    .then(() => assert.equal(asked, 1, "asked once for three uses"));
+});
+
+test("no hub at all says so rather than failing later", () => {
+  // Without this the undefined entry id travels into every service call and
+  // fails there, where the message is about the call and not the cause.
+  const card = build(TapoH500Card, {});
+  card._hass = { callWS: async () => [] };
+  return card._entryId().then(
+    () => assert.fail("should have refused"),
+    (err) => assert.match(err.message, /No Tapo H500 entry/));
+});
+
+test("a websocket that answers nothing is refused too", () => {
+  const card = build(TapoH500Card, {});
+  card._hass = { callWS: async () => null };
+  return card._entryId().then(
+    () => assert.fail("should have refused"),
+    (err) => assert.match(err.message, /No Tapo H500 entry/));
+});
+
 // --- rebuilding only when something changed --------------------------------
 
 test("a poll that found nothing new does not rebuild the card", () => {

@@ -71,6 +71,13 @@ jobs:
         # somebody went looking.
         run: python -B tools/coverage.py --gate
 
+      - name: Card coverage
+        # The same measurement for the dashboard card, which had none. Node
+        # emits V8 coverage on its own, so this needs nothing installed
+        # either -- and "all card tests passed" only ever said that the ones
+        # written pass.
+        run: python -B tools/card_coverage.py --gate
+
   # Home Assistant's own manifest validator, and HACS's. Both need the network
   # and a checkout, so they cannot run in tools/verify.sh -- tests/test_manifest.py
   # applies the same rules locally so a mistake fails on the commit that made it.

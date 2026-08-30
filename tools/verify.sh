@@ -29,6 +29,12 @@ if ! card_output=$(node tests/test_cards.mjs 2>&1); then
     exit 1
 fi
 echo "card tests OK"
+# Same `if !` shape, same reason: a bare command here would be stepped over.
+if ! card_coverage=$(python -B tools/card_coverage.py --gate 2>&1); then
+    printf '%s\n' "$card_coverage"
+    exit 1
+fi
+printf '%s\n' "$card_coverage" | tail -1
 python -B tools/lint.py
 
 python -B - <<'PY'
