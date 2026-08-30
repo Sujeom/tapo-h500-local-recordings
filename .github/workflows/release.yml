@@ -43,3 +43,16 @@ jobs:
         run: python -B tools/publish-releases.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh the changelog
+        # Generated, never hand-kept: a hand-written one drifts within three
+        # releases. Committed here so it cannot be stale by more than a push.
+        run: |
+          python -B tools/publish-releases.py --changelog > CHANGELOG.md
+          if ! git diff --quiet CHANGELOG.md; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add CHANGELOG.md
+            git commit -m "docs: regenerate the changelog"
+            git push origin HEAD:${{ github.event.repository.default_branch }}
+          fi

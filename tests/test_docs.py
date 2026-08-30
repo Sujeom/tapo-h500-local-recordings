@@ -190,5 +190,54 @@ class TheArchitectureMapIsCurrent(unittest.TestCase):
         self.assertIn("tapo-h500-card.js", self.MAP)
 
 
+
+class TheChangelog(unittest.TestCase):
+    """Generated from the tag annotations, never hand-kept.
+
+    A hand-written changelog drifts within three releases, and the notes
+    already exist: writing them a second time by hand is how they end up
+    disagreeing with the Releases they describe.
+    """
+
+    PATH = ROOT / "CHANGELOG.md"
+
+    def _entries(self):
+        return [line for line in self.PATH.read_text().splitlines()
+                if line.startswith("## ")]
+
+    def test_it_exists(self):
+        self.assertTrue(self.PATH.is_file())
+
+    def test_the_newest_entry_is_the_version_that_ships(self):
+        """Somebody reading it should see the version they are about to
+        install, not the one before."""
+        manifest = json.loads(
+            (ROOT / "custom_components" / "tapo_h500" / "manifest.json")
+            .read_text())
+        self.assertTrue(
+            self._entries()[0].startswith(f"## v{manifest['version']}"),
+            f"newest entry is {self._entries()[0]!r}")
+
+    def test_there_is_an_entry_per_version_tag(self):
+        """The count is what catches a generator that stopped at a page
+        boundary, which is the failure nobody reads far enough to notice."""
+        try:
+            listed = subprocess.run(
+                ["git", "tag"], cwd=ROOT, capture_output=True, text=True,
+                check=True).stdout.split()
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            self.skipTest("no tags in this checkout")
+        versions = [name for name in listed
+                    if re.match(r"^v\d+\.\d+\.\d+", name)]
+        if not versions:
+            self.skipTest("no version tags in this checkout")
+        self.assertEqual(len(self._entries()), len(versions))
+
+    def test_it_says_where_it_came_from(self):
+        """So the next person regenerates it rather than editing it."""
+        self.assertIn("publish-releases.py --changelog",
+                      self.PATH.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

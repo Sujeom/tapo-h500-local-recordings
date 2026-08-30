@@ -11,6 +11,7 @@ Needs a GitHub token with `contents: write` on the repository:
 
     GITHUB_TOKEN=ghp_... tools/publish-releases.py
     tools/publish-releases.py --dry-run     # no token needed
+    tools/publish-releases.py --changelog > CHANGELOG.md
 
 Idempotent: tags that already have a Release are skipped, so running it
 after every few tags is fine. Stdlib only.
@@ -86,15 +87,48 @@ def existing_releases(repo: str, token: str) -> set[str]:
         page += 1
 
 
+def changelog(tags: list[tuple[str, str, str]]) -> str:
+    """The same annotations as one document, newest first.
+
+    Generated rather than written. A hand-kept changelog drifts within three
+    releases, and the notes already exist -- writing them a second time by
+    hand is how they end up disagreeing with the Releases they describe.
+    """
+    dates = dict(
+        line.split("\x00", 1)
+        for line in subprocess.run(
+            ["git", "for-each-ref", "refs/tags",
+             "--format=%(refname:short)%00%(creatordate:short)"],
+            capture_output=True, text=True, check=True).stdout.splitlines()
+        if "\x00" in line)
+    out = ["# Changelog", "",
+           "Generated from the tag annotations by "
+           "`tools/publish-releases.py --changelog`. Every entry is the note "
+           "written when that version was tagged.", ""]
+    for name, title, body in reversed(tags):
+        when = dates.get(name, "")
+        out.append(f"## {name}" + (f" &mdash; {when}" if when else ""))
+        out.append("")
+        out.append(title)
+        if body:
+            out.extend(["", body])
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
 def main() -> int:
     dry = "--dry-run" in sys.argv
+    tags = local_tags()
+    if "--changelog" in sys.argv:
+        # No remote needed: this reads tags and writes a file.
+        sys.stdout.write(changelog(tags))
+        return 0
     url = subprocess.run(["git", "remote", "get-url", "github"],
                          capture_output=True, text=True).stdout
     repo = repo_from_remote(url)
     if repo is None:
         print("No GitHub remote named 'github' to publish to")
         return 2
-    tags = local_tags()
     if dry:
         for name, title, _ in tags:
             print(f"would ensure {name}: {title}")
