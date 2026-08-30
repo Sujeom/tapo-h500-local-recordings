@@ -310,3 +310,94 @@ class TheArchiveSearch(_World):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheTrustBoundary(_World):
+    """Where media.py refuses rather than writes.
+
+    Both guards exist because the paths are built from names the hub
+    supplies, and a hub is not a thing to take on faith.
+    """
+
+    def test_a_missing_local_media_directory_says_so(self):
+        """Home Assistant does not have to have one, and the failure without
+        this reads as a KeyError with no hint of what to configure."""
+        hass = _Hass(self.root)
+        hass.config.media_dirs = {}
+        with self.assertRaises(HomeAssistantError) as caught:
+            media.media_root(hass)
+        self.assertIn("local", str(caught.exception))
+
+    def test_a_camera_name_cannot_climb_out_of_the_media_root(self):
+        """camera_slug flattens the name, so the hub cannot reach the guard
+        through one -- which is the point: it is still refused."""
+        escaping = {"device_id": "../../etc", "alias": "../../etc"}
+        path = media.clip_path(self.hass, escaping, NOW, ".ts")
+        self.assertTrue(path.is_relative_to(self.root.resolve()))
+
+    def test_a_path_that_leaves_the_root_is_refused(self):
+        """The guard's own contract, driven past the slug that currently
+        makes it unreachable: if the composed path is outside the media
+        directory, nothing is written there."""
+        original = media.camera_dir
+        media.camera_dir = lambda hass, camera: Path("/etc/tapo")
+        try:
+            with self.assertRaises(HomeAssistantError) as caught:
+                media.clip_path(self.hass, CAMERA, NOW, ".ts")
+        finally:
+            media.camera_dir = original
+        self.assertIn("Refusing", str(caught.exception))
+
+    def test_an_ordinary_name_stays_inside_it(self):
+        path = media.clip_path(self.hass, CAMERA, NOW, ".ts")
+        self.assertTrue(path.is_relative_to(self.root.resolve()))
+
+
+class ScanningWhatIsOnDisk(_World):
+    def test_it_reports_only_the_clips_that_are_really_there(self):
+        """The download queue asks this before fetching, so a wrong answer
+        either re-downloads what is held or skips what is missing."""
+        present = media.clip_path(self.hass, CAMERA, NOW, ".ts")
+        present.parent.mkdir(parents=True, exist_ok=True)
+        present.write_bytes(b"\x47" * 188)
+        found = media.scan_downloaded(self.hass, CAMERA, [NOW, NOW + 3600])
+        self.assertEqual(list(found), [NOW])
+        self.assertEqual(found[NOW], present)
+
+    def test_a_converted_clip_is_found_as_the_mp4(self):
+        """Conversion replaces the .ts, and looking only for the downloaded
+        suffix would fetch every converted recording a second time."""
+        converted = media.clip_path(self.hass, CAMERA, NOW, ".mp4")
+        converted.parent.mkdir(parents=True, exist_ok=True)
+        converted.write_bytes(b"\x00" * 32)
+        self.assertEqual(media.scan_downloaded(self.hass, CAMERA, [NOW]),
+                         {NOW: converted})
+
+    def test_nothing_on_disk_is_an_empty_answer_not_a_failure(self):
+        self.assertEqual(
+            media.scan_downloaded(self.hass, CAMERA, [NOW, NOW + 3600]), {})
+
+
+class ReadingAClipsNameBack(_World):
+    """The backfill walks the archive and has only the filename to say when
+    each recording happened."""
+
+    def test_a_camera_with_no_folder_is_not_an_error(self):
+        """It runs over every camera, including ones that have never
+        recorded anything."""
+        self.assertEqual(
+            asyncio.run(media.async_classify_downloads(
+                self.hass, _Client(b""), CAMERA, days=1)),
+            {"scanned": 0, "written": 0, "days_queried": 0})
+
+    def test_a_file_whose_name_is_not_a_timestamp_is_skipped(self):
+        """Anything else in the folder -- an export, a stray -- is passed
+        over rather than crashing the walk."""
+        self.assertIsNone(media._start_from_path(
+            self.root / "2026-08-30" / "not-a-time.ts"))
+        self.assertIsNone(media._start_from_path(
+            self.root / "junk" / "120000.ts"))
+
+    def test_a_well_formed_name_reads_back_as_its_start(self):
+        path = media.clip_path(self.hass, CAMERA, NOW, ".ts")
+        self.assertEqual(media._start_from_path(path), NOW)
