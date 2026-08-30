@@ -85,3 +85,14 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # Two of the nine checks are about the GitHub repository rather than
+          # anything in it: it has no description and no topics. Neither can be
+          # set from a commit, so they failed every run and buried the seven
+          # that do check the code.
+          #
+          # The cost of skipping them is real but small: HACS shows a
+          # repository's description when somebody is deciding whether to
+          # download it, and this one will show blank. Set both under Settings
+          # -> General, or the gear beside "About" on the repository page, and
+          # then delete this line -- the other seven have never needed it.
+          ignore: description topics
