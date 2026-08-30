@@ -329,42 +329,11 @@ def _connect_try() -> ast.Try:
     raise AssertionError("the connect() call is no longer inside a try")
 
 
-class SetupClassification(unittest.TestCase):
-    """Only a named credential refusal may abandon the entry.
-
-    Asserted through the syntax tree, as tests/test_setup_cleanup.py does: a
-    test that greps the source is satisfied by a comment mentioning the name.
-    """
-
-    def test_only_the_auth_error_reaches_config_entry_auth_failed(self):
-        handlers = _connect_try().handlers
-        auth = [handler for handler in handlers
-                if "H500AuthError" in _names(handler)]
-        self.assertEqual(len(auth), 1, "no handler names the auth error")
-        self.assertIn("ConfigEntryAuthFailed", _names(auth[0]))
-        for handler in handlers:
-            if handler is not auth[0]:
-                self.assertNotIn("ConfigEntryAuthFailed", _names(handler),
-                                 "a broader handler also gives up on the entry")
-
-    def test_everything_else_still_raises_config_entry_not_ready(self):
-        """Ordering is the whole guarantee: the broad handler has to come last,
-        or it swallows the auth case and nothing ever asks for a password."""
-        last = _connect_try().handlers[-1]
-        self.assertIn("ConfigEntryNotReady", _names(last))
-        self.assertNotIn("H500AuthError", _names(last))
-        message = "".join(
-            node.value for node in ast.walk(last)
-            if isinstance(node, ast.Constant) and isinstance(node.value, str))
-        self.assertIn("Cannot reach the H500", message)
-
-    def test_both_paths_still_close_the_client(self):
-        """Either way the login just made has to be closed, or a hub that is
-        briefly unhappy collects one unclosed session per retry."""
-        for handler in _connect_try().handlers:
-            attributes = {inner.attr for inner in ast.walk(handler)
-                          if isinstance(inner, ast.Attribute)}
-            self.assertIn("close", attributes)
+# What setup does with a failed connect is driven in
+# test_setup_entry.FailurePaths: a refused credential asks for a new password,
+# four other failure shapes all schedule a retry instead, and every path
+# closes the login it opened. Reading the handlers out of the syntax tree
+# said the code was arranged correctly; running them says it behaves.
 
 
 class Reauth(unittest.TestCase):

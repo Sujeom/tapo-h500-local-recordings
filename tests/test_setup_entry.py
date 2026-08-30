@@ -164,6 +164,27 @@ class FailurePaths(_World):
         self.assertIn("192.168.11.5", str(caught.exception))
         self.assertEqual(_FailingConnect.instances[0].closes, 1)
 
+    def test_no_other_failure_gives_up_on_the_entry(self):
+        """Only a named credential refusal may stop the retries. Anything
+        else asking for a password puts a check-your-password notice in front
+        of somebody whose password is fine, and the hub never gets the retry
+        that would have worked."""
+        for error in (OSError("no route"), TimeoutError("no response"),
+                      ValueError("garbage body"), RuntimeError("hub busy")):
+            with self.subTest(error=type(error).__name__):
+                class _Failing(_Client):
+                    instances: list = []
+
+                    def connect(self):
+                        self.connects += 1
+                        raise error
+
+                component.H500Client = _Failing
+                with self.assertRaises(ConfigEntryNotReady):
+                    self._setup()
+                self.assertEqual(_Failing.instances[0].closes, 1,
+                                 "and the login it opened is closed")
+
     def test_a_failed_first_refresh_still_hangs_up(self):
         """Without this, each backoff retry adds another login that is never
         closed."""
