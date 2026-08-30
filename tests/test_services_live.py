@@ -409,3 +409,75 @@ class ListRecordings(_World):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhenTheHubSaysNo(_World):
+    """Every service that talks to the hub sorts its failures into two: the
+    caller got it wrong, or the hub did. The first is a validation error the
+    frontend shows against the field; the second is a plain failure that does
+    not accuse anybody."""
+
+    def test_a_camera_index_off_the_list_is_the_callers_mistake(self):
+        def refuse(index):
+            raise ValueError("Camera index must be between 0 and 1")
+
+        self.client.camera_at = refuse
+        with self.assertRaises(services.ServiceValidationError) as caught:
+            self.call("describe_recording", camera_index=9,
+                      start_time=NOW, end_time=NOW + 15)
+        self.assertIn("between 0 and 1", str(caught.exception))
+
+    def test_a_hub_that_will_not_answer_is_not_the_callers_mistake(self):
+        def wedged(index):
+            raise TimeoutError("no response")
+
+        self.client.camera_at = wedged
+        with self.assertRaises(services.HomeAssistantError) as caught:
+            self.call("describe_recording", camera_index=0,
+                      start_time=NOW, end_time=NOW + 15)
+        self.assertNotIsInstance(caught.exception,
+                                 services.ServiceValidationError)
+        self.assertIn("Unable to list H500 cameras", str(caught.exception))
+
+    def test_a_bad_date_reaching_the_hub_is_the_callers_mistake(self):
+        def refuse(index, start_date, end_date):
+            raise ValueError("start_date must use YYYYMMDD")
+
+        self.client.recordings = refuse
+        with self.assertRaises(services.ServiceValidationError):
+            self.call("list_recordings", camera_index=0,
+                      start_date="not-a-date", end_date="20260830")
+
+    def test_a_search_the_hub_fails_is_reported_as_a_failure(self):
+        def wedged(index, start_date, end_date):
+            raise RuntimeError("hub busy")
+
+        self.client.recordings = wedged
+        with self.assertRaises(services.HomeAssistantError) as caught:
+            self.call("list_recordings", camera_index=0)
+        self.assertNotIsInstance(caught.exception,
+                                 services.ServiceValidationError)
+        self.assertIn("Unable to list H500 recordings", str(caught.exception))
+
+
+class TheConfiguredWindow(ListRecordings):
+    """The card editors defer to one setting, read at call time -- a reload
+    to change a number would buy another login."""
+
+    def _days(self, configured):
+        self.coord.entry.options = {**self.coord.entry.options,
+                                    "card_days": configured}
+        return self.call("list_recordings", camera_index=0)["days"]
+
+    def test_a_number_typed_as_text_still_counts(self):
+        self.assertEqual(self._days("5"), 5)
+
+    def test_it_is_held_between_one_day_and_a_month(self):
+        self.assertEqual(self._days(0), 1)
+        self.assertEqual(self._days(-4), 1)
+        self.assertEqual(self._days(365), 30)
+
+    def test_nothing_configured_uses_the_default(self):
+        self.assertEqual(self.call("list_recordings",
+                                   camera_index=0)["days"],
+                         services.DEFAULT_CARD_DAYS)
