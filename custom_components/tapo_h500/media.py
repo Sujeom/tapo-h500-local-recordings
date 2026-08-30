@@ -576,9 +576,27 @@ def _start_from_path(path: Path) -> int | None:
 
 
 def _newest_thumbnail(directory: Path) -> bytes | None:
-    # Names sort chronologically, so the last path is the newest clip.
-    thumbnails = sorted(directory.glob("*/*.jpg"))
-    return thumbnails[-1].read_bytes() if thumbnails else None
+    """The newest thumbnail on disk, or None.
+
+    Names sort chronologically -- <date>/<HHMMSS>.jpg -- so the newest is the
+    last file in the newest day that has one. Globbing the whole archive and
+    sorting it read every path in it to answer with one: a year of a busy
+    doorbell is twenty thousand paths, walked on every frontend look at the
+    camera picture, which is several times a second while somebody is looking.
+
+    Days are tried newest first rather than assuming the first has a file in
+    it. A day can hold clips whose thumbnails all failed to render, and one
+    that has been emptied by retention leaves nothing behind but itself.
+    """
+    # No is-a-directory filter: globbing inside something that is not one
+    # yields nothing, so a stray file at the camera's root falls through by
+    # itself, and a check that cannot change an answer is a line to read
+    # rather than a guard.
+    for day in sorted(directory.glob("*"), reverse=True):
+        newest = max(day.glob("*.jpg"), default=None)
+        if newest is not None:
+            return newest.read_bytes()
+    return None
 
 
 async def async_latest_image(hass: HomeAssistant, camera) -> bytes | None:
