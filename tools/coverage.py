@@ -30,12 +30,21 @@ def executable_lines(path: Path) -> set[int]:
     Walks nested code objects: a function body's lines live on its own code
     object, so counting only the module's would call a file of functions
     fully covered the moment it imported.
+
+    Except `__annotate__`. Under PEP 649 every annotated signature compiles
+    to a hidden function that builds the annotations, and it runs only if
+    something asks for __annotations__ -- typing introspection, nothing this
+    integration does. Its lines are the continuation lines of the signature,
+    so counting them charged every multi-line `def` in the component as
+    permanently uncovered: debt that no test could ever pay off.
     """
     code = compile(path.read_text(), str(path), "exec")
     lines: set[int] = set()
     pending = [code]
     while pending:
         current = pending.pop()
+        if current.co_name == "__annotate__":
+            continue
         for _start, _end, lineno in current.co_lines():
             if lineno:
                 lines.add(lineno)
@@ -109,8 +118,8 @@ def main() -> int:
 # the suite actually is, so improvement is kept rather than demanded, and the
 # per-module floor exists to make a NEW untested module fail the build -- nine
 # shipped at 0.0% and nothing said so until somebody went looking.
-FLOOR_TOTAL = 90.0
-FLOOR_MODULE = 20.0
+FLOOR_TOTAL = 96.0
+FLOOR_MODULE = 80.0
 
 
 def _gate(rows: list, total: float) -> int:

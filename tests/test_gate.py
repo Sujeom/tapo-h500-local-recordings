@@ -140,14 +140,25 @@ class TheCoverageFloorIsARatchet(unittest.TestCase):
                         "the module floor is the tripwire, not the bar")
 
     def test_a_module_under_the_floor_fails_the_gate(self):
-        """Driven, not read: the gate function itself, fed a failing row."""
+        """Driven, not read: the gate function itself, fed a failing row.
+
+        Its verdicts print, and this suite is itself run in-process by
+        coverage.py -- so without the redirect these fixtures' GATE lines
+        land in the real run's output, reading like the real verdict.
+        """
+        import contextlib
         import importlib.util
+        import io
         spec = importlib.util.spec_from_file_location(
             "coverage_tool", ROOT / "tools" / "coverage.py")
         tool = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(tool)
         bad = [("new_module.py", 0, 50, [])]
-        self.assertEqual(tool._gate(bad, 90.0), 2)
         good = [("new_module.py", 45, 50, [])]
-        self.assertEqual(tool._gate(good, tool.FLOOR_TOTAL + 1), 0)
-        self.assertEqual(tool._gate(good, tool.FLOOR_TOTAL - 1), 2)
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            self.assertEqual(tool._gate(bad, 90.0), 2)
+            self.assertEqual(tool._gate(good, tool.FLOOR_TOTAL + 1), 0)
+            self.assertEqual(tool._gate(good, tool.FLOOR_TOTAL - 1), 2)
+        self.assertIn("new_module.py", said.getvalue(),
+                      "a breach names the module it is about")
