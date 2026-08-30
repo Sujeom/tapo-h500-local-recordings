@@ -101,9 +101,11 @@ class TheCameraEntity(unittest.TestCase):
         coord.cameras = [CAMERA, {"device_id": "cam1", "alias": "Side"}]
         added = []
         hass = harness._Hass()
-        hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        coord.entry.runtime_data = coord
+
+        hass.config_entries = harness._ConfigEntries([coord.entry])
         asyncio.run(camera_mod.async_setup_entry(
-            hass, harness._Entry(20), added.extend))
+            hass, coord.entry, added.extend))
         self.assertEqual(len(added), 2)
 
 

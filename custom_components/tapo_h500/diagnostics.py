@@ -19,7 +19,7 @@ from homeassistant.core import HomeAssistant
 from .clips import detection_types, hourly_baseline, start_of
 from .const import (
     CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4, CONF_FACE_NAMES, CONF_KEEP_DOWNLOADS,
-    CONF_POLL_INTERVAL, DATA_HUBS, DETECTION_NAMES, DOMAIN, LOOKBACK_SECONDS,
+    CONF_POLL_INTERVAL, DETECTION_NAMES, LOOKBACK_SECONDS,
 )
 
 # Hub readings safe to include. Storage figures and firmware state are what
@@ -96,7 +96,7 @@ def _shape(value: Any, prefix: str = "", out: dict | None = None) -> dict:
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
-    coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
+    coordinator = entry.runtime_data
     now = int(time.time())
 
     cameras = []

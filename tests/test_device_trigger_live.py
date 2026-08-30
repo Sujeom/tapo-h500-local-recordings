@@ -45,7 +45,9 @@ class _Harness:
         self.attached = []
         hass = harness._Hass()
         coord, _ = harness._build()
-        hass.data = {"tapo_h500": {"hubs": {HUB_ENTRY: coord}}}
+        coord.entry.entry_id = HUB_ENTRY
+        coord.entry.runtime_data = coord
+        hass.config_entries = harness._ConfigEntries([coord.entry])
         self.hass = hass
 
         device = types.SimpleNamespace(identifiers=set(identifiers))

@@ -55,9 +55,11 @@ class _Coordinator:
     """Stands in for the real one; setup only starts it and stores it."""
 
     fail_refresh = None
+    made: list = []
 
     def __init__(self, hass, entry, client):
         self.hass, self.entry, self.client = hass, entry, client
+        type(self).made.append(self)
 
     async def async_config_entry_first_refresh(self):
         if type(self).fail_refresh is not None:
@@ -140,9 +142,19 @@ class _World(unittest.TestCase):
         component.async_get_integration = integration
         self.hass = _hass()
         self.entry = _Entry()
+        _Coordinator.made = []
 
     def _setup(self, entry=None):
-        return run(component.async_setup_entry(self.hass, entry or self.entry))
+        """Set an entry up, and register it the way Home Assistant would.
+
+        async_loaded_entries is how everything that needs all the hubs finds
+        them, so an entry that never joined config_entries is a hub nothing
+        can see -- which is exactly the bug this would otherwise hide.
+        """
+        entry = entry or self.entry
+        if entry not in self.hass.config_entries.entries:
+            self.hass.config_entries.entries.append(entry)
+        return run(component.async_setup_entry(self.hass, entry))
 
 
 class FailurePaths(_World):
@@ -211,11 +223,29 @@ class _FailingConnect(_Client):
 
 
 class TheHappyPath(_World):
+    def test_the_coordinator_lives_on_the_entry_and_nowhere_else(self):
+        """Home Assistant clears runtime_data when the entry unloads, so
+        nothing has to remember to -- and no other integration can reach the
+        hub by walking hass.data. A parallel copy would quietly undo both."""
+        self._setup()
+        self.assertIs(self.entry.runtime_data, _Coordinator.made[-1])
+        leftover = [key for key in self.hass.data.get("tapo_h500", {})
+                    if key == "hubs"]
+        self.assertEqual(leftover, [],
+                         "the old registry is still being written")
+
+    def test_unloading_lets_go_of_it(self):
+        self._setup()
+        run(component.async_unload_entry(self.hass, self.entry))
+        # Home Assistant clears runtime_data itself; what matters here is
+        # that nothing else is still holding the coordinator.
+        self.assertEqual(self.hass.data.get("tapo_h500", {}).get("hubs"), None)
+
     def test_one_login_and_everything_registered(self):
         self.assertTrue(self._setup())
         client = _Client.instances[0]
         self.assertEqual((client.connects, client.closes), (1, 0))
-        self.assertIn("test", self.hass.data["tapo_h500"]["hubs"])
+        self.assertIs(self.entry.runtime_data, _Coordinator.made[-1])
         self.assertEqual(len(self.hass.forwarded), 1)
         self.assertEqual(len(self.hass.http.views), 1)
         self.assertEqual(len(self.hass.http.static), 1)
@@ -228,7 +258,7 @@ class TheHappyPath(_World):
         self._setup()
         second = _Entry()
         second.entry_id = "second"
-        run(component.async_setup_entry(self.hass, second))
+        self._setup(second)
         self.assertEqual(len(self.hass.http.views), 1)
         self.assertEqual(len(self.hass.http.static), 1)
 
@@ -344,8 +374,8 @@ class VoiceIsABonus(_World):
         intent_mod.async_setup_intents = refuse
         self.addCleanup(setattr, intent_mod, "async_setup_intents", original)
         self.assertTrue(self._setup())
-        self.assertIn("test", self.hass.data["tapo_h500"]["hubs"],
-                      "the hub is set up regardless")
+        self.assertIsNotNone(self.entry.runtime_data,
+                             "the hub is set up regardless")
 
 
 class Unload(_World):
@@ -360,8 +390,9 @@ class Unload(_World):
             self.hass, self.entry)))
         self.assertEqual(_Client.instances[0].closes, 0,
                          "the login stays open while entities still hold it")
-        self.assertIn(self.entry.entry_id,
-                      self.hass.data["tapo_h500"]["hubs"])
+        self.assertIsNotNone(
+            self.entry.runtime_data,
+            "the coordinator stays while entities still hold it")
 
     def test_the_last_hub_out_turns_the_lights_off(self):
         self._setup()
@@ -374,7 +405,7 @@ class Unload(_World):
         self._setup()
         second = _Entry()
         second.entry_id = "second"
-        run(component.async_setup_entry(self.hass, second))
+        self._setup(second)
         run(component.async_unload_entry(self.hass, self.entry))
         self.assertEqual(self.hass.services.removed, [])
 

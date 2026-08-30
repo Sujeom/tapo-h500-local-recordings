@@ -20,10 +20,9 @@ from .clips import (
     unusually_busy,
 )
 from .const import (
-    CONF_NIGHT_END, CONF_NIGHT_START, CONF_SILENT_HOURS, DATA_HUBS,
-    DEFAULT_NIGHT_END, DEFAULT_NIGHT_START, DEFAULT_SILENT_HOURS,
+    CONF_NIGHT_END, CONF_NIGHT_START, CONF_SILENT_HOURS, DEFAULT_NIGHT_END, DEFAULT_NIGHT_START, DEFAULT_SILENT_HOURS,
     DELIVERY_HOLD, DELIVERY_SECONDS, DETECTION_HOLD,
-    DETECTION_NAMES, DOMAIN, FACE_PRESENCE_WINDOW,
+    DETECTION_NAMES, FACE_PRESENCE_WINDOW,
     LOITER_GAP, LOITER_SECONDS,
     LOOKBACK_SECONDS, SIGNAL_FACES_CHANGED, SILENT_EXPECTED,
 )
@@ -94,7 +93,7 @@ CAMERA_FLAGS: tuple[CameraFlag, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
+    coordinator = entry.runtime_data
     entities: list[BinarySensorEntity] = [
         H500HubFlag(coordinator, entry, description) for description in HUB_FLAGS
     ]

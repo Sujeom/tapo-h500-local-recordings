@@ -70,6 +70,25 @@ def backoff_seconds(base: int, failures: int, cap: int) -> int:
     return min(cap, base * (2 ** failures))
 
 
+# The entry carries its own coordinator. Home Assistant clears runtime_data
+# when the entry unloads, so nothing has to remember to, and no other
+# integration can reach it by walking hass.data.
+type H500ConfigEntry = ConfigEntry["H500Coordinator"]
+
+
+def loaded_hubs(hass: HomeAssistant) -> list["H500Coordinator"]:
+    """Every hub currently set up.
+
+    Several things legitimately need all of them and have only `hass`: the
+    spoken answers, the device triggers, the repair checks. Read from the
+    entries rather than from a registry this integration keeps, because a
+    parallel registry is the thing runtime_data replaced.
+    """
+    return [entry.runtime_data
+            for entry in hass.config_entries.async_loaded_entries(DOMAIN)
+            if getattr(entry, "runtime_data", None) is not None]
+
+
 class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
     """One poller per hub. Cameras are addressed by their paired-list index."""
 

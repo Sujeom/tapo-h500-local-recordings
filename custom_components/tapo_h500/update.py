@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DATA_HUBS, DOMAIN
+
 from .coordinator import H500Coordinator
 from .sensor import hub_device
 
@@ -34,7 +34,7 @@ PARALLEL_UPDATES = 1
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
+    coordinator = entry.runtime_data
     async_add_entities([H500FirmwareUpdate(coordinator, entry)])
 
 

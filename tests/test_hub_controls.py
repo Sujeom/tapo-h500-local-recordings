@@ -185,9 +185,10 @@ class TheSwitches(unittest.TestCase):
         added = []
         coord = _coordinator()
         hass = _hass()
-        hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
-        run(switch_mod.async_setup_entry(hass, harness._Entry(20),
-                                         added.extend))
+        coord.entry.runtime_data = coord
+
+        hass.config_entries = harness._ConfigEntries([coord.entry])
+        run(switch_mod.async_setup_entry(hass, coord.entry, added.extend))
         self.assertEqual(len(added), 6, "five settings and the snooze")
 
 
@@ -297,8 +298,10 @@ class TheToneSelect(unittest.TestCase):
     def _setup(self, coord):
         added = []
         hass = _hass()
-        hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
-        run(select_mod.async_setup_entry(hass, harness._Entry(20),
+        coord.entry.runtime_data = coord
+
+        hass.config_entries = harness._ConfigEntries([coord.entry])
+        run(select_mod.async_setup_entry(hass, coord.entry,
                                          added.extend))
         return added
 
@@ -374,8 +377,10 @@ class TheSiren(unittest.TestCase):
         coord = _coordinator()
         coord.client.tones = OSError("hub busy")
         hass = _hass()
-        hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
-        run(siren_mod.async_setup_entry(hass, harness._Entry(20),
+        coord.entry.runtime_data = coord
+
+        hass.config_entries = harness._ConfigEntries([coord.entry])
+        run(siren_mod.async_setup_entry(hass, coord.entry,
                                         added.extend))
         self.assertEqual(len(added), 1)
 

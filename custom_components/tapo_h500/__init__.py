@@ -17,7 +17,7 @@ from homeassistant.loader import async_get_integration
 from . import services
 from .api import H500AuthError, H500Client
 from .const import (
-    CARD_URL, CONF_CLOUD_PASSWORD, DATA_CARD, DATA_HUBS, DATA_PREVIEW, DOMAIN,
+    CARD_URL, CONF_CLOUD_PASSWORD, DATA_CARD, DATA_PREVIEW, DOMAIN,
     RELOAD_ON_CHANGE, SERVICE_LIST_RECORDINGS, SIGNAL_FACES_CHANGED,
 )
 from .coordinator import H500Coordinator
@@ -66,8 +66,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await hass.async_add_executor_job(client.close)
         raise
 
-    hass.data.setdefault(DOMAIN, {}).setdefault(DATA_HUBS, {})[
-        entry.entry_id] = coordinator
+    # The entry owns its coordinator. Home Assistant clears this when the
+    # entry unloads, so nothing has to remember to.
+    entry.runtime_data = coordinator
 
     await _async_register_card(hass)
     # Spoken questions, registered once per Home Assistant rather than per hub.
@@ -102,8 +103,7 @@ async def _async_options_changed(hass: HomeAssistant, entry: ConfigEntry) -> Non
     get data from the hub" the card reported, and it opened a fresh login to a
     hub that wedges under repeated authentication.
     """
-    coordinator = (hass.data.get(DOMAIN, {}).get(DATA_HUBS, {})
-                   .get(entry.entry_id))
+    coordinator = getattr(entry, "runtime_data", None)
     current = _reload_snapshot(entry)
     if coordinator is not None and getattr(
             coordinator, "options_snapshot", None) == current:
@@ -169,11 +169,13 @@ async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> bo
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
-    hubs = hass.data.get(DOMAIN, {}).get(DATA_HUBS, {})
-    coordinator = hubs.pop(entry.entry_id, None)
+    coordinator = getattr(entry, "runtime_data", None)
     if coordinator is not None:
         await hass.async_add_executor_job(coordinator.client.close)
-    if not hubs:
+    # Everything except this entry, which is on its way out.
+    others = [other for other in hass.config_entries.async_loaded_entries(DOMAIN)
+              if other.entry_id != entry.entry_id]
+    if not others:
         for service in SERVICES:
             if hass.services.has_service(DOMAIN, service):
                 hass.services.async_remove(DOMAIN, service)
@@ -198,8 +200,7 @@ async def async_remove_config_entry_device(
     somebody deletes that, the config entry goes with it, which is what they
     asked for.
     """
-    coordinator = hass.data.get(DOMAIN, {}).get(DATA_HUBS, {}).get(
-        entry.entry_id)
+    coordinator = getattr(entry, "runtime_data", None)
     if coordinator is None:
         # Unloaded, so there is nothing to contradict. The registry entry is
         # the user's to remove.

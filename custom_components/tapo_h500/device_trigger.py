@@ -39,8 +39,9 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.trigger import TriggerActionType, TriggerInfo
 from homeassistant.helpers.typing import ConfigType
 
+from .coordinator import loaded_hubs
 from .const import (
-    DATA_HUBS, DETECTION_NAMES, DOMAIN, EVENT_ARRIVAL, EVENT_VISIT,
+    DETECTION_NAMES, DOMAIN, EVENT_ARRIVAL, EVENT_VISIT,
 )
 
 # "unknown face" -> "unknown_face". The slug is what ends up in the stored
@@ -81,7 +82,7 @@ def _hub_entry_id(hass: HomeAssistant, device_id: str) -> str | None:
     cannot tell them apart. Being a loaded hub can.
     """
     device = dr.async_get(hass).async_get(device_id)
-    hubs = hass.data.get(DOMAIN, {}).get(DATA_HUBS, {}) or {}
+    hubs = {hub.entry.entry_id: hub for hub in loaded_hubs(hass)}
     for domain, identifier in (device.identifiers if device else ()):
         if domain == DOMAIN and identifier in hubs:
             return identifier

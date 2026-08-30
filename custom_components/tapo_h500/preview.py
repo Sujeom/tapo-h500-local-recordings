@@ -15,7 +15,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.http.auth import async_sign_path
 from homeassistant.core import HomeAssistant
 
-from .const import DATA_HUBS, DOMAIN
+
 from .media import URL_LIFETIME, async_preview_clip
 
 try:  # KEY_HASS replaced the string key; the fallback keeps older cores working
@@ -55,7 +55,8 @@ class H500PreviewView(HomeAssistantView):
         if start < 0 or index < 0:
             return web.Response(status=400, text="Bad preview request")
 
-        coordinator = hass.data.get(DOMAIN, {}).get(DATA_HUBS, {}).get(entry_id)
+        entry = hass.config_entries.async_get_entry(entry_id)
+        coordinator = getattr(entry, "runtime_data", None) if entry else None
         if coordinator is None:
             return web.Response(status=404, text="Unknown config entry")
         try:

@@ -37,6 +37,9 @@ class _World(unittest.TestCase):
         coord.client = client
         hass = harness._Hass()
         hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        hass.config_entries = harness._ConfigEntries(
+            [coord.entry])
+        coord.entry.runtime_data = coord
         entry = coord.entry
         self.unloaders = []
         entry.async_on_unload = self.unloaders.append

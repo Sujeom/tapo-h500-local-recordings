@@ -17,9 +17,10 @@ from homeassistant.helpers import intent
 from .clips import (
     describe_detection, distinct, highlights, start_of, summarise,
 )
+from .coordinator import loaded_hubs
 from .const import (
-    CONF_NIGHT_END, CONF_NIGHT_START, DATA_HUBS, DEFAULT_NIGHT_END,
-    DEFAULT_NIGHT_START, DOMAIN, LOOKBACK_SECONDS,
+    CONF_NIGHT_END, CONF_NIGHT_START, DEFAULT_NIGHT_END,
+    DEFAULT_NIGHT_START, LOOKBACK_SECONDS,
 )
 
 INTENT_LAST_EVENT = "TapoH500LastEvent"
@@ -28,7 +29,7 @@ INTENT_SNOOZE = "TapoH500Snooze"
 
 
 def _hubs(hass: HomeAssistant):
-    return list((hass.data.get(DOMAIN, {}).get(DATA_HUBS, {})).values())
+    return loaded_hubs(hass)
 
 
 def _ago(seconds: int) -> str:

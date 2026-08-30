@@ -83,8 +83,10 @@ class ClashingFolders(unittest.TestCase):
 
     def test_it_compares_across_every_loaded_hub(self):
         """Within one hub a clash is unlikely; across two it is the normal
-        way to name a front door."""
-        self.assertIn("DATA_HUBS", self._body())
+        way to name a front door. Driven with two hubs in
+        test_platforms.RepairChecksActuallyRun; what is checked here is only
+        that the check reaches for all of them rather than for its own."""
+        self.assertIn("loaded_hubs(hass)", self._body())
 
     def test_it_compares_the_slug_rather_than_the_alias(self):
         """The folder is named after the slug, so aliases that differ only in
@@ -162,11 +164,10 @@ class Setup(unittest.TestCase):
             "if not hass.services.has_service(DOMAIN, SERVICE_LIST_RECORDINGS)",
             INIT)
 
-    def test_services_are_removed_only_when_the_last_hub_unloads(self):
-        """Unloading one of two must not take the actions away from the
-        other."""
-        unload = INIT.split("async def async_unload_entry", 1)[1]
-        self.assertIn("if not hubs:", unload)
+    # Unloading one of two hubs leaving the actions in place is driven in
+    # test_setup_entry.Unload, with both entries really set up and really
+    # unloaded. Reading the source for the word "hubs" said an early return
+    # existed, not that the second hub kept its actions.
 
     # Setting a second hub up is driven in test_setup_entry.ASecondHub: the
     # preview endpoint is served once, since registering the same view twice

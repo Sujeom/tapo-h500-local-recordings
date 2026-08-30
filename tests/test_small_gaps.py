@@ -71,6 +71,9 @@ class TheFixFlow(unittest.TestCase):
         hass = harness._Hass()
         if coord is not None:
             hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+            hass.config_entries = harness._ConfigEntries(
+                [coord.entry])
+            coord.entry.runtime_data = coord
         flow = run(repairs.async_create_fix_flow(
             hass, "unnamed_face_test",
             data if data is not None else

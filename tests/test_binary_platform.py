@@ -253,9 +253,11 @@ class Setup(unittest.TestCase):
                                    "face_names": names}
         hass = harness._Hass()
         hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        hass.config_entries = harness._ConfigEntries(
+            [coord.entry])
+        coord.entry.runtime_data = coord
         added = []
-        entry = harness._Entry(20)
-        entry.async_on_unload = lambda unsub: None
+        entry = coord.entry
         asyncio.run(binary.async_setup_entry(hass, entry, added.extend))
         return added, coord
 

@@ -243,9 +243,11 @@ class TheRegistrars(unittest.TestCase):
                          for n in range(cameras)]
         hass = harness._Hass()
         hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        hass.config_entries = harness._ConfigEntries(
+            [coord.entry])
+        coord.entry.runtime_data = coord
         added = []
-        entry = harness._Entry(20)
-        entry.async_on_unload = lambda unsub: None
+        entry = coord.entry
         run(module.async_setup_entry(hass, entry, added.extend))
         return added, coord
 
@@ -273,9 +275,11 @@ class TheRegistrars(unittest.TestCase):
                                "face_names": {"7": "Alice", "9": "Alice"}}
         hass = harness._Hass()
         hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        hass.config_entries = harness._ConfigEntries(
+            [coord.entry])
+        coord.entry.runtime_data = coord
         added = []
-        entry = harness._Entry(20)
-        entry.async_on_unload = lambda unsub: None
+        entry = coord.entry
         run(sensor_mod.async_setup_entry(hass, entry, added.extend))
         when = [e for e in added if isinstance(e, sensor_mod.H500FaceSensor)]
         where = [e for e in added
@@ -304,9 +308,11 @@ class TheRemainingRegistrars(unittest.TestCase):
                          for n in range(cameras)]
         hass = harness._Hass()
         hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        hass.config_entries = harness._ConfigEntries(
+            [coord.entry])
+        coord.entry.runtime_data = coord
         added = []
-        entry = harness._Entry(20)
-        entry.async_on_unload = lambda unsub: None
+        entry = coord.entry
         run(module.async_setup_entry(hass, entry, added.extend))
         return added
 
@@ -346,6 +352,9 @@ class TriggerListingEdges(unittest.TestCase):
         hass = harness._Hass()
         coord, _ = harness._build()
         hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        hass.config_entries = harness._ConfigEntries(
+            [coord.entry])
+        coord.entry.runtime_data = coord
         patches = [
             (er, "async_get", lambda h: object()),
             (er, "async_entries_for_device",
@@ -390,8 +399,10 @@ class TheLastRegistrars(unittest.TestCase):
                          for n in range(cameras)]
         hass = harness._Hass()
         hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
-        entry = harness._Entry(20)
-        entry.async_on_unload = lambda unsub: None
+        hass.config_entries = harness._ConfigEntries(
+            [coord.entry])
+        coord.entry.runtime_data = coord
+        entry = coord.entry
         added = []
         run(module.async_setup_entry(hass, entry, added.extend))
         return added
@@ -776,9 +787,11 @@ class TheSirenToneSelect(unittest.TestCase):
         coord.client = client
         hass = harness._Hass()
         hass.data = {"tapo_h500": {"hubs": {"test": coord}}}
+        hass.config_entries = harness._ConfigEntries(
+            [coord.entry])
+        coord.entry.runtime_data = coord
         added = []
-        entry = harness._Entry(20)
-        entry.async_on_unload = lambda unsub: None
+        entry = coord.entry
         run(select_mod.async_setup_entry(hass, entry, added.extend))
         return added
 

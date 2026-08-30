@@ -19,7 +19,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DATA_HUBS, DOMAIN
+
 from .coordinator import H500Coordinator
 from .sensor import hub_device
 from .status import hub_volume
@@ -35,7 +35,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
+    coordinator = entry.runtime_data
     try:
         tones = await hass.async_add_executor_job(coordinator.client.siren_tones)
     except Exception as err:

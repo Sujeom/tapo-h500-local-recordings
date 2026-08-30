@@ -17,7 +17,7 @@ from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_HUBS, DOMAIN, SIREN_VOLUME_MAX, SIREN_VOLUME_MIN
+from .const import SIREN_VOLUME_MAX, SIREN_VOLUME_MIN
 from .hub_control import H500HubControl
 
 # One at a time. Every write here is a call to a hub that wedges under
@@ -56,7 +56,7 @@ HUB_NUMBERS: tuple[HubNumber, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
+    coordinator = entry.runtime_data
     async_add_entities(
         H500HubNumber(coordinator, entry, description)
         for description in HUB_NUMBERS

@@ -12,7 +12,6 @@ from .api import H500AuthError, H500Client
 from .media import clip_path, signed_url
 from .const import (
     AUTO_DOWNLOAD_MODES, CONF_AUTO_DOWNLOAD, CONF_CLOUD_PASSWORD, CONF_FACE_NAMES,
-    DATA_HUBS,
     CONF_CAMERA_ORDER, CONF_CONVERT_MP4, CONF_DOWNLOAD_TYPES,
     CONF_KEEP_DOWNLOADS, CONF_KEEP_RINGS, DETECTION_NAMES,
     CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON,
@@ -246,7 +245,7 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(
                 data={**self.config_entry.options, CONF_FACE_NAMES: names})
 
-        coordinator = self.hass.data[DOMAIN][DATA_HUBS][self.config_entry.entry_id]
+        coordinator = self.config_entry.runtime_data
         seen = coordinator.faces_seen()
         # Everyone already named stays editable even if they have not been
         # seen today, or a name could only ever be added and never corrected.
@@ -343,7 +342,7 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(
                 data={**self.config_entry.options, CONF_CAMERA_ORDER: keep})
 
-        coordinator = self.hass.data[DOMAIN][DATA_HUBS][self.config_entry.entry_id]
+        coordinator = self.config_entry.runtime_data
         names = [camera.get("alias") for camera in coordinator.cameras
                  if camera.get("alias")]
         if len(names) < 2:
@@ -396,7 +395,7 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(
                 data={**self.config_entry.options, CONF_SENSITIVITY: levels})
 
-        coordinator = self.hass.data[DOMAIN][DATA_HUBS][self.config_entry.entry_id]
+        coordinator = self.config_entry.runtime_data
         names = [camera.get("alias") for camera in coordinator.cameras
                  if camera.get("alias")]
         if not names:

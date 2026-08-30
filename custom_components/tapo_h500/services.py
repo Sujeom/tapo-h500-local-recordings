@@ -26,7 +26,7 @@ from .clips import (
 )
 from .const import (
     CONF_CARD_DAYS, CONF_FACE_NAMES, CONF_NIGHT_END, CONF_NIGHT_START,
-    DATA_HUBS, DEFAULT_CARD_DAYS, DEFAULT_NIGHT_END, DEFAULT_NIGHT_START,
+    DEFAULT_CARD_DAYS, DEFAULT_NIGHT_END, DEFAULT_NIGHT_START,
     CONF_CONVERT_MP4, DEFAULT_CONVERT_MP4,
     DESCRIBE_PROMPT, DOMAIN, SERVICE_BACKUP_NAMES, SERVICE_CLASSIFY_DOWNLOADS,
     SERVICE_DAILY_SUMMARY, SERVICE_DELETE_RECORDING,
@@ -175,7 +175,11 @@ def _public_camera(camera):
 
 def _coordinator(hass, entry_id) -> H500Coordinator:
     try:
-        return hass.data[DOMAIN][DATA_HUBS][entry_id]
+        entry = hass.config_entries.async_get_entry(entry_id)
+        coordinator = getattr(entry, "runtime_data", None) if entry else None
+        if coordinator is None:
+            raise KeyError(entry_id)
+        return coordinator
     except KeyError as err:
         raise ServiceValidationError(
             "Unknown or unloaded Tapo H500 config entry") from err

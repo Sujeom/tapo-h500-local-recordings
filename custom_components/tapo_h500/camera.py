@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DATA_HUBS, DOMAIN
+
 from .entity import add_cameras_as_they_appear, H500Entity
 
 # One at a time. Asking for a picture can reach the coordinator's frame
@@ -24,7 +24,7 @@ PARALLEL_UPDATES = 1
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
+    coordinator = entry.runtime_data
     add_cameras_as_they_appear(
         coordinator, entry, async_add_entities,
         lambda index, camera: [H500Camera(coordinator, index, camera)])

@@ -33,15 +33,25 @@ class _Device:
 
 
 def _hass(coordinator=None, entry_id="test"):
+    """A hass whose entry either carries a hub or does not.
+
+    An entry with no runtime_data is an entry that is not loaded, which is
+    the case where Home Assistant lets the registry entry go.
+    """
     hass = harness._Hass()
-    hass.data = {DOMAIN: {const.DATA_HUBS: (
-        {entry_id: coordinator} if coordinator is not None else {})}}
+    entry = harness._Entry(20)
+    entry.entry_id = entry_id
+    entry.runtime_data = coordinator
+    hass.config_entries = harness._ConfigEntries([entry])
+    hass.entry = entry
     return hass
 
 
 def _may_remove(hass, device, entry_id="test"):
-    entry = harness._Entry(20)
-    entry.entry_id = entry_id
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None:
+        entry = harness._Entry(20)
+        entry.entry_id = entry_id
     return asyncio.run(component.async_remove_config_entry_device(
         hass, entry, device))
 

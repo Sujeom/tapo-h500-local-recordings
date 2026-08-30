@@ -13,8 +13,7 @@ from .clips import (
     notable, start_of,
 )
 from .const import (
-    CONF_NIGHT_END, CONF_NIGHT_START, DATA_HUBS,
-    DEFAULT_NIGHT_END, DEFAULT_NIGHT_START, DOMAIN, EVENT_TYPES,
+    CONF_NIGHT_END, CONF_NIGHT_START, DEFAULT_NIGHT_END, DEFAULT_NIGHT_START, DOMAIN, EVENT_TYPES,
 )
 from .entity import add_cameras_as_they_appear, H500Entity
 from .media import clip_path, signed_url
@@ -27,7 +26,7 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
+    coordinator = entry.runtime_data
     add_cameras_as_they_appear(
         coordinator, entry, async_add_entities,
         lambda index, camera: [H500ActivityEvent(coordinator, index, camera)])

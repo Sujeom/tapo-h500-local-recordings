@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import test_coordinator as harness  # noqa: E402  (installs the HA stubs)
 
 intent_mod = importlib.import_module("tapo_h500.intent")
+coordinator_mod = importlib.import_module("tapo_h500.coordinator")
 dt_util = sys.modules["homeassistant.util.dt"]
 NOW = int(dt_util.utcnow().timestamp())
 
@@ -50,9 +51,7 @@ def _hub(alias_clips, title="Tapo H500 (11.5)"):
 
 
 def ask(handler, *coords):
-    hass = harness._Hass()
-    hass.data = {"tapo_h500": {"hubs": {
-        f"entry{n}": coord for n, coord in enumerate(coords)}}}
+    hass = harness._hass_with(*coords)
     return asyncio.run(handler.async_handle(_Request(hass))).speech
 
 
@@ -162,9 +161,7 @@ class TheSpokenAndTheWrittenAnswer(unittest.TestCase):
         return ask(intent_mod.TodayIntent(), self.coord)
 
     def _digest(self):
-        hass = harness._Hass()
-        hass.data = {"tapo_h500": {"hubs": {"test": self.coord}}}
-        hass.config_entries = harness._ConfigEntries([self.coord.entry])
+        hass = harness._hass_with(self.coord)
         self.services.async_register(hass)
         # The spoken answer takes summarise()'s default window, so the
         # written one is asked for the same day rather than a different one.
@@ -212,13 +209,49 @@ class TheDigestIsAskedFor(unittest.TestCase):
                     lambda *a, _name=name, **k: scheduled.append(_name))
             self.addCleanup(setattr, helper, name, original)
         services = importlib.import_module("tapo_h500.services")
-        hass = harness._Hass()
-        hass.data = {"tapo_h500": {"hubs": {}}}
-        hass.config_entries = harness._ConfigEntries([])
+        hass = harness._hass_with()
         services.async_register(hass)
         self.assertEqual(scheduled, [], "nothing is put on a timer")
         self.assertIn("daily_summary", hass.services.registered,
                       "it exists, it just waits to be called")
+
+
+class AnEntryWithNoHubYet(unittest.TestCase):
+    """An entry can be in the list without a coordinator.
+
+    Home Assistant sets runtime_data at the end of setup, so between the
+    entry existing and setup finishing -- and after a setup that failed --
+    there is an entry with nothing behind it. Counting one as a hub puts a
+    None in the list, and the first thing that reads .cameras off it raises
+    inside a spoken answer.
+    """
+
+    def _hass_with_a_half_set_up_entry(self, *coords):
+        hass = harness._hass_with(*coords)
+        pending = harness._Entry(20)
+        pending.entry_id = "pending"
+        # Loaded as far as the registry is concerned, but setup has not
+        # reached the line that assigns the coordinator.
+        pending.runtime_data = None
+        pending.loaded = True
+        hass.config_entries.entries.append(pending)
+        return hass
+
+    def test_it_is_not_counted_as_a_hub(self):
+        coord = _hub({"Front": [clip(NOW - 600)]})
+        hass = self._hass_with_a_half_set_up_entry(coord)
+        self.assertEqual(coordinator_mod.loaded_hubs(hass), [coord])
+
+    def test_and_the_spoken_answer_still_works(self):
+        coord = _hub({"Front": [clip(NOW - 600)]})
+        hass = self._hass_with_a_half_set_up_entry(coord)
+        spoken = asyncio.run(
+            intent_mod.TodayIntent().async_handle(_Request(hass))).speech
+        self.assertIn("Front", spoken)
+
+    def test_nothing_set_up_at_all_is_an_empty_list(self):
+        hass = self._hass_with_a_half_set_up_entry()
+        self.assertEqual(coordinator_mod.loaded_hubs(hass), [])
 
 
 class EveryHubIsAnswered(unittest.TestCase):

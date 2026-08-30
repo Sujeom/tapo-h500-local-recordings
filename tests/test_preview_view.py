@@ -34,10 +34,23 @@ class _Client:
         return self._camera
 
 
+class _Entries:
+    """The view finds its hub through the entry, the way everything does."""
+
+    def __init__(self, entries):
+        self.entries = entries
+
+    def async_get_entry(self, entry_id):
+        return self.entries.get(entry_id)
+
+
 class _Hass:
-    def __init__(self, client):
-        self.data = {const.DOMAIN: {const.DATA_HUBS: {
-            ENTRY: types.SimpleNamespace(client=client)}}}
+    def __init__(self, client, loaded=True):
+        hub = types.SimpleNamespace(client=client)
+        entry = types.SimpleNamespace(
+            entry_id=ENTRY, runtime_data=hub if loaded else None)
+        self.config_entries = _Entries({ENTRY: entry} if loaded else {})
+        self.data = {const.DOMAIN: {}}
 
     async def async_add_executor_job(self, fn, *args):
         return fn(*args)
@@ -63,9 +76,7 @@ class BadInputIsRefusedPolitely(unittest.TestCase):
         self.assertEqual(get(_Hass(_Client()), start_time="-1").status, 400)
 
     def test_an_unknown_entry_is_a_404(self):
-        hass = _Hass(_Client())
-        hass.data[const.DOMAIN][const.DATA_HUBS] = {}
-        self.assertEqual(get(hass).status, 404)
+        self.assertEqual(get(_Hass(_Client(), loaded=False)).status, 404)
 
     def test_an_unknown_camera_is_a_404(self):
         self.assertEqual(get(_Hass(_Client(explode=True))).status, 404)

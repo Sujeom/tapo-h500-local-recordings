@@ -24,7 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .clips import describe_detection, end_of, face_ids, start_of
-from .const import DATA_HUBS, DOMAIN
+
 from .entity import add_cameras_as_they_appear, H500Entity
 
 # Unlimited: nothing here polls the hub. Every value comes from the
@@ -50,7 +50,7 @@ ASSUMED_SECONDS = 15
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
+    coordinator = entry.runtime_data
     add_cameras_as_they_appear(
         coordinator, entry, async_add_entities,
         lambda index, camera: [H500Calendar(coordinator, index, camera)])

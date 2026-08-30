@@ -366,6 +366,20 @@ def run_check(check, **overrides):
     return ISSUES[0] if ISSUES else None
 
 
+def _hass_holding(*coordinators):
+    """A hass whose loaded entries carry these hubs.
+
+    The clashing-folder check gathers every camera across every hub, which is
+    the whole point of it -- two hubs is when sharing a folder stops being
+    theoretical -- so the hubs have to be reachable the way they really are.
+    """
+    entries = [types.SimpleNamespace(entry_id=f"e{n}", runtime_data=hub)
+               for n, hub in enumerate(coordinators, start=1)]
+    return types.SimpleNamespace(
+        config_entries=types.SimpleNamespace(
+            async_loaded_entries=lambda domain=None: list(entries)))
+
+
 class RepairChecksActuallyRun(unittest.TestCase):
     """Every check called for real, not matched as text.
 
@@ -465,8 +479,7 @@ class RepairChecksActuallyRun(unittest.TestCase):
         # The check gathers every camera across every hub, so the hub has to
         # be registered -- that is the whole point of it: two hubs is when
         # sharing a folder stops being theoretical.
-        hass = types.SimpleNamespace(
-            data={repairs.DOMAIN: {repairs.DATA_HUBS: {"e1": coordinator}}})
+        hass = _hass_holding(coordinator)
         repairs._clashing_names(hass, "e1", coordinator)
         action, issue, kwargs = ISSUES[0]
         self.assertEqual(action, "create")
@@ -477,8 +490,7 @@ class RepairChecksActuallyRun(unittest.TestCase):
         coordinator = _FakeCoordinator(
             cameras=[{"alias": "Front"}, {"alias": "Side"}])
         ISSUES.clear()
-        hass = types.SimpleNamespace(
-            data={repairs.DOMAIN: {repairs.DATA_HUBS: {"e1": coordinator}}})
+        hass = _hass_holding(coordinator)
         repairs._clashing_names(hass, "e1", coordinator)
         self.assertEqual(ISSUES[0][0], "delete")
 

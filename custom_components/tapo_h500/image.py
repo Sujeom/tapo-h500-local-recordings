@@ -26,7 +26,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DATA_HUBS, DOMAIN
+
 from .entity import add_cameras_as_they_appear, H500Entity
 from .contact_sheet import async_contact_sheet
 
@@ -38,7 +38,7 @@ PARALLEL_UPDATES = 0
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
+    coordinator = entry.runtime_data
     add_cameras_as_they_appear(
         coordinator, entry, async_add_entities,
         lambda index, camera: [

@@ -21,8 +21,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
 from .clips import clashing_names
+from .coordinator import loaded_hubs
 from .const import (
-    CONF_SILENT_HOURS, DATA_HUBS, DEFAULT_SILENT_HOURS, DOMAIN,
+    CONF_SILENT_HOURS, DEFAULT_SILENT_HOURS, DOMAIN,
     LOOKBACK_SECONDS, NAME_PROMPT_SIGHTINGS,
 )
 
@@ -164,7 +165,7 @@ def _clashing_names(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     issue_id = _issue_id(entry_id, CLASHING_NAMES_ISSUE)
     every_camera = [
         camera
-        for hub in (hass.data.get(DOMAIN, {}).get(DATA_HUBS, {}) or {}).values()
+        for hub in loaded_hubs(hass)
         for camera in getattr(hub, "cameras", [])
     ]
     clashing = clashing_names(every_camera, coordinator.cameras)
@@ -334,9 +335,10 @@ async def async_create_fix_flow(hass: HomeAssistant, issue_id: str,
         async def async_step_init(self, user_input: dict | None = None):
             if user_input is not None:
                 name = str(user_input.get("name") or "").strip()
-                coordinator = (self.hass.data.get(DOMAIN, {})
-                               .get(DATA_HUBS, {})
-                               .get(fix.get("entry_id")))
+                entry = self.hass.config_entries.async_get_entry(
+                    fix.get("entry_id"))
+                coordinator = (getattr(entry, "runtime_data", None)
+                               if entry else None)
                 if coordinator is not None and name:
                     from .const import CONF_FACE_NAMES
                     names = dict(coordinator.entry.options.get(

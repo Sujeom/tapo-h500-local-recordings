@@ -85,13 +85,28 @@ class _Hass:
 
 
 class _ConfigEntries:
-    """What `hass.config_entries` offers a flow. Empty unless a test fills it."""
+    """What `hass.config_entries` offers. Empty unless a test fills it."""
 
     def __init__(self, entries=()):
         self.entries = list(entries)
 
     def async_entries(self, domain=None):
         return list(self.entries)
+
+    def async_loaded_entries(self, domain=None):
+        """Entries in the loaded state.
+
+        Deliberately not "entries that have a coordinator": those are the
+        same thing in a healthy installation and different during setup and
+        after a setup that failed, and filtering here on runtime_data would
+        have hidden whether the code under test does its own checking.
+        """
+        return [entry for entry in self.entries
+                if getattr(entry, "loaded", True)]
+
+    def async_get_entry(self, entry_id):
+        return next((entry for entry in self.entries
+                     if entry.entry_id == entry_id), None)
 
     def async_update_entry(self, entry, options=None, **kwargs):
         # Applied, not merely recorded: the handlers read the entry back to
@@ -110,6 +125,10 @@ class _Entry:
 
     def __init__(self, interval, **options):
         self.options = {"poll_interval": interval, **options}
+        # Where the coordinator lives. Home Assistant sets this at the end of
+        # setup and clears it on unload; None here is an entry that is not
+        # loaded, which several code paths have to survive.
+        self.runtime_data = None
         # Real, not a no-op: platforms register their teardown here, and a
         # test that never runs one cannot notice a listener outliving its
         # entry.
@@ -151,11 +170,39 @@ class _Client:
         return {}
 
 
+def _hass_with(*coords):
+    """A hass that can find these hubs the way Home Assistant does.
+
+    Entities read their coordinator off the entry; everything that needs all
+    of them walks the loaded entries. Both go through hass.config_entries, so
+    a test that only filled hass.data was testing a hub nothing could reach.
+    """
+    hass = _Hass()
+    entries = []
+    for index, coord in enumerate(coords):
+        entry = coord.entry
+        entry.runtime_data = coord
+        # _Entry carries a class-level id, so two hubs built the same way
+        # would otherwise be the same entry.
+        if index and entry.entry_id == _Entry.entry_id:
+            entry.entry_id = f"{_Entry.entry_id}{index}"
+        entries.append(entry)
+    hass.config_entries = _ConfigEntries(entries)
+    return hass
+
+
 def _build(interval=20):
     """A 20s interval by default: STATUS_MAX_AGE 60 / 20 makes status every 3rd
     poll, which keeps the cadence assertions short and readable."""
     client = _Client()
-    coord = coordinator_mod.H500Coordinator(_Hass(), _Entry(interval), client)
+    hass = _Hass()
+    entry = _Entry(interval)
+    coord = coordinator_mod.H500Coordinator(hass, entry, client)
+    # What setup does last, and what everything reads the coordinator back
+    # out of. Wiring it here rather than in every test is what keeps a test
+    # from passing against a hub nothing could actually reach.
+    entry.runtime_data = coord
+    hass.config_entries = _ConfigEntries([entry])
     # The download path is out of scope; neutralise it.
     coord._download_new = lambda *a, **k: None
     return coord, client

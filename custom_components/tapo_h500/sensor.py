@@ -22,7 +22,7 @@ from .clips import (
     unknown_face_count, unusual_threshold,
 )
 from .const import (
-    DATA_HUBS, DOMAIN, FACE_PRESENCE_WINDOW, LOITER_GAP, LOOKBACK_SECONDS,
+    DOMAIN, FACE_PRESENCE_WINDOW, LOITER_GAP, LOOKBACK_SECONDS,
     SIGNAL_FACES_CHANGED,
     PICTURE_RESIGN_SECONDS,
 )
@@ -263,7 +263,7 @@ CAMERA_SENSORS: tuple[CameraSensor, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    coordinator = hass.data[DOMAIN][DATA_HUBS][entry.entry_id]
+    coordinator = entry.runtime_data
     entities: list[SensorEntity] = [
         H500HubSensor(coordinator, entry, description)
         for description in HUB_SENSORS

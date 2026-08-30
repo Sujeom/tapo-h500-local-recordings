@@ -2,7 +2,6 @@
 
 DOMAIN = "tapo_h500"
 CONF_CLOUD_PASSWORD = "cloud_password"
-DATA_HUBS = "hubs"
 DATA_CARD = "card_registered"
 DATA_PREVIEW = "preview_view_registered"
 

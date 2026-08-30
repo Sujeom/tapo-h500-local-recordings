@@ -45,7 +45,12 @@ rules:
       async_on_remove, including the detection flags' pending hold timers.
   entity-unique-id: done
   has-entity-name: done
-  runtime-data: todo
+  runtime-data:
+    status: done
+    comment: |
+      The entry carries its own coordinator. Everything that needs all of
+      them walks the loaded entries rather than a registry this integration
+      keeps, because a parallel registry is the thing runtime_data replaced.
   test-before-configure:
     status: done
     comment: The config flow logs in once and lists the cameras before finishing.
