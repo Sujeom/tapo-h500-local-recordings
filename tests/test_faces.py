@@ -21,6 +21,7 @@ INIT = (COMPONENT / "__init__.py").read_text()
 # The thirteen service handlers moved out of the package body.
 SERVICES_SRC = (COMPONENT / "services.py").read_text()
 SENSOR = (COMPONENT / "sensor.py").read_text()
+NOW = int(sys.modules["homeassistant.util.dt"].utcnow().timestamp())
 
 
 def _with_faces(coord, clips, names=None):
@@ -304,10 +305,6 @@ class Service(unittest.TestCase):
         self.assertIn("coordinator.named_people.values()", SENSOR)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FacesWithFaces(unittest.TestCase):
     """A named person's entities carry their photograph.
 
@@ -317,27 +314,65 @@ class FacesWithFaces(unittest.TestCase):
     no download ever wrote it, and is cached on disk after the first look.
     """
 
-    SENSOR = (COMPONENT / "sensor.py").read_text()
-    BODY = SENSOR.split("class H500FaceSensor", 1)[1].split("\nclass ", 1)[0]
+    def _sensor(self, person, clock=None):
+        sensor_mod = importlib.import_module("tapo_h500.sensor")
+        coord, _ = _build()
+        coord.person_for = lambda face_id: dict(person)
+        sensor = sensor_mod.H500FaceSensor(coord, coord.entry, "7")
+        sensor.hass = object()  # only checked for None
+        self.signed = []
+        original = sensor_mod.preview_url
+        sensor_mod.preview_url = lambda hass, entry_id, index, start: (
+            self.signed.append((index, start))
+            or f"/preview/{index}/{start}?sig={len(self.signed)}")
+        self.addCleanup(setattr, sensor_mod, "preview_url", original)
+        if clock is not None:
+            dt_util = sys.modules["homeassistant.util.dt"]
+            self.addCleanup(setattr, dt_util, "utcnow", dt_util.utcnow)
+            dt_util.utcnow = lambda: dt_util.utc_from_timestamp(clock[0])
+        return sensor_mod, sensor
 
-    def test_the_picture_is_their_newest_sighting(self):
-        self.assertIn("def entity_picture", self.BODY)
-        self.assertIn("preview_url", self.BODY)
-        self.assertIn("last_seen", self.BODY.split("def entity_picture", 1)[1])
-        self.assertIn("camera_index",
-                      self.BODY.split("def entity_picture", 1)[1])
+    def test_the_picture_is_the_frame_of_their_newest_sighting(self):
+        _, sensor = self._sensor({"last_seen": NOW, "camera_index": 1})
+        self.assertEqual(sensor.entity_picture, "/preview/1/%d?sig=1" % NOW)
+        self.assertEqual(self.signed, [(1, NOW)])
 
-    def test_the_url_is_stable_between_sightings(self):
-        """A fresh signature per poll would make the frontend refetch the
-        same photograph every two seconds. The URL is cached per sighting
-        and only re-signed as its signature nears expiry."""
-        body = self.BODY.split("def entity_picture", 1)[1]
-        self.assertIn("PICTURE_RESIGN_SECONDS", body)
-        self.assertIn("_picture_for", body)
+    def test_the_url_does_not_change_between_polls(self):
+        """A fresh signature every poll would make the frontend refetch the
+        same photograph every two seconds."""
+        _, sensor = self._sensor({"last_seen": NOW, "camera_index": 1})
+        first = sensor.entity_picture
+        for _ in range(5):
+            self.assertEqual(sensor.entity_picture, first)
+        self.assertEqual(len(self.signed), 1)
+
+    def test_a_new_sighting_gets_a_new_picture(self):
+        person = {"last_seen": NOW, "camera_index": 1}
+        _, sensor = self._sensor(person)
+        first = sensor.entity_picture
+        sensor.coordinator.person_for = lambda face_id: {
+            "last_seen": NOW + 300, "camera_index": 0}
+        self.assertNotEqual(sensor.entity_picture, first)
+        self.assertEqual(self.signed[-1], (0, NOW + 300))
+
+    def test_it_is_resigned_before_its_signature_expires(self):
+        """The URL is signed, and a signature that ran out would show a
+        broken image on a page nobody had reloaded."""
+        sensor_mod = importlib.import_module("tapo_h500.sensor")
+        clock = [NOW]
+        _, sensor = self._sensor({"last_seen": NOW, "camera_index": 1},
+                                 clock=clock)
+        sensor.entity_picture
+        clock[0] = NOW + sensor_mod.PICTURE_RESIGN_SECONDS + 1
+        sensor.entity_picture
+        self.assertEqual(len(self.signed), 2, "same sighting, fresh signature")
 
     def test_a_person_never_seen_shows_no_broken_image(self):
-        body = self.BODY.split("def entity_picture", 1)[1]
-        self.assertIn("return None", body)
+        for person in ({}, {"last_seen": NOW}, {"camera_index": 1}):
+            with self.subTest(person=person):
+                _, sensor = self._sensor(person)
+                self.assertIsNone(sensor.entity_picture)
+                self.assertEqual(self.signed, [])
 
     def test_resigning_happens_well_inside_the_signatures_life(self):
         import importlib
@@ -346,3 +381,7 @@ class FacesWithFaces(unittest.TestCase):
         # URL_LIFETIME is 12 hours; re-sign at half that.
         self.assertLessEqual(const_mod.PICTURE_RESIGN_SECONDS, 6 * 3600)
         self.assertIn("URL_LIFETIME = timedelta(hours=12)", media_src)
+
+
+if __name__ == "__main__":
+    unittest.main()
