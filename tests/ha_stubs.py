@@ -325,6 +325,9 @@ class _OptionsFlow:
     def async_create_entry(self, title=None, data=None):
         return {"type": "create_entry", "title": title, "data": data}
 
+    def async_abort(self, reason=None):
+        return {"type": "abort", "reason": reason}
+
 
 def _module(path: str, **names) -> types.ModuleType:
     """Register `path` now, with real behaviour. For names a test exercises."""
@@ -561,6 +564,11 @@ def install(component_path=None):
             ATTR_DURATION="duration",
             SirenEntity=type("SirenEntity", (_Entity,), {}),
             SirenEntityFeature=_SirenFeature)
+    # config_flow raises and catches this by type; a manufactured class is
+    # not a BaseException and cannot be raised at all.
+    _module("homeassistant.helpers.network",
+            NoURLAvailableError=type("NoURLAvailableError", (Exception,), {}),
+            get_url=lambda hass, **kwargs: "http://stub.local:8123")
     _module("homeassistant.components.http.auth",
             async_sign_path=lambda hass, path, expiry: f"{path}?authSig=stub")
 
