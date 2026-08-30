@@ -11,7 +11,6 @@ quietly loses work. The service wiring around them is checked statically,
 since it needs the Home Assistant runtime.
 """
 import importlib
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -169,42 +168,13 @@ class Validation(unittest.TestCase):
         self.assertIn('vol.Optional("replace", default=False)', RESTORE_SCHEMA)
 
 
-class Registration(unittest.TestCase):
-    def test_both_are_registered(self):
-        self.assertIn("(SERVICE_BACKUP_NAMES, backup_names, BACKUP_SCHEMA)",
-                      SERVICES_SRC)
-        self.assertIn("(SERVICE_RESTORE_NAMES, restore_names, RESTORE_SCHEMA)",
-                      SERVICES_SRC)
-
-    def test_the_backup_action_writes_nothing(self):
-        body = SERVICES_SRC.split("    async def backup_names(", 1)[1].split(
-            "\n    async def ", 1)[0]
-        self.assertNotIn("async_update_entry", body)
-
-    def test_every_registered_service_is_removed_on_unload(self):
-        registered = set(re.findall(r"\(SERVICE_(\w+), \w+, \w+_SCHEMA\)", INIT))
-        listed = set(re.findall(
-            r"SERVICE_(\w+)",
-            SERVICES_SRC.split("SERVICES = (", 1)[1].split("\n)", 1)[0]))
-        self.assertEqual(registered - listed, set())
-
-    def test_the_removal_list_names_only_services(self):
-        """It had collected signals, option keys and a prompt string. Nothing
-        broke -- has_service simply answered no -- which is why nobody
-        noticed, and it made the list useless as a statement of intent."""
-        listed = [name for name in re.findall(
-            r"\n    (\w+),", SERVICES_SRC.split("SERVICES = (", 1)[1].split("\n)", 1)[0])]
-        self.assertTrue(listed)
-        for name in listed:
-            self.assertTrue(name.startswith("SERVICE_"), name)
-
-    def test_both_are_described_for_the_ui(self):
-        self.assertIn("\nbackup_names:", ACTIONS)
-        self.assertIn("\nrestore_names:", ACTIONS)
-
-
-if __name__ == "__main__":
-    unittest.main()
+# Both actions being registered, described for the UI and removed with the
+# others is checked in test_services_live.Registration -- as a set comparison
+# over all thirteen, which also holds the removal list to naming only
+# services. It had collected signals, option keys and a prompt string once;
+# nothing broke, has_service simply answered no, which is why nobody noticed
+# and why the list had stopped being a statement of intent. That the backup
+# action writes nothing is driven there too.
 
 
 class Settings(unittest.TestCase):
@@ -250,3 +220,7 @@ class Settings(unittest.TestCase):
         self.assertEqual(options["night_start"], 22)
         self.assertEqual(options["card_days"], 7)
         self.assertEqual(options["poll_interval"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

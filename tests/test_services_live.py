@@ -138,6 +138,22 @@ class BackupAndRestore(_World):
         answer = self.call("backup_names")
         self.assertEqual(answer["face_names"], {"7": "Sam"})
 
+    def test_taking_a_backup_changes_nothing(self):
+        """A backup that writes is a backup that can lose the thing it was
+        taken to protect. Reading is the whole job."""
+        self.call("name_face", face_id=7, name="Sam")
+        before = dict(self.coord.entry.options)
+        writes = []
+        original = self.hass.config_entries.async_update_entry
+        self.hass.config_entries.async_update_entry = (
+            lambda entry, **kwargs: writes.append(kwargs))
+        try:
+            self.call("backup_names")
+        finally:
+            self.hass.config_entries.async_update_entry = original
+        self.assertEqual(writes, [])
+        self.assertEqual(self.coord.entry.options, before)
+
     def test_restore_merges_by_default(self):
         """The common case is an old backup onto an entry that has since
         learned more names; replace there quietly discards them."""
