@@ -70,6 +70,60 @@ faces, visits, arrivals and retention all read the same poll and each other.
 nothing else. `const.py` is long because most of it is the reasoning behind a
 number rather than the number.
 
+
+## What a poll actually asks the hub
+
+Everything on this page happens on the LAN. The integration issues no request
+to TP-Link, ever — not an update check, not telemetry, nothing. See
+[README](../README.md#local-only-by-design).
+
+**Every poll**, per camera, one batched round trip that carries both the clip
+index and the detection log for the last day (`LOOKBACK_SECONDS`, 86400). They
+were two calls until the hub was measured; batching them halved the per-poll
+load on a device that overloads easily.
+
+**Every 60 seconds of wall clock** (`STATUS_MAX_AGE`), one further round trip
+for hub status — the LED, the siren, storage, firmware, the clock. It is
+expressed as a number of polls rather than a timer, so a longer interval does
+not silently make status stale: at the default two seconds it is every 30th
+poll. A write forces the next poll to read it, or a control would snap back to
+its old value for up to a minute.
+
+**Every 300 seconds** (`CAMERAS_MAX_AGE`), the paired camera list. It changes
+only when somebody pairs or unpairs a doorbell and costs 58ms — more than the
+detection lookups it used to precede. It is never left empty: a failure with
+nothing cached still fails the poll, because a hub with no cameras is not a
+state this integration can do anything useful with.
+
+### The interval, and when it is not the interval
+
+The default is **2 seconds** (`DEFAULT_POLL_INTERVAL`), set at setup and
+changeable under Configure, bounded between 1 and 600. It is the whole
+notification delay: a doorbell press is not known until the poll that finds
+it.
+
+Two things move it:
+
+- **Idle backoff.** After ten minutes with nothing new (`POLL_IDLE_AFTER`),
+  the interval relaxes to at least six seconds (`POLL_IDLE_INTERVAL`) and
+  snaps back the moment anything happens. A quiet house at three in the
+  morning does not need the hub asked every two seconds.
+- **Failure backoff.** Consecutive failures widen the interval up to five
+  minutes (`POLL_BACKOFF_MAX`). A hub that has wedged recovers on a timeout
+  rather than on a retry, so continuing to ask at full speed is the one thing
+  that stops it recovering.
+
+The clock starts at "just now" on a restart rather than at zero, so a fresh
+process runs at full speed for the first ten minutes instead of treating
+itself as a quiet house.
+
+### What it never does
+
+No poll opens a media session. Downloads, previews and frames are separate,
+serialised behind their own lock, and started by something asking — an
+automatic download, a dashboard tile, a service call. One session at a time,
+always: this hub wedges under concurrent ones.
+
 ## Files on disk
 
 | Module | Lines | What it is |

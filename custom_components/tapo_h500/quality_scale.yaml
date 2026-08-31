@@ -148,7 +148,14 @@ rules:
       should update the entry's host instead of the owner noticing the
       integration broke and running the reconfigure flow. The reconfigure
       flow already exists and does the same job by hand.
-  docs-data-update: todo
+  docs-data-update:
+    status: done
+    comment: |
+      In docs/architecture.md: what each poll asks, the slower cadences for
+      status and the paired list, both backoffs, and the statement that no
+      poll ever opens a media session. Every number in it is asserted against
+      its constant, so a change to the cadence fails the gate rather than
+      leaving the page quietly wrong.
   docs-examples: done
   docs-known-limitations: done
   docs-supported-devices: done
@@ -160,7 +167,11 @@ rules:
       entity or repair notice that already knows the answer for each. The
       names in it are checked against the integration, because documentation
       naming something renamed is worse than none.
-  docs-use-cases: todo
+  docs-use-cases:
+    status: done
+    comment: |
+      Four, at the top of the README before the feature list, each one
+      something the integration does today.
   dynamic-devices:
     status: done
     comment: |

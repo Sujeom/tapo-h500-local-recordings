@@ -456,5 +456,73 @@ class HowToRemoveIt(unittest.TestCase):
         self.assertEqual(named - set(services), set())
 
 
+
+class TheDataUpdateSection(unittest.TestCase):
+    """Every number in it read from const.py rather than remembered.
+
+    Documentation quoting an interval that changed is the failure that
+    actually happens: nothing breaks, and somebody reasons from it for a
+    year.
+    """
+
+    TEXT = property(lambda self: DOCS["architecture.md"])
+    # Markdown wraps, so a sentence in the source is not a sentence on one
+    # line. Every phrase assertion below reads this instead.
+    FLAT = property(lambda self: " ".join(DOCS["architecture.md"].split()))
+
+    def setUp(self):
+        self.const = importlib.import_module("tapo_h500.const")
+
+    def test_it_exists(self):
+        self.assertIn("## What a poll actually asks the hub", self.TEXT)
+
+    def test_the_default_interval_is_the_one_in_the_code(self):
+        self.assertIn(f"**{self.const.DEFAULT_POLL_INTERVAL} seconds**",
+                      self.FLAT)
+
+    def test_every_cadence_number_matches_its_constant(self):
+        for name in ("STATUS_MAX_AGE", "CAMERAS_MAX_AGE", "POLL_IDLE_AFTER",
+                     "POLL_IDLE_INTERVAL", "POLL_BACKOFF_MAX",
+                     "LOOKBACK_SECONDS"):
+            value = getattr(self.const, name)
+            with self.subTest(constant=name):
+                self.assertIn(name, self.TEXT,
+                              "name the constant so this can be checked")
+                self.assertRegex(
+                    self.TEXT, rf"{value:,}|{value}\b",
+                    f"{name} is {value} and the page does not say so")
+
+    def test_the_bounds_are_the_form_s_own(self):
+        flow = (ROOT / "custom_components" / "tapo_h500" /
+                "config_flow.py").read_text()
+        low, high = re.search(r"vol\.Range\(min=(\d+), max=(\d+)\)",
+                              flow).groups()
+        self.assertIn(f"bounded between {low} and {high}", self.FLAT)
+
+    def test_it_says_nothing_leaves_the_lan(self):
+        self.assertIn("issues no request to TP-Link", self.FLAT)
+
+    def test_it_says_a_poll_never_opens_a_media_session(self):
+        """The distinction the whole design rests on."""
+        self.assertIn("No poll opens a media session", self.FLAT)
+
+
+class TheUseCases(unittest.TestCase):
+    def test_the_readme_says_what_it_is_for_before_what_it_has(self):
+        """Somebody deciding whether to install reads the top of the page."""
+        text = DOCS["README.md"]
+        self.assertIn("## What it is for", text)
+        self.assertLess(text.index("## What it is for"),
+                        text.index("## Install"))
+
+    def test_each_one_is_something_it_does_today(self):
+        """Anything aspirational belongs in limitations.md as a known gap."""
+        section = DOCS["README.md"].split("## What it is for", 1)[1].split(
+            "\n## ", 1)[0]
+        for claim in ("retention", "faces", "cloud account", "calendar"):
+            with self.subTest(claim=claim):
+                self.assertIn(claim, section.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

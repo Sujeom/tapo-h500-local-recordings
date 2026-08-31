@@ -11,6 +11,27 @@ controls such as the siren.
 > two TD21 doorbells). Entity names and options may change without a migration.
 > There is no live view — see [docs/limitations.md](docs/limitations.md).
 
+## What it is for
+
+Four things people actually do with it:
+
+- **Keep the footage the hub would throw away.** The H500 loop-records and
+  evicts the oldest clips when it fills. This downloads the ones that mattered
+  into Home Assistant, with retention you choose, protecting doorbell presses
+  separately from motion — so a busy afternoon of the cat cannot evict the
+  press that was the whole point.
+- **Be told who is at the door, not that something moved.** The hub recognises
+  faces and this puts a name on them, so an automation can greet somebody you
+  know and alert on somebody you do not. It can tell a delivery from a
+  neighbour walking past, and somebody waiting at the door from somebody
+  passing it.
+- **Run the whole thing with the internet unplugged.** No cloud account is
+  contacted, at setup or ever. Block the hub at the router and everything on
+  this page still works.
+- **Find one recording without scrubbing an app.** A calendar of everything
+  the hub saw, a picture of the day in one image, a media browser filtered by
+  what triggered each clip, and eight dashboard cards.
+
 ## Local only, by design
 
 The point of this integration is running the hub and cameras **without
