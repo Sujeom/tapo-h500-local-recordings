@@ -71,6 +71,12 @@ jobs:
         # somebody went looking.
         run: python -B tools/coverage.py --gate
 
+      - name: Annotations
+        # A ratchet, not a target: the ceiling only moves down, and the gate
+        # refuses a fall that was not written down so it always says where
+        # the work got to.
+        run: python -B tools/annotations.py --gate
+
       - name: Card coverage
         # The same measurement for the dashboard card, which had none. Node
         # emits V8 coverage on its own, so this needs nothing installed

@@ -44,6 +44,14 @@ if ! loop_audit=$(python -B tools/loop_audit.py 2>&1); then
     exit 1
 fi
 printf '%s\n' "$loop_audit"
+# Annotations, as a ratchet rather than a target. The gate refuses a rise and
+# also refuses a fall that was not written down, so the ceiling always says
+# where the work actually got to.
+if ! annotations=$(python -B tools/annotations.py --gate 2>&1); then
+    printf '%s\n' "$annotations" | tail -3
+    exit 1
+fi
+printf '%s\n' "$annotations" | tail -1
 python -B tools/lint.py
 
 python -B - <<'PY'
