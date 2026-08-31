@@ -1,6 +1,10 @@
 """Hub and per-camera on/off state."""
 from __future__ import annotations
 
+from datetime import datetime
+
+from .models import Camera
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -103,7 +107,7 @@ async def async_setup_entry(
     entities.append(H500CamerasDark(coordinator, entry))
     async_add_entities(entities)
 
-    def _for_camera(index, camera) -> list[BinarySensorEntity]:
+    def _for_camera(index: int, camera: Camera) -> list[BinarySensorEntity]:
         return (
             [H500CameraFlag(coordinator, index, camera, description)
              for description in CAMERA_FLAGS]
@@ -144,7 +148,8 @@ async def async_setup_entry(
 class H500HubFlag(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, entry, description: HubFlag) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry,
+                 description: HubFlag) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
@@ -158,7 +163,8 @@ class H500HubFlag(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
 
 
 class H500CameraFlag(H500Entity, BinarySensorEntity):
-    def __init__(self, coordinator, index, camera, description: CameraFlag) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera, description: CameraFlag) -> None:
         super().__init__(coordinator, index, camera)
         self.entity_description = description
         self._attr_unique_id = f"{camera['device_id']}_{description.key}"
@@ -195,7 +201,8 @@ class H500DetectionFlag(H500Entity, BinarySensorEntity):
     something happened and never reports that it stopped.
     """
 
-    def __init__(self, coordinator, index: int, camera: dict, code: int) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera, code: int) -> None:
         super().__init__(coordinator, index, camera)
         self._code = code
         if code in OFF_BY_DEFAULT_DETECTIONS:
@@ -233,7 +240,7 @@ class H500DetectionFlag(H500Entity, BinarySensorEntity):
             self.hass, DETECTION_HOLD, self._clear)
 
     @callback
-    def _clear(self, _now) -> None:
+    def _clear(self, _now: datetime) -> None:
         self._clear_timer = None
         self._attr_is_on = False
         self.async_write_ha_state()
@@ -253,7 +260,8 @@ class H500UnusualActivity(H500Entity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, index: int, camera: dict) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         super().__init__(coordinator, index, camera)
         self._attr_unique_id = f"{camera['device_id']}_unusual_activity"
 
@@ -298,7 +306,8 @@ class H500Loitering(H500Entity, BinarySensorEntity):
     _attr_translation_key = "loitering"
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
-    def __init__(self, coordinator, index: int, camera: dict) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         super().__init__(coordinator, index, camera)
         self._attr_unique_id = f"{camera['device_id']}_loitering"
 
@@ -320,7 +329,7 @@ class H500Loitering(H500Entity, BinarySensorEntity):
         return {"seconds": self._seconds}
 
 
-def silent_threshold(coordinator) -> int:
+def silent_threshold(coordinator: H500Coordinator) -> int:
     """The configured silence threshold in seconds, capped at the window.
 
     Capped rather than validated away: the option can only be set within
@@ -337,7 +346,7 @@ def silent_threshold(coordinator) -> int:
     return min(max(3600, seconds), LOOKBACK_SECONDS)
 
 
-def expected_events(coordinator, index: int) -> float:
+def expected_events(coordinator: H500Coordinator, index: int) -> float:
     """Events this camera's own history predicted during the silence."""
     last = coordinator.last_activity(index)
     if last is None:
@@ -348,7 +357,8 @@ def expected_events(coordinator, index: int) -> float:
         int(dt_util.utcnow().timestamp()), LOOKBACK_SECONDS)
 
 
-def camera_is_silent(coordinator, index: int) -> bool | None:
+def camera_is_silent(coordinator: H500Coordinator,
+                     index: int) -> bool | None:
     """Whether this camera has stopped producing. None before the first poll.
 
     A function rather than a method because two sensors ask it -- this
@@ -392,7 +402,8 @@ class H500CameraSilent(H500Entity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, index: int, camera: dict) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         super().__init__(coordinator, index, camera)
         self._attr_unique_id = f"{camera['device_id']}_silent"
 
@@ -435,7 +446,8 @@ class H500Delivery(H500Entity, BinarySensorEntity):
 
     _attr_translation_key = "possible_delivery"
 
-    def __init__(self, coordinator, index: int, camera: dict) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         super().__init__(coordinator, index, camera)
         self._attr_unique_id = f"{camera['device_id']}_possible_delivery"
 
@@ -468,7 +480,8 @@ class H500Prowling(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
     _attr_translation_key = "prowling"
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: H500Coordinator,
+                 entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_prowling"
         self._attr_device_info = hub_device(coordinator, entry)
@@ -520,7 +533,8 @@ class H500MediaProblem(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: H500Coordinator,
+                 entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_media_problem"
         self._attr_device_info = hub_device(coordinator, entry)
@@ -569,7 +583,8 @@ class H500CamerasDark(CoordinatorEntity[H500Coordinator], BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: H500Coordinator,
+                 entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_cameras_dark"
         self._attr_device_info = hub_device(coordinator, entry)
@@ -616,7 +631,8 @@ class H500FaceSeenRecently(CoordinatorEntity[H500Coordinator], BinarySensorEntit
     _attr_has_entity_name = True
     _attr_translation_key = "face_present"
 
-    def __init__(self, coordinator, entry, face_id: str) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry,
+                 face_id: str) -> None:
         super().__init__(coordinator)
         self.face_id = str(face_id)
         self._attr_unique_id = f"{entry.entry_id}_face_{self.face_id}_recent"

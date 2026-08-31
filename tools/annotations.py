@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "tapo_h500"
 
 # Lowered as modules are annotated, never raised.
-CEILING = 116
+CEILING = 82
 
 
 def unannotated(path: Path) -> list[tuple[int, str]]:

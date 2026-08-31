@@ -8,6 +8,10 @@ reached through one call from there.
 """
 from __future__ import annotations
 
+from typing import Any
+
+from .models import Camera
+
 import logging
 
 import voluptuous as vol
@@ -166,14 +170,14 @@ SERVICES = (
 )
 
 
-def _public_camera(camera):
+def _public_camera(camera: Camera) -> dict[str, Any]:
     return {
         "alias": camera.get("alias") or camera.get("device_name") or "Camera",
         "model": camera.get("device_model"),
     }
 
 
-def _coordinator(hass, entry_id) -> H500Coordinator:
+def _coordinator(hass: HomeAssistant, entry_id: str) -> H500Coordinator:
     """The hub an action was aimed at.
 
     The actions are registered once, whether or not any hub is loaded, so
@@ -192,7 +196,8 @@ def _coordinator(hass, entry_id) -> H500Coordinator:
     return coordinator
 
 
-async def _resolve(hass, call: ServiceCall):
+async def _resolve(hass: HomeAssistant,
+                   call: ServiceCall) -> tuple[H500Coordinator, Camera]:
     """The coordinator and the selected camera for a service call."""
     coordinator = _coordinator(hass, call.data["config_entry_id"])
     try:
@@ -214,7 +219,7 @@ async def _resolve(hass, call: ServiceCall):
 
 def async_register(hass: HomeAssistant) -> None:
     """Register all thirteen. Called once, from the first entry set up."""
-    async def list_recordings(call: ServiceCall):
+    async def list_recordings(call: ServiceCall) -> dict[str, Any]:
         coordinator = _coordinator(hass, call.data["config_entry_id"])
         start_date = call.data.get("start_date")
         end_date = call.data.get("end_date")
@@ -288,7 +293,7 @@ def async_register(hass: HomeAssistant) -> None:
             ],
         }
 
-    async def download_recording(call: ServiceCall):
+    async def download_recording(call: ServiceCall) -> dict[str, Any]:
         coordinator, camera = await _resolve(hass, call)
         start_time = call.data["start_time"]
         end_time = call.data.get("end_time")
@@ -323,7 +328,7 @@ def async_register(hass: HomeAssistant) -> None:
         coordinator.async_update_listeners()
         return result
 
-    async def delete_recording(call: ServiceCall):
+    async def delete_recording(call: ServiceCall) -> dict[str, Any]:
         _, camera = await _resolve(hass, call)
         removed = await async_delete_clip(hass, camera, call.data["start_time"])
         if not removed:
@@ -332,7 +337,7 @@ def async_register(hass: HomeAssistant) -> None:
                 translation_key="no_downloaded_copy")
         return {"removed": removed}
 
-    async def format_hub_storage(call: ServiceCall):
+    async def format_hub_storage(call: ServiceCall) -> dict[str, Any]:
         coordinator = _coordinator(hass, call.data["config_entry_id"])
         _LOGGER.warning("Erasing all recordings on the H500 at %s",
                         coordinator.client.host)
@@ -345,7 +350,7 @@ def async_register(hass: HomeAssistant) -> None:
                 translation_placeholders={"error": str(err)}) from err
         return {"formatted": True}
 
-    async def name_face(call: ServiceCall):
+    async def name_face(call: ServiceCall) -> dict[str, Any]:
         """Give a hub face id a name, or clear it by passing none.
 
         Written to the config entry's options, which is what the per-face
@@ -367,7 +372,7 @@ def async_register(hass: HomeAssistant) -> None:
         return {"face_id": face_id, "name": name or None,
                 "named": sorted(names)}
 
-    async def describe_recording(call: ServiceCall):
+    async def describe_recording(call: ServiceCall) -> dict[str, Any]:
         """Ask a vision model what is in a recording's own frame.
 
         Nothing is sent anywhere unless this is called with an explicit agent,
@@ -414,7 +419,7 @@ def async_register(hass: HomeAssistant) -> None:
         return {"start_time": start_time, "description": description,
                 "agent_id": agent_id}
 
-    async def daily_summary(call: ServiceCall):
+    async def daily_summary(call: ServiceCall) -> dict[str, Any]:
         """One sentence per camera for the period.
 
         A service, not a schedule. Nothing is sent unless something calls it,
@@ -449,7 +454,7 @@ def async_register(hass: HomeAssistant) -> None:
                 options.get(CONF_NIGHT_END, DEFAULT_NIGHT_END)),
         }
 
-    async def find_face(call: ServiceCall):
+    async def find_face(call: ServiceCall) -> dict[str, Any]:
         """Every recording a person appears in, newest first.
 
         face_ids has been on every clip since the beginning and nothing could
@@ -473,7 +478,7 @@ def async_register(hass: HomeAssistant) -> None:
                 if start is not None:
                     matches.append((index, camera, clip, start, end))
 
-        def _describe_matches():
+        def _describe_matches() -> list[dict[str, Any]]:
             """Blocking: existing_clip stats the media directory per clip."""
             return [{
                 "camera": camera.get("alias") or f"Camera {index}",
@@ -486,7 +491,7 @@ def async_register(hass: HomeAssistant) -> None:
 
         found = await hass.async_add_executor_job(_describe_matches)
 
-        def _archive_matches():
+        def _archive_matches() -> list[dict[str, Any]]:
             """Sidecar hits from beyond the hub's one-day index."""
             live = {(item["camera_index"], item["start_time"])
                     for item in found}
@@ -512,13 +517,13 @@ def async_register(hass: HomeAssistant) -> None:
         return {"who": wanted, "face_ids": sorted(ids),
                 "count": len(found), "recordings": found}
 
-    async def export_recording(call: ServiceCall):
+    async def export_recording(call: ServiceCall) -> dict[str, Any]:
         """Copy a downloaded clip somewhere retention cannot reach."""
         _, camera = await _resolve(hass, call)
         return await async_export(hass, camera, call.data["start_time"],
                                   call.data["destination"])
 
-    async def backup_names(call: ServiceCall):
+    async def backup_names(call: ServiceCall) -> dict[str, Any]:
         """Hand back everything that was typed in rather than measured.
 
         Face names and the camera layout are the only state here a hub cannot
@@ -534,7 +539,7 @@ def async_register(hass: HomeAssistant) -> None:
         return snapshot(coordinator.face_names, coordinator.camera_ranks,
                         dict(coordinator.entry.options))
 
-    async def classify_downloads(call: ServiceCall):
+    async def classify_downloads(call: ServiceCall) -> dict[str, Any]:
         """Write missing sidecars for the archive that predates them.
 
         One detection-log query per camera-day that has an unclassified
@@ -553,7 +558,7 @@ def async_register(hass: HomeAssistant) -> None:
                 totals[key] += result[key]
         return totals
 
-    async def restore_names(call: ServiceCall):
+    async def restore_names(call: ServiceCall) -> dict[str, Any]:
         """Put a backup back, merging by default.
 
         Merging rather than replacing unless asked, because the common case is
@@ -581,7 +586,7 @@ def async_register(hass: HomeAssistant) -> None:
                 "camera_order": ranks if ranks is not None
                 else coordinator.camera_ranks}
 
-    async def snooze(call: ServiceCall):
+    async def snooze(call: ServiceCall) -> dict[str, Any]:
         """Mute notifications for a while, without disabling the automation.
 
         Turning the automation off is the alternative, and it is a thing
