@@ -556,10 +556,42 @@ class TheDashboardCard(unittest.TestCase):
         self.assertEqual(len(self.extra_js), 1)
         self.assertIn("?v=1.4.0", self.extra_js[0])
 
-    def test_a_resource_list_that_raises_falls_back_too(self):
-        resources = self._Resources(fails=RuntimeError("storage moved"))
-        run(self.init._async_register_card(self._hass(resources)))
-        self.assertEqual(len(self.extra_js), 1)
+    def test_a_resource_list_shaped_differently_falls_back_too(self):
+        """The three shapes a changed storage layout takes."""
+        for failure in (AttributeError("no resources"),
+                        KeyError("lovelace"),
+                        TypeError("not a collection")):
+            with self.subTest(failure=type(failure).__name__):
+                self.extra_js.clear()
+                resources = self._Resources(fails=failure)
+                run(self.init._async_register_card(self._hass(resources)))
+                self.assertEqual(len(self.extra_js), 1)
+
+    def test_an_unexpected_failure_is_not_swallowed(self):
+        """A broad catch here would hide a real bug in the resource write
+        behind a warning about the dashboard."""
+        resources = self._Resources(fails=RuntimeError("a real bug"))
+        with self.assertRaises(RuntimeError):
+            run(self.init._async_register_card(self._hass(resources)))
+
+    def test_the_fallback_says_so_where_somebody_will_see_it(self):
+        """The warning went to the log, where nobody reads it, and the only
+        other symptom is a card claiming its custom element does not exist."""
+        raised = []
+        self._patch(self.init, "card_not_registered",
+                    lambda hass, url: raised.append(url))
+        run(self.init._async_register_card(self._hass(None)))
+        self.assertEqual(len(raised), 1)
+        self.assertIn("?v=", raised[0], "the notice carries the real URL")
+
+    def test_and_clears_it_once_the_card_registers(self):
+        """A repair that never clears is worse than one that never appears --
+        and this one is cured by a Home Assistant upgrade as often as by
+        anything the owner does."""
+        cleared = []
+        self._patch(self.init, "card_registered", lambda hass: cleared.append(1))
+        run(self.init._async_register_card(self._hass(self._Resources())))
+        self.assertEqual(len(cleared), 1)
 
     def test_it_is_registered_once_however_many_hubs_there_are(self):
         """Two entries would serve the same static path twice, which raises,

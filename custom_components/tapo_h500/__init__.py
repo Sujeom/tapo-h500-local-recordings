@@ -24,6 +24,7 @@ from .const import (
 from .coordinator import H500Coordinator
 from .media import media_root
 from .preview import H500PreviewView
+from .repairs import card_not_registered, card_registered
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -148,8 +149,14 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     # Only one mechanism, or the file loads twice and the second define()
     # throws. The resource list is what dashboards actually read; the extra JS
     # URL is the fallback for when that is unavailable, such as YAML mode.
-    if not await _async_register_lovelace_resource(hass, versioned):
+    if await _async_register_lovelace_resource(hass, versioned):
+        card_registered(hass)
+    else:
+        # The fallback still works on a full frontend load, but somebody has
+        # to be told: the only other symptom is a card claiming its custom
+        # element does not exist, which reads as a broken card.
         add_extra_js_url(hass, versioned)
+        card_not_registered(hass, versioned)
     data[DATA_CARD] = True
 
 
@@ -174,7 +181,12 @@ async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> bo
                 return True
         await resources.async_create_item({"res_type": "module", "url": url})
         return True
-    except Exception as err:  # storage layout differs across versions
+    except (AttributeError, KeyError, TypeError) as err:
+        # The three shapes a changed storage layout takes: no lovelace
+        # key, no resources attribute, or a collection that is not the
+        # one this expects. Anything else is a real bug in the write
+        # above and must not be swallowed -- a broad catch here would
+        # hide it behind a warning about the dashboard.
         _LOGGER.warning(
             "Could not register the dashboard card automatically (%s). Add it "
             "by hand under Settings > Dashboards > Resources as a JavaScript "

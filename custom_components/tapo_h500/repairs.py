@@ -34,6 +34,9 @@ STORAGE_WARN_PERCENT = 95
 
 STORAGE_ISSUE = "storage_nearly_full"
 UNREACHABLE_ISSUE = "hub_unreachable"
+# Raised from setup rather than from the checks below: it happens once,
+# when the integration loads, and never again on a poll.
+CARD_ISSUE = "card_not_registered"
 UNNAMED_FACE_ISSUE = "unnamed_face"
 SILENT_CAMERA_ISSUE = "camera_silent"
 CLASHING_NAMES_ISSUE = "clashing_camera_names"
@@ -133,6 +136,29 @@ def _storage(hass: HomeAssistant, entry_id: str,
         translation_key=STORAGE_ISSUE,
         translation_placeholders={"used": str(used_percent)},
     )
+
+
+def card_not_registered(hass: HomeAssistant, url: str) -> None:
+    """Say that the dashboard card has to be added by hand.
+
+    The warning this replaces went to the log, where nobody reads it, and the
+    only other symptom is a card saying its custom element does not exist --
+    which reads as a broken card rather than a missing resource.
+    """
+    ir.async_create_issue(
+        hass, DOMAIN, CARD_ISSUE,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=CARD_ISSUE,
+        translation_placeholders={"url": url},
+    )
+
+
+def card_registered(hass: HomeAssistant) -> None:
+    """Clear it. A repair that never clears is worse than one that never
+    appears -- and this one is cured by a Home Assistant upgrade as often as
+    by anything the owner does."""
+    ir.async_delete_issue(hass, DOMAIN, CARD_ISSUE)
 
 
 def _reachable(hass: HomeAssistant, entry_id: str,

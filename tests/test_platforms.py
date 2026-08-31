@@ -47,6 +47,12 @@ _registry.IssueSeverity = types.SimpleNamespace(WARNING="warning",
                                                ERROR="error")
 sys.modules.setdefault("homeassistant.helpers.issue_registry", _registry)
 repairs = importlib.import_module("tapo_h500.repairs")
+# Rebound on the module that uses it, not just registered under the name.
+# setdefault only wins if nothing imported the registry first, and __init__
+# imports repairs -- so whichever test file loads first decides, and this
+# recorder silently stopped recording. The third time this shape of coupling
+# has bitten; see the contact sheet's camera_dir and the ffmpeg manager.
+repairs.ir = _registry
 const = importlib.import_module("tapo_h500.const")
 
 

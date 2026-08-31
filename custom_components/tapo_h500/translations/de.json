@@ -393,13 +393,41 @@
     }
   },
   "issues": {
-    "storage_nearly_full": {
-      "title": "Der Speicher des H500 ist zu {used} % belegt",
-      "description": "Die Basis beginnt gleich, ihre ältesten Aufnahmen zu überschreiben, um Platz zu schaffen. Die Ringaufnahme hört bei „voll“ nicht auf – sie verwirft das älteste Material stillschweigend. Laden Sie herunter, was Sie behalten möchten, und formatieren Sie den Speicher der Basis danach gegebenenfalls."
+    "camera_silent": {
+      "title": "Eine Kamera ist verstummt",
+      "description": "{cameras} hat seit {hours} Stunden nichts aufgezeichnet.\n\nMeist heißt das, sie ist ohne WLAN, leer oder ausgesteckt – es kann aber auch heißen, dass dort nichts passiert ist. Die Basis kann das nicht unterscheiden: ihr Eintrag über gekoppelte Geräte kennt weder einen Online-Status noch eine Signalstärke noch einen Akkustand, Stille ist also der einzige verfügbare Hinweis. Jede Entität dieser Kamera zeigt weiterhin ihren letzten bekannten Wert.\n\nPrüfen Sie die Kamera, oder erhöhen Sie den Schwellenwert unter „Konfigurieren“ → „Einstellungen“, wenn sie schlicht an einem ruhigen Ort hängt."
+    },
+    "camera_tampered": {
+      "title": "Eine Kamera hat eine Manipulation gemeldet",
+      "description": "{camera} hat um {when} eine Manipulation gemeldet ({count} Meldung(en) am letzten Tag).\n\nDas ist der eigene Alarm der Basis dafür, dass jemand die Kamera angefasst hat – angestoßen, verdeckt oder von der Halterung genommen. Es wurde an echter Hardware bestätigt, indem eine Kamera von ihrer Halterung genommen wurde; es bedeutet also, was es sagt, aber ein Stoß oder eine kräftige Böe kann es ebenfalls auslösen.\n\nEher prüfen als wegklicken: alles andere, was diese Integration meldet, ist außerhalb des Hauses passiert, dies betrifft die Kamera selbst. Ist es echt, sind die Aufnahmen danach die, die Sie brauchen werden – prüfen Sie, ob die Kamera noch dorthin zeigt, wo sie soll, und ob ihre jüngsten Clips auf der Basis liegen.\n\nDer Hinweis verschwindet von selbst, sobald die Meldung aus den letzten 24 Stunden herausfällt."
+    },
+    "card_not_registered": {
+      "title": "Die Dashboard-Karte konnte nicht automatisch hinzugefügt werden",
+      "description": "Der Dashboard-Speicher von Home Assistant sah nicht so aus, wie diese Integration es erwartet. Die Tapo-H500-Karte wurde daher nicht registriert, und jede Karte, die sie verwendet, meldet, dass ihr benutzerdefiniertes Element nicht existiert.\n\nFüge sie von Hand hinzu: **Einstellungen → Dashboards → Drei-Punkte-Menü → Ressourcen → Ressource hinzufügen**, mit der URL `{url}` und dem Typ **JavaScript-Modul**. Lade die Seite anschließend neu.\n\nDieser Hinweis verschwindet von selbst, sobald die Karte registriert wird."
+    },
+    "clashing_camera_names": {
+      "title": "Zwei Kameras haben denselben Namen",
+      "description": "Mehr als eine gekoppelte Kamera heißt {cameras}, ihre Downloads landen deshalb im selben Ordner.\n\nAufnahmen werden unter einer Kurzform des Kameranamens abgelegt; genau das macht „schon heruntergeladen“ zu einer Prüfung der Dateien auf der Platte statt zu einem eigenen Index, der ihnen widersprechen könnte. Teilen sich zwei Kameras einen Namen, beantwortet die Aufnahme der einen diese Frage für die andere, und auf der geöffneten Karte erscheinen Clips von beiden.\n\nBenennen Sie eine davon in der Tapo-App um. Bereits Heruntergeladenes bleibt, wo es ist; neue Aufnahmen gehen in den neuen Ordner."
+    },
+    "downloads_failing": {
+      "title": "Aufnahmen von {cameras} werden nicht heruntergeladen",
+      "description": "{count} automatische Downloads in Folge sind fehlgeschlagen. Die Aufnahmen liegen weiterhin auf der Basis, erscheinen aber erst in Home Assistant, wenn das behoben ist, und die Basis überschreibt sie irgendwann. Das Protokoll (Einstellungen → System → Protokolle, nach „tapo_h500“ suchen) sagt, warum jeder einzelne fehlgeschlagen ist – eine volle Platte und ein fehlendes ffmpeg sind die üblichen Gründe. Dieser Hinweis verschwindet von selbst, sobald ein Download gelingt."
     },
     "hub_unreachable": {
       "title": "Der H500 antwortet nicht",
       "description": "Die Basis antwortet nicht mehr, es wird also nichts nach Home Assistant aufgezeichnet und jede Entität zeigt ihren letzten bekannten Wert. Prüfen Sie, ob sie mit Strom versorgt und im Netzwerk ist. Ist der Benutzername eine TP-Link-E-Mail-Adresse statt eines lokalen Kontos, lehnt die Basis ihn mit einem Fehler ab, der von „offline“ nicht zu unterscheiden ist."
+    },
+    "media_wedged": {
+      "title": "Der H500 liefert keine Aufnahmen mehr",
+      "description": "Die Basis erkennt weiterhin Ereignisse, aber ihr Mediendienst liefert keine Aufnahmen mehr – entweder lehnt er Sitzungen rundweg ab, oder er beantwortet sie sauber und ohne Video darin. Fotos in Benachrichtigungen, Vorschauen und Downloads schlagen fehl, bis er sich erholt, und in Tests hat nur ein Neustart der Basis einen der beiden Zustände behoben: die Schaltfläche „Neu starten“ auf ihrer Geräteseite drücken oder sie vom Strom trennen. Aufnahmen, die bereits auf der Basis liegen, gehen nicht verloren."
+    },
+    "restart_ineffective": {
+      "title": "Der Neustart der Basis hat ihren Aufnahmedienst nicht repariert",
+      "description": "Die Basis wurde automatisch neu gestartet und der Fehler war sofort wieder da – das ist bisher nie vorgekommen, es ist also etwas Neues und nicht der bekannte Aussetzer. Automatische Neustarts sind angehalten, bis wieder Aufnahmen geliefert werden, damit die Spuren nicht weggestartet werden. Laden Sie die Diagnose aus dem Menü der Integration herunter und eröffnen Sie damit einen Fehlerbericht; ein Trennen vom Strom (ausstecken, warten, wieder einstecken) ist einen Versuch wert, und falls Aufnahmen, die während des Fehlers entstanden sind, leer abspielen, erwähnen Sie das – dann wurde das Video nie geschrieben."
+    },
+    "storage_nearly_full": {
+      "title": "Der Speicher des H500 ist zu {used} % belegt",
+      "description": "Die Basis beginnt gleich, ihre ältesten Aufnahmen zu überschreiben, um Platz zu schaffen. Die Ringaufnahme hört bei „voll“ nicht auf – sie verwirft das älteste Material stillschweigend. Laden Sie herunter, was Sie behalten möchten, und formatieren Sie den Speicher der Basis danach gegebenenfalls."
     },
     "unnamed_face": {
       "title": "Ein Gesicht, das die Basis immer wieder sieht, hat keinen Namen",
@@ -414,30 +442,6 @@
           }
         }
       }
-    },
-    "camera_silent": {
-      "title": "Eine Kamera ist verstummt",
-      "description": "{cameras} hat seit {hours} Stunden nichts aufgezeichnet.\n\nMeist heißt das, sie ist ohne WLAN, leer oder ausgesteckt – es kann aber auch heißen, dass dort nichts passiert ist. Die Basis kann das nicht unterscheiden: ihr Eintrag über gekoppelte Geräte kennt weder einen Online-Status noch eine Signalstärke noch einen Akkustand, Stille ist also der einzige verfügbare Hinweis. Jede Entität dieser Kamera zeigt weiterhin ihren letzten bekannten Wert.\n\nPrüfen Sie die Kamera, oder erhöhen Sie den Schwellenwert unter „Konfigurieren“ → „Einstellungen“, wenn sie schlicht an einem ruhigen Ort hängt."
-    },
-    "clashing_camera_names": {
-      "title": "Zwei Kameras haben denselben Namen",
-      "description": "Mehr als eine gekoppelte Kamera heißt {cameras}, ihre Downloads landen deshalb im selben Ordner.\n\nAufnahmen werden unter einer Kurzform des Kameranamens abgelegt; genau das macht „schon heruntergeladen“ zu einer Prüfung der Dateien auf der Platte statt zu einem eigenen Index, der ihnen widersprechen könnte. Teilen sich zwei Kameras einen Namen, beantwortet die Aufnahme der einen diese Frage für die andere, und auf der geöffneten Karte erscheinen Clips von beiden.\n\nBenennen Sie eine davon in der Tapo-App um. Bereits Heruntergeladenes bleibt, wo es ist; neue Aufnahmen gehen in den neuen Ordner."
-    },
-    "camera_tampered": {
-      "title": "Eine Kamera hat eine Manipulation gemeldet",
-      "description": "{camera} hat um {when} eine Manipulation gemeldet ({count} Meldung(en) am letzten Tag).\n\nDas ist der eigene Alarm der Basis dafür, dass jemand die Kamera angefasst hat – angestoßen, verdeckt oder von der Halterung genommen. Es wurde an echter Hardware bestätigt, indem eine Kamera von ihrer Halterung genommen wurde; es bedeutet also, was es sagt, aber ein Stoß oder eine kräftige Böe kann es ebenfalls auslösen.\n\nEher prüfen als wegklicken: alles andere, was diese Integration meldet, ist außerhalb des Hauses passiert, dies betrifft die Kamera selbst. Ist es echt, sind die Aufnahmen danach die, die Sie brauchen werden – prüfen Sie, ob die Kamera noch dorthin zeigt, wo sie soll, und ob ihre jüngsten Clips auf der Basis liegen.\n\nDer Hinweis verschwindet von selbst, sobald die Meldung aus den letzten 24 Stunden herausfällt."
-    },
-    "media_wedged": {
-      "title": "Der H500 liefert keine Aufnahmen mehr",
-      "description": "Die Basis erkennt weiterhin Ereignisse, aber ihr Mediendienst liefert keine Aufnahmen mehr – entweder lehnt er Sitzungen rundweg ab, oder er beantwortet sie sauber und ohne Video darin. Fotos in Benachrichtigungen, Vorschauen und Downloads schlagen fehl, bis er sich erholt, und in Tests hat nur ein Neustart der Basis einen der beiden Zustände behoben: die Schaltfläche „Neu starten“ auf ihrer Geräteseite drücken oder sie vom Strom trennen. Aufnahmen, die bereits auf der Basis liegen, gehen nicht verloren."
-    },
-    "downloads_failing": {
-      "title": "Aufnahmen von {cameras} werden nicht heruntergeladen",
-      "description": "{count} automatische Downloads in Folge sind fehlgeschlagen. Die Aufnahmen liegen weiterhin auf der Basis, erscheinen aber erst in Home Assistant, wenn das behoben ist, und die Basis überschreibt sie irgendwann. Das Protokoll (Einstellungen → System → Protokolle, nach „tapo_h500“ suchen) sagt, warum jeder einzelne fehlgeschlagen ist – eine volle Platte und ein fehlendes ffmpeg sind die üblichen Gründe. Dieser Hinweis verschwindet von selbst, sobald ein Download gelingt."
-    },
-    "restart_ineffective": {
-      "title": "Der Neustart der Basis hat ihren Aufnahmedienst nicht repariert",
-      "description": "Die Basis wurde automatisch neu gestartet und der Fehler war sofort wieder da – das ist bisher nie vorgekommen, es ist also etwas Neues und nicht der bekannte Aussetzer. Automatische Neustarts sind angehalten, bis wieder Aufnahmen geliefert werden, damit die Spuren nicht weggestartet werden. Laden Sie die Diagnose aus dem Menü der Integration herunter und eröffnen Sie damit einen Fehlerbericht; ein Trennen vom Strom (ausstecken, warten, wieder einstecken) ist einen Versuch wert, und falls Aufnahmen, die während des Fehlers entstanden sind, leer abspielen, erwähnen Sie das – dann wurde das Video nie geschrieben."
     }
   },
   "exceptions": {

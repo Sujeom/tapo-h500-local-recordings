@@ -189,6 +189,19 @@ new, which is a silent failure a single file cannot have.
 Eight card types share one base class. The base does loading, rendering and
 click handling; each card supplies a `body()` and a stylesheet.
 
+## The one thing that reaches into another integration
+
+`_async_register_lovelace_resource` reads `hass.data["lovelace"].resources`
+— Lovelace's own storage, with no public API and a layout that has changed
+shape across Home Assistant versions. It is the integration's only dependency
+on private internals, and therefore the first place to look after a core
+upgrade.
+
+It is handled rather than hoped for: the three shapes a changed layout takes
+are caught, anything else is allowed to surface, and a failure raises a repair
+notice with the manual steps rather than only a log line. Known to work on
+2024.11 through 2025.8, checked 2026-08-31.
+
 ## What is not here
 
 No database, no state written to disk beyond the recordings and the config
