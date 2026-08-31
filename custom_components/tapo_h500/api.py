@@ -9,7 +9,7 @@ import time
 import uuid
 from collections import deque
 from datetime import datetime, timedelta, timezone
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 
 from pytapo import Tapo
@@ -18,6 +18,7 @@ from pytapo.media_stream.crypto import AESHelper
 from pytapo.media_stream.session import HttpMediaSession
 
 from .clips import attach_detections, flatten_clips, start_of
+from .models import Camera, Clip, Detection, HubStatus
 from .const import SESSION_HISTORY
 from .status import (
     HUB_STATUS_REQUESTS, basic_info, firmware_upgrade, unpack_multiple,
@@ -63,13 +64,14 @@ class _EmptyNonce(bytes):
     intact rather than reimplementing it here.
     """
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return True
 
 
 class H500AESHelper(AESHelper):
-    def __init__(self, username, nonce, cloud_password, super_secret_key,
-                 encryptionMethod):
+    def __init__(self, username: str, nonce: bytes | None,
+                 cloud_password: str, super_secret_key: str,
+                 encryptionMethod: object) -> None:
         super().__init__(username, nonce or _EmptyNonce(), cloud_password,
                          super_secret_key, encryptionMethod)
 
@@ -86,14 +88,16 @@ class IncompleteRecordingError(Exception):
 class H500MediaSession(HttpMediaSession):
     """Match the H500's required outer POST framing."""
 
-    async def _send_http_request(self, delimiter, headers):
+    async def _send_http_request(self, delimiter: bytes,
+                                 headers: dict[bytes, bytes]) -> None:
         headers = dict(headers)
         if delimiter.startswith(b"POST "):
             headers[b"Content-Length"] = b"0"
         await super()._send_http_request(delimiter, headers)
 
 
-def build_download_payload(camera, start_time, end_time, player_id, client_id):
+def build_download_payload(camera: Camera, start_time: int, end_time: int,
+                           player_id: str, client_id: int) -> dict[str, Any]:
     return {
         "type": "request",
         "seq": 1,
@@ -172,7 +176,7 @@ AUTH_ERROR_CODES = frozenset({-40414, -40418})
 
 # pytapo's only route for a code that survived its own retries is the text of
 # `Exception("Error: <msg>, Response: {... \"error_code\": N ...}")`.
-def _refused_code(err):
+def _refused_code(err: BaseException) -> int | None:
     """The TOP-LEVEL error_code of the body pytapo raised on, or None.
 
     Reading this with a regex over the message text is what a first draft does,
@@ -237,7 +241,8 @@ def is_auth_failure(err: BaseException) -> bool:
 
 
 class H500Client:
-    def __init__(self, host, username, password, cloud_password, debug=False):
+    def __init__(self, host: str, username: str, password: str,
+                 cloud_password: str, debug: bool = False) -> None:
         self.debug = debug
         self.host = host
         self.username = username
@@ -270,7 +275,7 @@ class H500Client:
         # Proven on 1.3.20; a refusal downgrades to single calls for good.
         self._batch_supported = True
 
-    def connect(self):
+    def connect(self) -> dict[str, Any]:
         try:
             self._hub = Tapo(
                 self.host, self.username, self.password, self.cloud_password,
@@ -323,7 +328,7 @@ class H500Client:
                 "getCloudConfig", {"cloud_config": {"name": ["upgrade_info"]}})
         return firmware_upgrade({"getCloudConfig": reply})
 
-    def reboot(self):
+    def reboot(self) -> Any:
         """Restart the hub, immediately. Blocking; run in an executor.
 
         pytapo's standard immediate-reboot verb, the one it uses across
@@ -358,12 +363,12 @@ class H500Client:
         """check_media_port against this hub. Blocking; run in an executor."""
         return check_media_port(self.host)
 
-    def close(self):
+    def close(self) -> None:
         if self._hub:
             self._hub.close()
             self._hub = None
 
-    def cameras(self):
+    def cameras(self) -> list[Camera]:
         with self._hub_lock:
             result = self._hub.executeFunction(
                 "getGeneralDeviceList",
@@ -372,14 +377,15 @@ class H500Client:
         return result.get("general_camera_manage", {}).get(
             "paired_general_device_list", [])
 
-    def camera_at(self, index):
+    def camera_at(self, index: int) -> Camera:
         cameras = self.cameras()
         if index < 0 or index >= len(cameras):
             raise ValueError(
                 f"Camera index must be between 0 and {len(cameras) - 1}")
         return cameras[index]
 
-    def _search_videos(self, camera, start_time, end_time):
+    def _search_videos(self, camera: Camera, start_time: int,
+                       end_time: int) -> list[Clip]:
         """One indexed-clip lookup over an exact UTC window."""
         with self._hub_lock:
             clips = self._hub.executeFunction(
@@ -395,7 +401,10 @@ class H500Client:
             )
         return flatten_clips(clips)
 
-    def recordings(self, camera_index=0, start_date=None, end_date=None):
+    def recordings(self, camera_index: int = 0,
+                   start_date: str | None = None,
+                   end_date: str | None = None
+                   ) -> tuple[Camera, list[Clip]]:
         camera = self.camera_at(camera_index)
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
         start_date = start_date or today
@@ -438,11 +447,13 @@ class H500Client:
                     camera, min(moments) - 60, max(moments) + 60))
         return camera, found
 
-    def recent(self, camera, start_time, end_time):
+    def recent(self, camera: Camera, start_time: int,
+               end_time: int) -> list[Clip]:
         """Clips indexed in a short window, used by the event poller."""
         return self._search_videos(camera, start_time, end_time)
 
-    def detections(self, camera, start_time, end_time):
+    def detections(self, camera: Camera, start_time: int,
+                   end_time: int) -> list[Detection] | None:
         """Hub-side detection log: what actually triggered each recording.
 
         Verified on firmware 1.3.20 -- every clip in a three-day window had a
@@ -476,7 +487,8 @@ class H500Client:
         # not a refusal, so it must not disable the call.
         return detections if isinstance(detections, list) else []
 
-    def activity(self, camera, start_time, end_time):
+    def activity(self, camera: Camera, start_time: int, end_time: int
+                 ) -> tuple[list[Clip], list[Detection] | None]:
         """Both per-camera searches -- clips and detections -- in one round
         trip.
 
@@ -539,7 +551,7 @@ class H500Client:
         # refusal, exactly as in detections().
         return clips, detections if isinstance(detections, list) else []
 
-    def hub_status(self):
+    def hub_status(self) -> HubStatus:
         """Every hub-level reading in a single round trip.
 
         Batched deliberately: this hub is easy to wedge, and one
@@ -554,25 +566,25 @@ class H500Client:
             })
         return unpack_multiple(response)
 
-    def _set(self, method, params):
+    def _set(self, method: str, params: dict[str, Any]) -> Any:
         with self._hub_lock:
             return self._hub.executeFunction(method, params)
 
-    def set_led(self, on: bool):
+    def set_led(self, on: bool) -> Any:
         return self._set("setLedStatus",
                          {"led": {"config": {"enabled": "on" if on else "off"}}})
 
-    def set_loop_recording(self, on: bool):
+    def set_loop_recording(self, on: bool) -> Any:
         return self._set(
             "setCircularRecordingConfig",
             {"harddisk_manage": {"harddisk": {"loop": "on" if on else "off"}}})
 
-    def set_diagnose_mode(self, on: bool):
+    def set_diagnose_mode(self, on: bool) -> Any:
         return self._set(
             "setDiagnoseMode",
             {"system": {"sys": {"diagnose_mode": "on" if on else "off"}}})
 
-    def set_face_detection(self, detection: dict):
+    def set_face_detection(self, detection: dict[str, Any]) -> Any:
         """Replace the whole detection block.
 
         The hub rejects a bare `enabled` with -40211; only the complete block,
@@ -581,7 +593,7 @@ class H500Client:
         return self._set("setFaceDetectionConfig",
                          {"face_detection": {"detection": detection}})
 
-    def set_auto_upgrade(self, config: dict):
+    def set_auto_upgrade(self, config: dict[str, Any]) -> Any:
         """Replace the whole auto-upgrade block.
 
         The hub takes `common` wholesale, so the caller passes the current
@@ -591,7 +603,7 @@ class H500Client:
         return self._set("setFirmwareAutoUpgradeConfig",
                          {"auto_upgrade": {"common": config}})
 
-    def siren_tones(self):
+    def siren_tones(self) -> list[str]:
         """The hub's own list of siren sounds.
 
         Fetched once at setup rather than every poll: it is a fixed table.
@@ -602,11 +614,13 @@ class H500Client:
         return [tone for tone in tones if isinstance(tone, str)] \
             if isinstance(tones, list) else []
 
-    def set_siren(self, on: bool):
+    def set_siren(self, on: bool) -> Any:
         return self._set("setSirenStatus",
                          {"siren": {"status": "on" if on else "off"}})
 
-    def set_siren_config(self, tone=None, volume=None, duration=None):
+    def set_siren_config(self, tone: str | None = None,
+                         volume: int | None = None,
+                         duration: int | None = None) -> Any:
         """Change the sound, loudness or run time of the hub siren.
 
         Volume is 1-10; the hub rejects 0 and 11 with -40209. Sending only the
@@ -623,7 +637,7 @@ class H500Client:
             return None
         return self._set("setSirenConfig", {"siren": siren})
 
-    def format_storage(self):
+    def format_storage(self) -> Any:
         """Erase hub storage.
 
         The hub exposes no per-clip delete, so this is the only hub-side
@@ -648,7 +662,8 @@ class H500Client:
             "failed": recent.count("failed"),
         }
 
-    async def iter_recording(self, camera, start_time, end_time,
+    async def iter_recording(self, camera: Camera, start_time: int,
+                             end_time: int,
                              kind: str = "download") -> AsyncIterator[bytes]:
         """Stream one recording off the hub's media port.
 
