@@ -226,20 +226,28 @@ class TheChangelog(unittest.TestCase):
             self._entries()[0].startswith(f"## v{manifest['version']}"),
             f"newest entry is {self._entries()[0]!r}")
 
-    def test_there_is_an_entry_per_version_tag(self):
-        """The count is what catches a generator that stopped at a page
-        boundary, which is the failure nobody reads far enough to notice."""
+    def test_every_version_tag_in_this_checkout_has_an_entry(self):
+        """Catches a generator that stopped at a page boundary, which is the
+        failure nobody reads far enough to notice.
+
+        A superset rather than an exact match, deliberately. A checkout can
+        hold fewer tags than the file describes -- CI sees only what has been
+        pushed, and eight tags here had not been -- and that is a fact about
+        the checkout, not a broken changelog. Entries missing for tags that
+        ARE present is the real failure, and that is what this asserts.
+        """
         try:
             listed = subprocess.run(
                 ["git", "tag"], cwd=ROOT, capture_output=True, text=True,
                 check=True).stdout.split()
         except (FileNotFoundError, subprocess.CalledProcessError):
             self.skipTest("no tags in this checkout")
-        versions = [name for name in listed
-                    if re.match(r"^v\d+\.\d+\.\d+", name)]
+        versions = {name for name in listed
+                    if re.match(r"^v\d+\.\d+\.\d+", name)}
         if not versions:
             self.skipTest("no version tags in this checkout")
-        self.assertEqual(len(self._entries()), len(versions))
+        described = {line.split()[1] for line in self._entries()}
+        self.assertEqual(sorted(versions - described), [])
 
     def test_it_says_where_it_came_from(self):
         """So the next person regenerates it rather than editing it."""

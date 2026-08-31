@@ -174,5 +174,22 @@ class TheLoggers(unittest.TestCase):
         self.assertNotIn(MANIFEST["domain"], MANIFEST["loggers"])
 
 
+
+class TheKeysAreInTheOrderHassfestWants(unittest.TestCase):
+    """domain and name first, then the rest alphabetically.
+
+    hassfest fails on any other order, and it is the one check that does not
+    run locally -- so a tidy-up that sorts the whole file goes green here and
+    red on the push.
+    """
+
+    def test_domain_and_name_lead(self):
+        self.assertEqual(list(MANIFEST)[:2], ["domain", "name"])
+
+    def test_the_rest_are_alphabetical(self):
+        rest = list(MANIFEST)[2:]
+        self.assertEqual(rest, sorted(rest))
+
+
 if __name__ == "__main__":
     unittest.main()
