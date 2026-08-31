@@ -1,6 +1,16 @@
 """Hub and per-camera sensors, built only from responses seen on real hardware."""
 from __future__ import annotations
 
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from homeassistant.helpers.typing import StateType
+
+if TYPE_CHECKING:
+    from homeassistant.helpers.device_registry import DeviceInfo
+
+from .models import Camera
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -275,7 +285,7 @@ async def async_setup_entry(
     entities.append(H500Household(coordinator, entry))
     async_add_entities(entities)
 
-    def _for_camera(index, camera) -> list[SensorEntity]:
+    def _for_camera(index: int, camera: Camera) -> list[SensorEntity]:
         return (
             [H500CameraSensor(coordinator, index, camera, description)
              for description in CAMERA_SENSORS]
@@ -329,7 +339,8 @@ class H500HubSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, entry, description: HubSensor) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry,
+                 description: HubSensor) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
@@ -338,7 +349,7 @@ class H500HubSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
         self._attr_device_info = hub_device(coordinator, entry)
 
     @property
-    def native_value(self):
+    def native_value(self) -> StateType | datetime:
         return self.entity_description.value(self.coordinator.readings)
 
     @property
@@ -354,7 +365,8 @@ class H500HubSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
 
 
 class H500CameraSensor(H500Entity, SensorEntity):
-    def __init__(self, coordinator, index, camera, description: CameraSensor) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera, description: CameraSensor) -> None:
         super().__init__(coordinator, index, camera)
         self.entity_description = description
         self._attr_unique_id = f"{camera['device_id']}_{description.key}"
@@ -362,7 +374,7 @@ class H500CameraSensor(H500Entity, SensorEntity):
             self._attr_entity_registry_enabled_default = False
 
     @property
-    def native_value(self):
+    def native_value(self) -> StateType | datetime:
         return self.entity_description.value(
             self.coordinator, self.index, self.camera)
 
@@ -384,7 +396,8 @@ class H500Visits(H500Entity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "visits"
 
-    def __init__(self, coordinator, index: int, camera: dict) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         super().__init__(coordinator, index, camera)
         self._attr_unique_id = f"{camera['device_id']}_visits_24h"
 
@@ -432,7 +445,8 @@ class H500ActivityLevel(H500Entity, SensorEntity):
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(ACTIVITY_LEVELS)
 
-    def __init__(self, coordinator, index: int, camera: dict) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         super().__init__(coordinator, index, camera)
         self._attr_unique_id = f"{camera['device_id']}_activity_level"
 
@@ -462,7 +476,8 @@ class H500ActivityLevel(H500Entity, SensorEntity):
         }
 
 
-def hub_device(coordinator: H500Coordinator, entry: ConfigEntry):
+def hub_device(coordinator: H500Coordinator,
+               entry: ConfigEntry) -> DeviceInfo:
     from homeassistant.helpers.device_registry import DeviceInfo
 
     # Fetched once at connect rather than polled: pytapo asks getDeviceInfo to
@@ -508,13 +523,14 @@ class H500StorageForecast(CoordinatorEntity[H500Coordinator], SensorEntity):
     _attr_native_unit_of_measurement = UnitOfTime.DAYS
     _attr_suggested_display_precision = 1
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: H500Coordinator,
+                 entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_storage_full_in"
         self._attr_device_info = hub_device(coordinator, entry)
 
     @property
-    def native_value(self):
+    def native_value(self) -> float | None:
         return self.coordinator.days_until_full()
 
     @property
@@ -559,7 +575,8 @@ class H500WedgeClock(CoordinatorEntity[H500Coordinator], SensorEntity):
     _attr_suggested_display_precision = 1
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: H500Coordinator,
+                 entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_media_healthy_for"
         self._attr_device_info = hub_device(coordinator, entry)
@@ -611,7 +628,8 @@ class H500MediaSessions(CoordinatorEntity[H500Coordinator], SensorEntity):
     _attr_native_unit_of_measurement = "sessions"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: H500Coordinator,
+                 entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_media_sessions"
         self._attr_device_info = hub_device(coordinator, entry)
@@ -622,7 +640,7 @@ class H500MediaSessions(CoordinatorEntity[H500Coordinator], SensorEntity):
         return getattr(self.coordinator.client, "session_health", None) or {}
 
     @property
-    def native_value(self):
+    def native_value(self) -> int | None:
         return self._health().get("sessions")
 
     @property
@@ -663,7 +681,8 @@ class H500Household(CoordinatorEntity[H500Coordinator], SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "people"
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: H500Coordinator,
+                 entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_people_seen_recently"
         self._attr_device_info = hub_device(coordinator, entry)
@@ -698,7 +717,8 @@ class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
-    def __init__(self, coordinator, entry, face_id: str) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry,
+                 face_id: str) -> None:
         super().__init__(coordinator)
         self.face_id = str(face_id)
         self._attr_unique_id = f"{entry.entry_id}_face_{self.face_id}"
@@ -720,7 +740,7 @@ class H500FaceSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
         return self.coordinator.person_for(self.face_id)
 
     @property
-    def native_value(self):
+    def native_value(self) -> datetime | None:
         seen = self._face.get("last_seen")
         return dt_util.utc_from_timestamp(seen) if seen else None
 
@@ -788,7 +808,8 @@ class H500FaceLocationSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
     # and giving it one would change its entity id.
     _attr_icon = "mdi:map-marker-account"
 
-    def __init__(self, coordinator, entry, face_id: str) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry,
+                 face_id: str) -> None:
         super().__init__(coordinator)
         self.face_id = str(face_id)
         self._attr_unique_id = f"{entry.entry_id}_face_{self.face_id}_location"
@@ -806,7 +827,7 @@ class H500FaceLocationSensor(CoordinatorEntity[H500Coordinator], SensorEntity):
         return self.coordinator.person_for(self.face_id)
 
     @property
-    def native_value(self):
+    def native_value(self) -> str | None:
         # None rather than "unknown" or a stale camera: outside the polled
         # window there is genuinely no answer, and inventing one would read as
         # "they are at the front door" long after they left.
