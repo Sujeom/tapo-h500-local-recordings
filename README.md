@@ -8,8 +8,10 @@ thumbnails, eight dashboard cards, a calendar of everything it saw, and hub
 controls such as the siren.
 
 > **Work in progress.** Reverse engineered against one setup (firmware `1.3.20`,
-> two TD21 doorbells). Entity names and options may change without a migration.
-> There is no live view — see [docs/limitations.md](docs/limitations.md).
+> two TD21 doorbells). Entity ids are frozen and held by a test, so an
+> automation you write today keeps working; a change to one is a deliberate act
+> with a migration attached. There is no live view — see
+> [docs/limitations.md](docs/limitations.md).
 
 ## What it is for
 

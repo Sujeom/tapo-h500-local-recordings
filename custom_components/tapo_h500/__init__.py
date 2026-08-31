@@ -182,6 +182,26 @@ async def _async_register_lovelace_resource(hass: HomeAssistant, url: str) -> bo
         return False
 
 
+async def async_migrate_entry(hass: HomeAssistant,
+                              entry: ConfigEntry) -> bool:
+    """Bring an entry written by an older version up to date.
+
+    There are no migrations yet, and that is exactly why this is here. Face
+    names live on this entry -- months of opening photographs to work out who
+    a twelve-digit number is -- along with the camera layout and every setting
+    somebody typed. The first migration should be a small change to a function
+    that already exists and is already tested, rather than a new one written
+    under pressure on the day something has to change.
+
+    An entry from a newer version is refused rather than opened. That happens
+    when Home Assistant is downgraded, and reading a shape this version does
+    not understand is how the names get lost for real.
+    """
+    if entry.version > 1:
+        return False
+    return True
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
