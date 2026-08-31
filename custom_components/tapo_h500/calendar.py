@@ -14,6 +14,8 @@ detection search is about 17ms.
 """
 from __future__ import annotations
 
+from .models import Camera
+
 import logging
 from datetime import datetime, timedelta
 
@@ -25,6 +27,7 @@ from homeassistant.util import dt as dt_util
 
 from .clips import describe_detection, end_of, face_ids, start_of
 
+from .coordinator import H500Coordinator
 from .entity import add_cameras_as_they_appear, H500Entity
 
 # Unlimited: nothing here polls the hub. Every value comes from the
@@ -59,7 +62,8 @@ async def async_setup_entry(
 class H500Calendar(H500Entity, CalendarEntity):
     _attr_translation_key = "recordings"
 
-    def __init__(self, coordinator, index: int, camera: dict) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         super().__init__(coordinator, index, camera)
         self._attr_unique_id = f"{camera['device_id']}_calendar"
 

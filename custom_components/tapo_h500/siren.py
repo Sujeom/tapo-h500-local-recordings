@@ -7,6 +7,9 @@ Assistant's 0.0-1.0 level is scaled onto that range.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import logging
 from functools import partial
 
@@ -50,7 +53,7 @@ class H500Siren(CoordinatorEntity[H500Coordinator], SirenEntity):
     _attr_has_entity_name = True
     _attr_translation_key = "siren"
 
-    def __init__(self, coordinator, entry: ConfigEntry, tones: list[str]) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry, tones: list[str]) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_siren"
         self._attr_device_info = hub_device(coordinator, entry)
@@ -93,7 +96,7 @@ class H500Siren(CoordinatorEntity[H500Coordinator], SirenEntity):
         await self._call(partial(self.coordinator.client.set_siren, False))
         await self.coordinator.async_refresh_after_write()
 
-    async def _call(self, action) -> None:
+    async def _call(self, action: Callable[[], Any]) -> None:
         # Deliberately does not refresh: turning on can be two calls, and this
         # hub is easy to overload, so the caller polls once at the end instead.
         try:

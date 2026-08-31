@@ -22,8 +22,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "tapo_h500"
 
-# Lowered as modules are annotated, never raised.
-CEILING = 51
+# Zero, and it stays zero. Every function in the component says what it
+# takes and returns; the gate now refuses the first one that does not.
+CEILING = 0
 
 
 def unannotated(path: Path) -> list[tuple[int, str]]:

@@ -42,8 +42,8 @@ class TheCeilingIsHonest(unittest.TestCase):
     def test_it_only_ever_goes_down(self):
         """Asserted by the gate refusing both directions; this is the
         statement of intent."""
-        self.assertLessEqual(self.tool.CEILING, 162,
-                             "the ceiling was 162 when this was written")
+        self.assertEqual(self.tool.CEILING, 0,
+                         "everything is annotated; the ceiling is the floor")
 
 
 class WhatCountsAsAnnotated(unittest.TestCase):

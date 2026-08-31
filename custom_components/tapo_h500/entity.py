@@ -1,15 +1,26 @@
 """Shared device identity, and adding entities for a camera the hub reports after setup."""
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import H500Coordinator
+from .models import Camera
+
+if TYPE_CHECKING:
+    # Only ever an annotation. Importing it for real would pull in a Home
+    # Assistant module this package does not otherwise need.
+    from homeassistant.helpers.entity import Entity
 
 
-def camera_name(camera, index: int) -> str:
+def camera_name(camera: Camera, index: int) -> str:
     return camera.get("alias") or camera.get("device_name") or f"Camera {index}"
 
 
@@ -37,8 +48,12 @@ class H500Entity(CoordinatorEntity[H500Coordinator]):
         )
 
 
-def add_cameras_as_they_appear(coordinator, entry, async_add_entities,
-                               build) -> None:
+def add_cameras_as_they_appear(
+    coordinator: H500Coordinator,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+    build: Callable[[int, Camera], list[Entity]],
+) -> None:
     """Build entities for cameras the hub reports later, not only now.
 
     The paired list is refreshed on a schedule, so a doorbell paired after

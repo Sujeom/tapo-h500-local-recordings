@@ -6,6 +6,10 @@ without a hub or an installed Home Assistant.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+from datetime import datetime
+from typing import Any
+
 import re
 
 from .const import (
@@ -109,14 +113,14 @@ def clashing_names(every_camera: list[dict], mine: list[dict]) -> list[str]:
                   if count > 1 and slug in ours)
 
 
-def _as_int(value) -> int | None:
+def _as_int(value: Any) -> int | None:
     try:
         return int(value)
     except (TypeError, ValueError):
         return None
 
 
-def _first(entry: dict, names: tuple[str, ...]):
+def _first(entry: dict[str, Any], names: tuple[str, ...]) -> Any:
     """The first of these fields the entry actually carries."""
     for name in names:
         value = entry.get(name)
@@ -270,7 +274,8 @@ NEARBY = (0, *(offset for distance in range(1, MATCH_SECONDS + 1)
                for offset in (-distance, distance)))
 
 
-def attach_detections(clips: list[dict], detections) -> list[dict]:
+def attach_detections(clips: list[dict], 
+                      detections: list[dict] | None) -> list[dict]:
     """Copy each clip's detection fields onto it, so one record carries both."""
     by_time = {}
     for detection in detections or []:
@@ -306,7 +311,7 @@ def flatten_clips(result: dict) -> list[dict]:
     return found
 
 
-def surplus(items, keep: int) -> list:
+def surplus(items: Sequence[Any], keep: int) -> list[Any]:
     """Everything past the newest `keep`, oldest first.
 
     `items` must already be in oldest-to-newest order. Returns nothing when
@@ -318,7 +323,8 @@ def surplus(items, keep: int) -> list:
     return list(items[:-keep])
 
 
-def newest_matching(clips: list[dict], matches, keep: int) -> set[int]:
+def newest_matching(clips: list[dict], matches: Callable[[dict], bool],
+                    keep: int) -> set[int]:
     """Start times of the newest `keep` recordings this predicate accepts.
 
     What retention must leave alone however old it gets. One number for
@@ -448,7 +454,8 @@ def sessions(clips: list[dict], gap: int) -> list[tuple[int, int, int]]:
     return visits
 
 
-def last_visit(clips: list[dict], gap: int, matches) -> tuple[int, int] | None:
+def last_visit(clips: list[dict], gap: int,
+               matches: Callable[[dict], bool]) -> tuple[int, int] | None:
     """The most recent visit whose recordings this predicate accepts.
 
     (first sighting, last sighting), or None if there were none.
@@ -884,7 +891,7 @@ def longest_visit(clips: list[dict], gap: int) -> int:
 _DT = None
 
 
-def _local(moment: int):
+def _local(moment: int) -> datetime:
     """`moment` in Home Assistant's configured zone.
 
     The module lookup is a third of what this function costs, and it is called

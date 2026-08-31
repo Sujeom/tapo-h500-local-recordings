@@ -324,7 +324,7 @@ def _downloads_failing(hass: HomeAssistant, entry_id: str,
 
 
 async def async_create_fix_flow(hass: HomeAssistant, issue_id: str,
-                                data: dict | None):
+                                data: dict | None) -> RepairsFlow:
     """The form behind the one fixable issue: naming a face in place.
 
     The base class is imported here rather than at module top on purpose:
@@ -376,7 +376,7 @@ async def async_create_fix_flow(hass: HomeAssistant, issue_id: str,
 
 
 def _restart_ineffective(hass: HomeAssistant, entry_id: str,
-                         coordinator) -> None:
+                         coordinator: H500Coordinator) -> None:
     """Say when the automatic restart failed to cure the media failure.
 
     A reboot has cured every media failure this hub has ever shown; one

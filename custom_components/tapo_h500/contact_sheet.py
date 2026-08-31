@@ -11,6 +11,8 @@ image library to the requirements to lay out pictures ffmpeg can already tile.
 """
 from __future__ import annotations
 
+from .models import Camera
+
 import asyncio
 import logging
 import shutil
@@ -80,7 +82,7 @@ def _stage(pictures: list[Path], into: Path) -> int:
     return len(pictures)
 
 
-async def async_contact_sheet(hass: HomeAssistant, camera,
+async def async_contact_sheet(hass: HomeAssistant, camera: Camera,
                               day: str) -> bytes | None:
     """Every frame from one local day, tiled into a single JPEG.
 

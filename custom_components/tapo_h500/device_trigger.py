@@ -26,6 +26,10 @@ genuinely can span two cameras.
 """
 from __future__ import annotations
 
+from typing import Any
+
+from homeassistant.core import Context
+
 import voluptuous as vol
 from homeassistant.components.device_automation import DEVICE_TRIGGER_BASE_SCHEMA
 from homeassistant.components.homeassistant.triggers import event as event_trigger
@@ -147,7 +151,8 @@ async def _attach_detection(
     entity_id = _entity_id(hass, config)
 
     @callback
-    def _detected(run_variables, context=None):
+    def _detected(run_variables: dict[str, Any],
+                  context: Context | None = None) -> None:
         state = (run_variables.get("trigger") or {}).get("to_state")
         if state is None:
             return

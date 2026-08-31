@@ -43,7 +43,8 @@ class H500FirmwareUpdate(CoordinatorEntity[H500Coordinator], UpdateEntity):
     _attr_translation_key = "firmware"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: H500Coordinator,
+                 entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_firmware"
         self._attr_device_info = hub_device(coordinator, entry)

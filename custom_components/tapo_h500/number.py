@@ -17,6 +17,7 @@ from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .coordinator import H500Coordinator
 from .const import SIREN_VOLUME_MAX, SIREN_VOLUME_MIN
 from .hub_control import H500HubControl
 
@@ -64,7 +65,7 @@ async def async_setup_entry(
 
 
 class H500HubNumber(H500HubControl, NumberEntity):
-    def __init__(self, coordinator, entry: ConfigEntry, description: HubNumber) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry, description: HubNumber) -> None:
         super().__init__(coordinator, entry, description.key)
         self.entity_description = description
 

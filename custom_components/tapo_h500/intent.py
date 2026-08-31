@@ -11,6 +11,8 @@ spoken answer and a notification cannot describe the same event differently.
 """
 from __future__ import annotations
 
+from .coordinator import H500Coordinator
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 
@@ -28,7 +30,7 @@ INTENT_TODAY = "TapoH500Today"
 INTENT_SNOOZE = "TapoH500Snooze"
 
 
-def _hubs(hass: HomeAssistant):
+def _hubs(hass: HomeAssistant) -> list[H500Coordinator]:
     return loaded_hubs(hass)
 
 

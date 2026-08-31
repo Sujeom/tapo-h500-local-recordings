@@ -235,4 +235,14 @@ rules:
       pytapo 3.4.18 builds its own requests session, and the media transport
       on 8800 is a raw socket protocol rather than HTTP. There is no session
       to inject. Re-check when pytapo accepts one.
-  strict-typing: todo
+  strict-typing:
+    status: done
+    comment: |
+      Every function in the component says what it takes and returns, held at
+      zero by tools/annotations.py in the gate. py.typed ships inside the
+      integration. No type checker runs -- the gate has to work on a machine
+      with nothing installed and the integration must never take a runtime
+      dependency on one -- so what is enforced is that the annotations exist,
+      not that they are right. models.py names the four hub shapes that
+      travel between modules, which is where a wrong assumption did the
+      damage before.

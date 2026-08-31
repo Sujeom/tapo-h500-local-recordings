@@ -49,7 +49,8 @@ class H500RestartButton(CoordinatorEntity[H500Coordinator], ButtonEntity):
     _attr_device_class = ButtonDeviceClass.RESTART
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, coordinator, entry) -> None:
+    def __init__(self, coordinator: H500Coordinator,
+                 entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_restart"
         self._attr_device_info = hub_device(coordinator, entry)

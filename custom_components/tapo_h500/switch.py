@@ -9,6 +9,11 @@ setMediaEncrypt (would break the verified download path) and setTimezone
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .api import H500Client
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
@@ -21,6 +26,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 
+from .coordinator import H500Coordinator
 from .hub_control import H500HubControl
 from .status import auto_upgrade_config, face_detection_config
 
@@ -36,12 +42,14 @@ class HubSwitch(SwitchEntityDescription):
     apply: Callable[[object, dict, bool], object]
 
 
-def _auto_upgrade(client, readings: dict, on: bool):
+def _auto_upgrade(client: H500Client, readings: dict[str, Any],
+                  on: bool) -> Any:
     """Toggle only `enabled`, keeping the schedule the hub already holds."""
     return client.set_auto_upgrade(auto_upgrade_config(readings, on))
 
 
-def _face_detection(client, readings: dict, on: bool):
+def _face_detection(client: H500Client, readings: dict[str, Any],
+                    on: bool) -> Any:
     """Toggle only `enabled`, sending the tag list back with it."""
     return client.set_face_detection(face_detection_config(readings, on))
 
@@ -92,7 +100,7 @@ async def async_setup_entry(
 
 
 class H500HubSwitch(H500HubControl, SwitchEntity):
-    def __init__(self, coordinator, entry: ConfigEntry, description: HubSwitch) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry, description: HubSwitch) -> None:
         super().__init__(coordinator, entry, description.key)
         self.entity_description = description
 
@@ -133,7 +141,7 @@ class H500Snooze(CoordinatorEntity, SwitchEntity):
     _attr_translation_key = "snoozed"
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_snoozed"
         from .sensor import hub_device

@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 
+from .coordinator import H500Coordinator
 from .hub_control import H500HubControl
 
 # One at a time. Every write here is a call to a hub that wedges under
@@ -45,7 +46,7 @@ class H500SirenTone(H500HubControl, SelectEntity):
     _attr_translation_key = "siren_tone"
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, coordinator, entry: ConfigEntry, tones: list[str]) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry, tones: list[str]) -> None:
         super().__init__(coordinator, entry, "siren_tone")
         self._attr_options = tones
 

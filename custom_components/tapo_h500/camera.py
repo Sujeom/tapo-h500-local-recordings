@@ -5,6 +5,8 @@ the verified path, so this deliberately serves stills rather than a stream.
 """
 from __future__ import annotations
 
+from .models import Camera
+
 from homeassistant.components.camera import Camera
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -12,6 +14,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 
+from .coordinator import H500Coordinator
 from .entity import add_cameras_as_they_appear, H500Entity
 
 # One at a time. Asking for a picture can reach the coordinator's frame
@@ -33,7 +36,8 @@ async def async_setup_entry(
 class H500Camera(H500Entity, Camera):
     _attr_name = None
 
-    def __init__(self, coordinator, index: int, camera: dict) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         H500Entity.__init__(self, coordinator, index, camera)
         Camera.__init__(self)
         self._attr_unique_id = f"{camera['device_id']}_camera"

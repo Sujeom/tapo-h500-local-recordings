@@ -1,6 +1,13 @@
 """Config flow for Tapo H500."""
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
+
+from .coordinator import H500Coordinator
+
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
@@ -38,7 +45,7 @@ class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(entry):
+    def async_get_options_flow(entry: ConfigEntry) -> TapoH500OptionsFlow:
         return TapoH500OptionsFlow()
 
     async def _validate(self, data: dict) -> dict:
@@ -68,7 +75,9 @@ class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.hass.async_add_executor_job(client.close)
         return {} if cameras else {"base": "no_cameras"}
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+            self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         errors = {}
         if user_input is not None:
             errors = await self._validate(user_input)
@@ -106,14 +115,16 @@ class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user", data_schema=schema, errors=errors)
 
-    def _entry_at(self, host: str, ignoring: str):
+    def _entry_at(self, host: str, ignoring: str) -> ConfigEntry | None:
         """Another configured entry already talking to this address, if any."""
         for other in self.hass.config_entries.async_entries(DOMAIN):
             if other.entry_id != ignoring and other.data.get(CONF_HOST) == host:
                 return other
         return None
 
-    async def async_step_reconfigure(self, user_input=None):
+    async def async_step_reconfigure(
+            self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Point an existing entry at the hub's new address.
 
         A hub that changed IP left one route: delete the entry and set it up
@@ -174,10 +185,13 @@ class TapoH500ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reconfigure", data_schema=schema, errors=errors)
 
-    async def async_step_reauth(self, entry_data):
+    async def async_step_reauth(
+            self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         return await self.async_step_reauth_confirm()
 
-    async def async_step_reauth_confirm(self, user_input=None):
+    async def async_step_reauth_confirm(
+            self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Retype the credentials for a hub that has stopped accepting them.
 
         No host box: the entry already knows where the hub is, and offering it
@@ -211,7 +225,9 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
     """Four screens: how the integration behaves, who the faces are, where the
     cameras sit, and how busy each one has to get to be worth mentioning."""
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(
+            self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="init",
             menu_options=["settings", "faces", "layout", "sensitivity"])
@@ -226,7 +242,9 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
         """
         return {**self.config_entry.options, **user_input}
 
-    async def async_step_faces(self, user_input=None):
+    async def async_step_faces(
+            self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Name the faces the hub has clustered, without touching a card.
 
         The hub invents a stable id per person and refuses to say who they
@@ -267,7 +285,8 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             step_id="faces", data_schema=schema,
             description_placeholders={"faces": "\n".join(lines)})
 
-    def _face_lines(self, face_ids, seen, coordinator) -> list[str]:
+    def _face_lines(self, face_ids: list[str], seen: dict[str, Any],
+                    coordinator: H500Coordinator) -> list[str]:
         """One markdown line per face. Blocking: it checks files on disk."""
         lines = []
         for face_id in face_ids:
@@ -284,7 +303,8 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
                 lines.append(f"- {label}: not seen recently")
         return lines
 
-    def _photo_url(self, face: dict, coordinator) -> str | None:
+    def _photo_url(self, face: dict[str, Any],
+                   coordinator: H500Coordinator) -> str | None:
         """An absolute signed link to this face's newest sighting.
 
         None unless the clip has actually downloaded: the hub indexes a
@@ -319,7 +339,9 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
             # than nothing.
             return signed
 
-    async def async_step_layout(self, user_input=None):
+    async def async_step_layout(
+            self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Say where each camera sits between the street and the door.
 
         The hub reports no geometry, and the order cameras appear in the paired
@@ -364,7 +386,8 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
                 "suggestion": self._layout_note(names, ranks, suggested)})
 
     @staticmethod
-    def _layout_note(names, ranks, suggested) -> str:
+    def _layout_note(names: list[str], ranks: dict[str, int],
+                     suggested: dict[str, int]) -> str:
         """One line saying whether these numbers were inferred or are yours."""
         inferred = [name for name in names
                     if name not in ranks and name in suggested]
@@ -375,7 +398,9 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
                 f"them: **{order}**, street first. Change anything that looks "
                 f"wrong — nothing is stored until you submit.")
 
-    async def async_step_sensitivity(self, user_input=None):
+    async def async_step_sensitivity(
+            self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """How busy each camera has to be before it counts as unusual.
 
         Three levels rather than the two numbers behind them. A multiplier
@@ -411,7 +436,9 @@ class TapoH500OptionsFlow(config_entries.OptionsFlow):
         })
         return self.async_show_form(step_id="sensitivity", data_schema=schema)
 
-    async def async_step_settings(self, user_input=None):
+    async def async_step_settings(
+            self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         if user_input is not None:
             return self.async_create_entry(data=self._merged(user_input))
         options = self.config_entry.options

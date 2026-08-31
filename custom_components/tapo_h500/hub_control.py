@@ -7,6 +7,9 @@ means switch, select and number each hold only their own mapping.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -21,7 +24,7 @@ class H500HubControl(CoordinatorEntity[H500Coordinator]):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, entry: ConfigEntry, key: str) -> None:
+    def __init__(self, coordinator: H500Coordinator, entry: ConfigEntry, key: str) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_info = hub_device(coordinator, entry)
@@ -30,7 +33,7 @@ class H500HubControl(CoordinatorEntity[H500Coordinator]):
     def readings(self) -> dict:
         return self.coordinator.readings
 
-    async def apply(self, action) -> None:
+    async def apply(self, action: Callable[[], Any]) -> None:
         try:
             await self.hass.async_add_executor_job(action)
         except Exception as err:

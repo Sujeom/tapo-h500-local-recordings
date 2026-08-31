@@ -17,6 +17,8 @@ and removing it would break setups that use it.
 """
 from __future__ import annotations
 
+from .models import Camera
+
 from datetime import datetime
 
 from homeassistant.components.image import ImageEntity
@@ -27,6 +29,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 
+from .coordinator import H500Coordinator
 from .entity import add_cameras_as_they_appear, H500Entity
 from .contact_sheet import async_contact_sheet
 
@@ -50,8 +53,8 @@ class H500EventImage(H500Entity, ImageEntity):
     _attr_translation_key = "latest_event"
     _attr_content_type = "image/jpeg"
 
-    def __init__(self, hass: HomeAssistant, coordinator, index: int,
-                 camera: dict) -> None:
+    def __init__(self, hass: HomeAssistant, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         H500Entity.__init__(self, coordinator, index, camera)
         ImageEntity.__init__(self, hass)
         self._attr_unique_id = f"{camera['device_id']}_latest_event"
@@ -146,8 +149,8 @@ class H500ContactSheet(H500Entity, ImageEntity):
     _attr_translation_key = "contact_sheet"
     _attr_content_type = "image/jpeg"
 
-    def __init__(self, hass: HomeAssistant, coordinator, index: int,
-                 camera: dict) -> None:
+    def __init__(self, hass: HomeAssistant, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         H500Entity.__init__(self, coordinator, index, camera)
         ImageEntity.__init__(self, hass)
         self._attr_unique_id = f"{camera['device_id']}_contact_sheet"

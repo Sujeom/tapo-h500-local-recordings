@@ -1,6 +1,11 @@
 """Polls the hub, turns new activity into events, and downloads rings."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .api import H500Client
+
 import asyncio
 import logging
 from datetime import timedelta
@@ -39,6 +44,7 @@ from .const import (
     SIGNAL_NEW_CLIP,
     STATUS_MAX_AGE, STORAGE_SAMPLES, TAMPER_CODES,
 )
+from .models import Camera, Clip
 from .media_health import MediaHealth
 from .media import (
     EmptyRecordingError, async_download_clip, async_latest_image,
@@ -92,7 +98,8 @@ def loaded_hubs(hass: HomeAssistant) -> list["H500Coordinator"]:
 class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
     """One poller per hub. Cameras are addressed by their paired-list index."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry,
+                 client: H500Client) -> None:
         super().__init__(
             hass, _LOGGER, name=DOMAIN, config_entry=entry,
             update_interval=timedelta(seconds=entry.options.get(
@@ -1109,7 +1116,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 _LOGGER.warning("Repair notices are being updated again")
         return {"clips": clips_by_camera, "hub": self.readings}
 
-    def _fresh(self, index, entries, seen_map, window,
+    def _fresh(self, index: int, entries: list[dict],
+               seen_map: dict[int, set[int]], window: int,
                revisions: bool = False) -> list[dict]:
         """New detections, and detections the hub has since revised.
 
@@ -1151,7 +1159,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             self._last_activity_at = dt_util.utcnow().timestamp()
         return [entry for _, entry in sorted(fresh, key=lambda pair: pair[0])]
 
-    def _fire(self, index, entries, seen_map, window) -> None:
+    def _fire(self, index: int, entries: list[dict],
+              seen_map: dict[int, set[int]], window: int) -> None:
         for entry in self._fresh(index, entries, seen_map, window,
                                  revisions=True):
             if not self._primed:
@@ -1175,7 +1184,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 continue
         return codes
 
-    def _download_new(self, index, camera, clips, window) -> None:
+    def _download_new(self, index: int, camera: Camera,
+                      clips: list[Clip], window: int) -> None:
         mode = self.entry.options.get(CONF_AUTO_DOWNLOAD, DEFAULT_AUTO_DOWNLOAD)
         wanted = self.download_types
         for clip in self._fresh(index, clips, self._seen_clips, window):
@@ -1287,7 +1297,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
     def recovery_log(self, limit: int = 10) -> list[dict]:
         return self.media.recovery_log(limit)
 
-    async def _deep_media_check(self, camera, start: int, end: int) -> None:
+    async def _deep_media_check(self, camera: Camera, start: int,
+                                end: int) -> None:
         """Two bounded seconds of the newest clip, as evidence.
 
         Bytes are the all-clear -- recovery gets noticed without waiting
@@ -1356,7 +1367,8 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             options.get(CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON),
         )
 
-    async def _download(self, index, camera, clip) -> None:
+    async def _download(self, index: int, camera: Camera,
+                        clip: Clip) -> None:
         start_time = start_of(clip)
         end_time = end_of(clip)
         if start_time is None or end_time is None or end_time <= start_time:

@@ -1,6 +1,8 @@
 """Doorbell and motion events for each paired camera."""
 from __future__ import annotations
 
+from .models import Camera
+
 from homeassistant.components.event import EventDeviceClass, EventEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -15,6 +17,7 @@ from .clips import (
 from .const import (
     CONF_NIGHT_END, CONF_NIGHT_START, DEFAULT_NIGHT_END, DEFAULT_NIGHT_START, DOMAIN, EVENT_TYPES,
 )
+from .coordinator import H500Coordinator
 from .entity import add_cameras_as_they_appear, H500Entity
 from .media import clip_path, signed_url
 
@@ -37,7 +40,8 @@ class H500ActivityEvent(H500Entity, EventEntity):
     _attr_event_types = EVENT_TYPES
     _attr_translation_key = "activity"
 
-    def __init__(self, coordinator, index: int, camera: dict) -> None:
+    def __init__(self, coordinator: H500Coordinator, index: int,
+                 camera: Camera) -> None:
         super().__init__(coordinator, index, camera)
         self._attr_unique_id = f"{camera['device_id']}_activity"
 
