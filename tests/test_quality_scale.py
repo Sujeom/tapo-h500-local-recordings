@@ -145,5 +145,70 @@ class WhatIsLeft(unittest.TestCase):
                 break
 
 
+
+class TheExemptionsAreStillTrue(unittest.TestCase):
+    """Checked against the library rather than believed.
+
+    An exemption resting on a stale premise is a lie with a timestamp on it.
+    Both of these say pytapo 3.4.18; when that pin moves, these fail and
+    somebody has to look again rather than the file quietly going wrong.
+    """
+
+    def _needs_the_library(self):
+        """The two introspection checks below need pytapo itself, which the
+        suite stubs on purpose so a library release cannot turn the tests
+        red. They run where it is installed -- a developer machine -- and
+        skip where it is not. The version check above needs nothing and
+        always runs, which is what keeps the pin and the reason in step."""
+        try:
+            import pytapo  # noqa: F401
+        except ImportError:
+            self.skipTest("pytapo is not installed; the suite stubs it")
+
+    def test_the_pinned_version_is_the_one_the_exemptions_name(self):
+        pinned = next(r for r in MANIFEST["requirements"]
+                      if r.startswith("pytapo"))
+        version = pinned.split("==")[1]
+        for rule in ("async-dependency", "inject-websession"):
+            with self.subTest(rule=rule):
+                self.assertIn(f"pytapo {version}", comment(rule))
+
+    def test_the_library_really_is_synchronous(self):
+        """async-dependency. If this ever fails, the rule became reachable."""
+        self._needs_the_library()
+        import inspect
+        from pytapo import Tapo
+        coroutines = [name for name, member in inspect.getmembers(Tapo)
+                      if inspect.iscoroutinefunction(member)]
+        self.assertEqual(coroutines, [],
+                         "pytapo has grown an async API; re-check the rule")
+
+    def test_it_really_builds_its_own_session(self):
+        """inject-websession. A session parameter appearing means the rule
+        became reachable."""
+        self._needs_the_library()
+        import inspect
+        from pytapo import Tapo
+        self.assertNotIn("session",
+                         inspect.signature(Tapo.__init__).parameters)
+
+
+class WhatStandsBetweenHereAndTheNextTier(unittest.TestCase):
+    """Not a pass or a fail so much as a statement of where the work is.
+
+    Both of the two outstanding rules need something that is not in this
+    repository: an upstream pull request, and a hardware observation.
+    """
+
+    def test_the_outstanding_rules_all_say_why(self):
+        for rule in SCALE:
+            if status(rule) != "todo":
+                continue
+            with self.subTest(rule=rule):
+                self.assertGreater(
+                    len(comment(rule)), 60,
+                    "an outstanding rule with no reason reads as an oversight")
+
+
 if __name__ == "__main__":
     unittest.main()
