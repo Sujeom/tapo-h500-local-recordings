@@ -6,6 +6,13 @@ so "is this already downloaded?" is a path check rather than a stored index.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Iterable
+
+if TYPE_CHECKING:
+    from .api import H500Client
+
+from .models import Camera
+
 import asyncio
 import json
 import logging
@@ -57,11 +64,11 @@ def media_root(hass: HomeAssistant) -> Path:
             translation_key="no_local_media_directory") from err
 
 
-def camera_dir(hass: HomeAssistant, camera) -> Path:
+def camera_dir(hass: HomeAssistant, camera: Camera) -> Path:
     return media_root(hass) / MEDIA_DIR / camera_slug(camera)
 
 
-def clip_path(hass: HomeAssistant, camera, start_time: int, suffix: str) -> Path:
+def clip_path(hass: HomeAssistant, camera: Camera, start_time: int, suffix: str) -> Path:
     moment = dt_util.as_local(dt_util.utc_from_timestamp(int(start_time)))
     name = moment.strftime("%H%M%S")
     # The hour that repeats when daylight saving ends maps two different
@@ -101,7 +108,7 @@ def signed_url(hass: HomeAssistant, path: Path) -> str:
         hass, f"/media/local/{relative(hass, path)}", URL_LIFETIME)
 
 
-def existing_clip(hass: HomeAssistant, camera, start_time: int) -> Path | None:
+def existing_clip(hass: HomeAssistant, camera: Camera, start_time: int) -> Path | None:
     """Where this clip is on disk, or None. Blocking; two stat calls.
 
     Kept synchronous because scan_downloaded calls it from inside an executor
@@ -115,7 +122,7 @@ def existing_clip(hass: HomeAssistant, camera, start_time: int) -> Path | None:
     return None
 
 
-async def async_existing_clip(hass: HomeAssistant, camera,
+async def async_existing_clip(hass: HomeAssistant, camera: Camera,
                               start_time: int) -> Path | None:
     """existing_clip, off the event loop.
 
@@ -142,7 +149,8 @@ def describe(hass: HomeAssistant, path: Path) -> dict:
     }
 
 
-def scan_downloaded(hass: HomeAssistant, camera, starts) -> dict[int, Path]:
+def scan_downloaded(hass: HomeAssistant, camera: Camera,
+                    starts: Iterable[int]) -> dict[int, Path]:
     """Which of these clip start times are already on disk. Blocking."""
     found = {}
     for start_time in starts:
@@ -189,7 +197,7 @@ def _has_content(path: Path) -> bool:
 
 
 async def async_preview_clip(
-    hass: HomeAssistant, client, camera, start_time: int
+    hass: HomeAssistant, client: H500Client, camera: Camera, start_time: int
 ) -> Path | None:
     """A thumbnail for a clip that is still only on the hub.
 
@@ -251,7 +259,7 @@ async def async_preview_clip(
 
 
 async def async_download_clip(
-    hass: HomeAssistant, client, camera, start_time: int, end_time: int,
+    hass: HomeAssistant, client: H500Client, camera: Camera, start_time: int, end_time: int,
     convert: bool = True, detected: list[int] | None = None,
     faces: list[int] | None = None,
 ) -> dict:
@@ -332,7 +340,7 @@ def _delete(paths: list[Path]) -> list[Path]:
     return removed
 
 
-async def async_delete_clip(hass: HomeAssistant, camera, start_time: int) -> list[str]:
+async def async_delete_clip(hass: HomeAssistant, camera: Camera, start_time: int) -> list[str]:
     """Remove the downloaded copy of a clip. The hub keeps its own."""
     candidates = [
         clip_path(hass, camera, start_time, suffix)
@@ -359,7 +367,7 @@ def _strays(directory: Path) -> list[Path]:
                   and not path.with_suffix(".ts").exists())
 
 
-async def async_prune_previews(hass: HomeAssistant, camera) -> list[str]:
+async def async_prune_previews(hass: HomeAssistant, camera: Camera) -> list[str]:
     """Hold a camera's stray preview frames to `PREVIEW_KEEP`.
 
     A stray is a thumbnail whose clip was never downloaded, which is most of
@@ -382,7 +390,7 @@ async def async_prune_previews(hass: HomeAssistant, camera) -> list[str]:
     return [relative(hass, path) for path in removed]
 
 
-async def async_export(hass: HomeAssistant, camera, start_time: int,
+async def async_export(hass: HomeAssistant, camera: Camera, start_time: int,
                        destination: str) -> dict:
     """Copy a downloaded clip and its thumbnail somewhere retention cannot reach.
 
@@ -438,7 +446,7 @@ async def async_verify(hass: HomeAssistant, path: Path) -> bool:
     ])
 
 
-async def async_prune(hass: HomeAssistant, camera, keep: int,
+async def async_prune(hass: HomeAssistant, camera: Camera, keep: int,
                       protected: set[int] | None = None) -> list[str]:
     """Drop the oldest downloads once a camera holds more than `keep`.
 
@@ -463,8 +471,9 @@ async def async_prune(hass: HomeAssistant, camera, keep: int,
     return [relative(hass, path) for path in removed]
 
 
-async def async_classify_downloads(hass: HomeAssistant, client, camera,
-                                   days: int) -> dict:
+async def async_classify_downloads(hass: HomeAssistant, client: H500Client,
+                                   camera: Camera,
+                                   days: int) -> dict[str, int]:
     """Write missing sidecars for on-disk clips, from the hub's detection log.
 
     Clips downloaded before sidecars existed appear in no type folder. The
@@ -540,7 +549,7 @@ async def async_classify_downloads(hass: HomeAssistant, client, camera,
     return await hass.async_add_executor_job(_scan)
 
 
-def archive_face_search(hass: HomeAssistant, camera,
+def archive_face_search(hass: HomeAssistant, camera: Camera,
                         wanted: set[str]) -> list[dict]:
     """Every downloaded clip whose sidecar names one of these faces.
 
@@ -626,6 +635,6 @@ def _newest_thumbnail(directory: Path) -> bytes | None:
     return None
 
 
-async def async_latest_image(hass: HomeAssistant, camera) -> bytes | None:
+async def async_latest_image(hass: HomeAssistant, camera: Camera) -> bytes | None:
     return await hass.async_add_executor_job(
         _newest_thumbnail, camera_dir(hass, camera))

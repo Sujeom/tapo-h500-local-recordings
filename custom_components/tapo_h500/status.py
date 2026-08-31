@@ -6,6 +6,8 @@ see docs/protocol-notes.md.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import re
 import time
 
@@ -44,7 +46,7 @@ SIZE = re.compile(r"([0-9.]+)\s*([KMGT]?B)", re.IGNORECASE)
 UNITS = {"B": 1 / 1024**3, "KB": 1 / 1024**2, "MB": 1 / 1024, "GB": 1, "TB": 1024}
 
 
-def unpack_multiple(response) -> dict:
+def unpack_multiple(response: Any) -> dict[str, Any]:
     """Successful sub-responses of a multipleRequest, keyed by method."""
     if not isinstance(response, dict):
         return {}
@@ -55,7 +57,7 @@ def unpack_multiple(response) -> dict:
     return found
 
 
-def dig(data, *path):
+def dig(data: Any, *path: str) -> Any:
     """Follow a key path, returning None rather than raising."""
     for key in path:
         if not isinstance(data, dict):
@@ -64,7 +66,7 @@ def dig(data, *path):
     return data
 
 
-def gigabytes(value) -> float | None:
+def gigabytes(value: Any) -> float | None:
     """The hub reports sizes as strings like "7.62 GB"."""
     match = SIZE.match(str(value or "").strip())
     if not match:
@@ -72,7 +74,7 @@ def gigabytes(value) -> float | None:
     return round(float(match.group(1)) * UNITS[match.group(2).upper()], 2)
 
 
-def basic_info(response) -> dict:
+def basic_info(response: Any) -> dict[str, Any]:
     """The device record inside whatever shape pytapo's basicInfo returned.
 
     `getDeviceInfo` answers `{"device_info": {"basic_info": {...}}}`, and
@@ -115,7 +117,7 @@ def hub_volume(level: float) -> int:
                min(SIREN_VOLUME_MAX, round(level * SIREN_VOLUME_MAX)))
 
 
-def clock_offset(hub_epoch, now: float | None = None) -> int | None:
+def clock_offset(hub_epoch: Any, now: float | None = None) -> int | None:
     """Seconds the hub's clock is ahead of ours, or None if it did not say.
 
     Signed on purpose: ahead and behind are different problems, and rounding
@@ -195,7 +197,7 @@ def reboot_schedule(block: dict) -> str | None:
     return str(block.get("time") or "").strip() or "on"
 
 
-def _int(value) -> int | None:
+def _int(value: Any) -> int | None:
     """The hub sends numbers as strings about half the time."""
     try:
         return int(str(value).strip())
@@ -203,7 +205,7 @@ def _int(value) -> int | None:
         return None
 
 
-def _on(value) -> bool | None:
+def _on(value: Any) -> bool | None:
     if value is None:
         return None
     return str(value).lower() in ("on", "1", "true", "enabled")

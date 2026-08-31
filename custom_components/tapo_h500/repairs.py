@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
 from .clips import clashing_names
-from .coordinator import loaded_hubs
+from .coordinator import H500Coordinator, loaded_hubs
 from .const import (
     CONF_SILENT_HOURS, DEFAULT_SILENT_HOURS, DOMAIN,
     LOOKBACK_SECONDS, NAME_PROMPT_SIGHTINGS,
@@ -52,7 +52,8 @@ def _issue_id(entry_id: str, kind: str) -> str:
     return f"{kind}_{entry_id}"
 
 
-def async_check(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+def async_check(hass: HomeAssistant, entry_id: str,
+                 coordinator: H500Coordinator) -> None:
     """Raise or clear every issue for one hub. Safe to call every poll.
 
     Each check clears its own issue when the condition has gone. One that
@@ -71,7 +72,8 @@ def async_check(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     _tampered(hass, entry_id, coordinator)
 
 
-def _tampered(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+def _tampered(hass: HomeAssistant, entry_id: str,
+                 coordinator: H500Coordinator) -> None:
     """Say when a camera reported being interfered with.
 
     The one detection that must not be allowed to scroll past. Everything else
@@ -111,7 +113,8 @@ def _tampered(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     )
 
 
-def _storage(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+def _storage(hass: HomeAssistant, entry_id: str,
+                 coordinator: H500Coordinator) -> None:
     # The name has to match what status.hub_readings emits exactly: a near
     # miss reads None every poll and silently retires the warning below.
     used_percent = coordinator.readings.get("storage_used_percent")
@@ -132,7 +135,8 @@ def _storage(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     )
 
 
-def _reachable(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+def _reachable(hass: HomeAssistant, entry_id: str,
+                 coordinator: H500Coordinator) -> None:
     issue_id = _issue_id(entry_id, UNREACHABLE_ISSUE)
     if coordinator.last_update_success:
         ir.async_delete_issue(hass, DOMAIN, issue_id)
@@ -145,7 +149,8 @@ def _reachable(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     )
 
 
-def _clashing_names(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+def _clashing_names(hass: HomeAssistant, entry_id: str,
+                 coordinator: H500Coordinator) -> None:
     """Warn when two cameras would write to the same folder.
 
     Downloads are filed under a slug of the camera's own name --
@@ -181,7 +186,8 @@ def _clashing_names(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     )
 
 
-def _silent_cameras(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+def _silent_cameras(hass: HomeAssistant, entry_id: str,
+                 coordinator: H500Coordinator) -> None:
     """Say when a camera has stopped producing anything at all.
 
     Worth interrupting someone about because the failure is invisible
@@ -213,7 +219,8 @@ def _silent_cameras(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     )
 
 
-def _unnamed_faces(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+def _unnamed_faces(hass: HomeAssistant, entry_id: str,
+                 coordinator: H500Coordinator) -> None:
     """Suggest naming a face the hub keeps seeing.
 
     One issue for all of them rather than one each: a busy street would
@@ -257,7 +264,8 @@ def _unnamed_faces(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     )
 
 
-def _media(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+def _media(hass: HomeAssistant, entry_id: str,
+                 coordinator: H500Coordinator) -> None:
     """Say when the hub has stopped serving recordings.
 
     The known failure: hours after a reboot, port 8800 starts accepting a
@@ -286,7 +294,8 @@ def _media(hass: HomeAssistant, entry_id: str, coordinator) -> None:
     )
 
 
-def _downloads_failing(hass: HomeAssistant, entry_id: str, coordinator) -> None:
+def _downloads_failing(hass: HomeAssistant, entry_id: str,
+                 coordinator: H500Coordinator) -> None:
     """Say when automatic downloads keep failing on a camera.
 
     Each failure is a warning in the log, and the next clip fails the same
@@ -332,7 +341,8 @@ async def async_create_fix_flow(hass: HomeAssistant, issue_id: str,
     class NameFaceFlow(RepairsFlow):
         """Ask for the name where the face is being talked about."""
 
-        async def async_step_init(self, user_input: dict | None = None):
+        async def async_step_init(
+            self, user_input: dict | None = None) -> dict:
             if user_input is not None:
                 name = str(user_input.get("name") or "").strip()
                 entry = self.hass.config_entries.async_get_entry(
