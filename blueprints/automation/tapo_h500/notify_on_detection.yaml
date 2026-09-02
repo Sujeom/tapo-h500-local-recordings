@@ -459,23 +459,20 @@ actions:
       # the document is parsed before any template runs, so Jinja cannot add
       # or remove keys and entries -- it can only fill them in.
       buttons: >-
-        {#- Image opens this event's own still, Video plays its own recording,
-            both as plain paths the app's signed-in webview can just open.
-            Falls back to `frame`, the on-demand preview
-            endpoint, which renders the frame in Home Assistant whether or not
-            the clip was ever downloaded -- so pressing it shows the thing
-            being reported, rather than a dashboard the dialog may or may not
-            open on top of. The camera's own dialog stays as the fallback for
-            an integration too old to publish a preview, and with neither
-            there is no button: an action that cannot do anything is worse
-            than one action fewer. -#}
-        {%- set view = frame or (link if camera else '') -%}
-        {%- set base = ([{'action': 'URI', 'title': 'Image', 'uri': view}]
-                        if view else [])
-              + ([{'action': 'URI', 'title': 'Video', 'uri': clip}]
-                 if clip else [])
-              + [{'action': 'TAPO_H500_SNOOZE', 'title': 'Snooze 1h',
-                  'entry': config_entry_id(trigger.entity_id)}] -%}
+        {#- A button may only address a route the frontend serves WITHOUT
+            credentials, because a notification action is opened with none.
+            `/lovelace/...` qualifies: Home Assistant returns the app shell to
+            anyone, and the page authenticates itself afterwards. `/media/...`
+            and `/api/...` do not, and answer 401 -- signed or unsigned, that
+            was the same 401 three times over. The picture and the recording
+            travel as attachments instead, where the app's own token fetches
+            them. So this is the dialog when there is a camera entity to open
+            one for, `/media-browser` otherwise, which is a frontend route and
+            lands on the recordings either way. -#}
+        {%- set base = [{'action': 'URI', 'title': 'Recordings',
+                         'uri': link if camera else '/media-browser'},
+                        {'action': 'TAPO_H500_SNOOZE', 'title': 'Snooze 1h',
+                         'entry': config_entry_id(trigger.entity_id)}] -%}
         {%- if input_offer_naming and unnamed -%}
           {#- face_id and entry travel WITH the button: the companion app
               echoes unknown keys back in the event, which is the only way the
@@ -566,6 +563,15 @@ actions:
             {% if who %}{{ who }} — {% endif %}{% if seen %}{{ seen }}, {% endif %}{{ when }}
           data:
             image: "{{ frame }}"
+            # The recording, carried the same way the picture is. This is the
+            # one channel that authenticates: the companion app fetches an
+            # attachment with its own token, which is why `image` has always
+            # worked. A notification ACTION is opened with no Home Assistant
+            # credentials at all, so a button addressing a media path answers
+            # 401 no matter how it is signed -- three attempts proved it.
+            # Empty until the download lands, and an empty value attaches
+            # nothing.
+            video: "{{ clip }}"
             tag: "tapo-h500-{{ camera }}"
             # Same channel as the first, or replacing it would quietly demote
             # a night alert to an ordinary one.

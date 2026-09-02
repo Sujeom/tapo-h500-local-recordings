@@ -732,6 +732,8 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
     EVENT = "event.side_door_activity"
     GUESS = "camera.side_door"          # what rewriting the id produced
     REAL = "camera.front_doorbell"      # what is actually on the device
+    STILL = "/media/local/tapo_h500/side_doorbell/2026-09-01/235339.jpg"
+    CLIP = "/media/local/tapo_h500/side_doorbell/2026-09-01/235339.mp4"
 
     def _camera(self, entities, device="dev_1"):
         import jinja2
@@ -804,44 +806,31 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         self.assertEqual(self._link(""), "/lovelace/0")
         self.assertNotIn("more-info-entity-id", self._link(""))
 
-    def test_the_button_shows_this_events_own_picture(self):
-        """What pressing it is for. A dashboard that may or may not open a
-        dialog on top is not a picture."""
-        uris = self._uris(self._buttons(self.REAL, "/api/preview/1"))
-        self.assertEqual(uris, ["/api/preview/1"])
+    def test_no_button_addresses_a_path_that_needs_credentials(self):
+        """The bug, three times over. A notification action is opened with no
+        Home Assistant credentials, so `/media/...` and `/api/...` answer 401
+        whether the URL is signed or not. Only routes the frontend serves to
+        anyone -- the app shell, which authenticates itself afterwards -- can
+        be the target of a button. The picture and the recording travel as
+        attachments instead, where the app's own token fetches them."""
+        for camera, frame, clip in ((self.REAL, self.STILL, self.CLIP),
+                                    ("", self.STILL, self.CLIP),
+                                    ("", "", "")):
+            for uri in self._uris(self._buttons(camera, frame, clip)):
+                self.assertFalse(
+                    uri.startswith(("/media/", "/api/")),
+                    f"{uri} needs credentials a notification action lacks")
 
-    STILL = "/media/local/tapo_h500/side_doorbell/2026-09-01/235339.jpg"
-    CLIP = "/media/local/tapo_h500/side_doorbell/2026-09-01/235339.mp4"
+    def test_the_button_lands_on_the_recordings_either_way(self):
+        """With a camera entity, its dialog; without one, the media browser.
+        Both are frontend routes, so both load."""
+        with_camera = self._uris(self._buttons(self.REAL, self.STILL))
+        self.assertEqual(with_camera, ["/lovelace/0?more-info-entity-id=x"])
+        without = self._uris(self._buttons("", self.STILL))
+        self.assertEqual(without, ["/media-browser"])
 
-    def test_image_then_video_each_opening_its_own_file(self):
-        buttons = [b for b in self._buttons(self.REAL, self.STILL, self.CLIP)
-                   if b["action"] == "URI"]
-        self.assertEqual([b["title"] for b in buttons], ["Image", "Video"])
-        self.assertEqual([b["uri"] for b in buttons], [self.STILL, self.CLIP])
-
-    def test_no_video_button_without_a_recording(self):
-        """The hub will make a frame for a clip nobody kept, but not the
-        clip, so there is nothing to fall back to and nothing to offer."""
-        buttons = self._buttons(self.REAL, self.STILL)
-        self.assertNotIn("Video", [b.get("title") for b in buttons])
-
-    def test_three_actions_is_the_ceiling(self):
-        """The companion app shows three."""
-        self.assertLessEqual(
-            len(self._buttons(self.REAL, self.STILL, self.CLIP)), 3)
-
-    def test_the_cameras_dialog_is_the_fallback(self):
-        """An integration too old to publish `preview` has no frame to show."""
-        uris = self._uris(self._buttons(self.REAL, ""))
-        self.assertEqual(uris, ["/lovelace/0?more-info-entity-id=x"])
-
-    def test_the_button_is_left_out_when_there_is_nothing_to_show(self):
-        """An action that cannot do anything is worse than one action
-        fewer -- and Snooze must survive losing it."""
-        buttons = self._buttons("", "")
-        self.assertEqual(self._uris(buttons), [])
-        self.assertIn("TAPO_H500_SNOOZE", [b["action"] for b in buttons])
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_the_recording_rides_the_notification(self):
+        """`image` has always worked because the app fetches an attachment
+        with its own token. `video` is the same channel."""
+        photo = _branch_holding("photo_buttons")
+        self.assertIn('"video": "{{ clip }}"', str(photo).replace("'", '"'))
