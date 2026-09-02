@@ -9,6 +9,10 @@ blueprint:
     photograph, because at the moment the hub reports a detection it is still
     recording and no picture of it exists anywhere yet.
 
+    If you would rather never see a notification without a picture, turn on
+    "Only notify when there is a photograph". You then get one notification
+    per detection instead of two, arriving when the frame does.
+
     Plain motion is not offered as a trigger. It fires on nearly everything the
     camera sees and is only useful as a description of something else.
   domain: automation
@@ -124,9 +128,28 @@ blueprint:
       name: Follow up with the photograph
       description: >-
         Send a second notification carrying the event's own frame once the hub
-        has finished recording and the clip has downloaded. It replaces the
-        first rather than adding to it.
+        has finished recording. It replaces the first rather than adding to it.
       default: true
+      selector:
+        boolean:
+
+    photo_only:
+      name: Only notify when there is a photograph
+      description: >-
+        Skip the instant alert and send nothing until the picture is ready, so
+        every notification has one.
+
+        The cost is the delay. The instant alert exists because at the moment
+        the hub reports a detection it is still recording, and no picture of
+        it exists anywhere yet — so with this on a doorbell press arrives
+        seconds later rather than immediately, and a detection whose frame
+        never turns up produces no notification at all. That second part is
+        the point of the setting, and worth being sure about: silence is
+        indistinguishable from nothing having happened.
+
+        Leave off for the two-notification behaviour, which alerts
+        immediately and then replaces that alert with the photograph.
+      default: false
       selector:
         boolean:
 
@@ -275,6 +298,7 @@ variables:
   input_quiet_start: !input quiet_start
   input_quiet_end: !input quiet_end
   input_send_photo: !input send_photo
+  input_photo_only: !input photo_only
   service: !input notify_service
   dashboard: !input dashboard_path
 
@@ -337,7 +361,17 @@ actions:
       where: "{{ trigger.to_state.name | replace(' Activity', '') }}"
       moment: "{{ trigger.to_state.state | as_timestamp | int }}"
       # A URL pinned to this event's own timestamp, not "whatever is newest".
-      frame: "{{ state_attr(trigger.entity_id, 'image') }}"
+      #
+      # `preview` in preference to `image`: `image` addresses the downloaded
+      # file and does not check it is there, so it 404s for every clip that
+      # was never downloaded and for every clip at all until the hub stops
+      # recording -- which is a notification showing an empty picture, with
+      # nothing to tell that apart from one that has not arrived. `preview`
+      # asks the hub for the frame instead and caches it. Falls back for an
+      # older version of the integration, which has no preview attribute.
+      frame: >-
+        {{ state_attr(trigger.entity_id, 'preview')
+           or state_attr(trigger.entity_id, 'image') }}
       when: >-
         {{ (trigger.to_state.state | as_datetime | as_local)
            .strftime('%-I:%M %p') }}
@@ -414,6 +448,10 @@ actions:
       # ago. Save only exists here because at first-notification time the
       # hub is usually still recording and there is nothing indexed to
       # save. camera_index rides on the event entity for exactly this.
+      #
+      # Unless this is the only notification. Then nobody has been offered
+      # Snooze at all, so it goes back into whatever slot is left -- which
+      # is one exactly when there is no face to name.
       photo_buttons: >-
         {%- set save = [{'action': 'TAPO_H500_SAVE_CLIP',
                          'title': 'Save clip',
@@ -421,31 +459,47 @@ actions:
                          'camera_index': state_attr(trigger.entity_id,
                                                     'camera_index'),
                          'start_time': moment}] -%}
-        {{ buttons | rejectattr('action', 'eq', 'TAPO_H500_SNOOZE')
-                   | list + save }}
+        {%- set without_snooze = buttons
+              | rejectattr('action', 'eq', 'TAPO_H500_SNOOZE') | list -%}
+        {%- set snooze = buttons
+              | selectattr('action', 'eq', 'TAPO_H500_SNOOZE') | list -%}
+        {%- set full = without_snooze + save -%}
+        {%- if input_photo_only and full | count < 3 -%}
+          {{ full + snooze }}
+        {%- else -%}{{ full }}{%- endif -%}
 
-  # First: immediately, without a picture. There is not one yet.
-  - action: "{{ service }}"
-    data:
-      title: "{{ headline }}"
-      message: >-
-        {% if who %}{{ who }} — {% endif %}{% if seen %}{{ seen }}, {% endif %}{{ when }}
-      data:
-        tag: "tapo-h500-{{ camera }}"
-        # An unfamiliar face at night gets a high-importance channel, which is
-        # what makes a phone sound different -- the entire point of telling it
-        # apart from a daytime delivery.
-        channel: "{{ 'Tapo H500 alerts' if notable else 'Tapo H500' }}"
-        importance: "{{ 'high' if notable else 'default' }}"
-        clickAction: "{{ link }}"
-        url: "{{ link }}"
-        actions: "{{ buttons }}"
-
-  # Then, if asked: wait for this event's own clip and replace the alert with
-  # one carrying its frame. Same tag, so it takes the first one's place.
+  # First: immediately, without a picture. There is not one yet -- the hub is
+  # still recording. Skipped entirely when only photographed notifications
+  # were asked for.
   - if:
       - condition: template
-        value_template: "{{ input_send_photo }}"
+        value_template: "{{ not input_photo_only }}"
+    then:
+      - action: "{{ service }}"
+        data:
+          title: "{{ headline }}"
+          message: >-
+            {% if who %}{{ who }} — {% endif %}{% if seen %}{{ seen }}, {% endif %}{{ when }}
+          data:
+            tag: "tapo-h500-{{ camera }}"
+            # An unfamiliar face at night gets a high-importance channel,
+            # which is what makes a phone sound different -- the entire point
+            # of telling it apart from a daytime delivery.
+            channel: "{{ 'Tapo H500 alerts' if notable else 'Tapo H500' }}"
+            importance: "{{ 'high' if notable else 'default' }}"
+            clickAction: "{{ link }}"
+            url: "{{ link }}"
+            actions: "{{ buttons }}"
+
+  # Then, if asked: wait for this event's own clip and send the one carrying
+  # its frame. Same tag, so where there was a first alert this replaces it.
+  #
+  # "Only with a photograph" implies this step even if the follow-up itself
+  # was turned off -- otherwise the two settings together would mean no
+  # notification ever, which nobody is asking for.
+  - if:
+      - condition: template
+        value_template: "{{ input_send_photo or input_photo_only }}"
     then:
       - wait_template: >-
           {{ as_timestamp(states(activity), 0) | int >= moment }}

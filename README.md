@@ -90,7 +90,10 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   your cameras, your notify service, and which detections matter. It names
   anyone you have named — "Alice rang the Front Doorbell" — says what happened
   and where, then replaces itself with that event's photograph once the hub has
-  finished recording. A plain YAML version is in
+  finished recording. Turn on **Only notify when there is a photograph** if you
+  would rather have one notification with a picture than two, the first without
+  — it costs the immediate buzz, since the hub is still recording when the
+  detection fires. A plain YAML version is in
   [`examples/`](examples/notify-person-pet-doorbell.yaml) if you would rather
   edit it directly.
 - **Faces:** **Configure → Name faces** lists every face the hub has

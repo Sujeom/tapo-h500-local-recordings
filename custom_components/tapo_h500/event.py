@@ -20,6 +20,7 @@ from .const import (
 from .coordinator import H500Coordinator
 from .entity import add_cameras_as_they_appear, H500Entity
 from .media import clip_path, signed_url
+from .preview import preview_url
 
 # Unlimited: nothing here polls the hub. Every value comes from the
 # coordinator's one poll, so there is nothing to serialise.
@@ -81,6 +82,29 @@ class H500ActivityEvent(H500Entity, EventEntity):
         except Exception:  # noqa: BLE001 - an attribute is never worth failing on
             return None
 
+    def _preview(self, start_time: int | None) -> str | None:
+        """A URL that produces this event's frame whether or not it downloaded.
+
+        `image` above addresses a file, and that file exists only once a
+        download has written it -- so it 404s for every clip that was never
+        downloaded, and for every clip at all until the hub finishes
+        recording. Anything putting it straight into a notification therefore
+        shows an empty picture some of the time, with nothing to distinguish
+        that from a picture that has not arrived yet.
+
+        This addresses the preview endpoint instead, which fetches the frame
+        from the hub on demand and caches it on disk after the first look. It
+        is what the recordings card already uses for clips it has not
+        downloaded.
+        """
+        if start_time is None:
+            return None
+        try:
+            return preview_url(self.hass, self.coordinator.entry.entry_id,
+                               self.index, start_time)
+        except Exception:  # noqa: BLE001 - an attribute is never worth failing on
+            return None
+
     @callback
     def _handle(self, kind: str, entry: dict) -> None:
         start_time = start_of(entry)
@@ -129,6 +153,11 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # this 404s until the download lands. Signing does not check for
             # the file, and the URL is good for 12 hours.
             "image": self._own_frame(start_time),
+            # The same frame, fetched on demand rather than read off disk.
+            # `image` is the downloaded file and 404s until there is one;
+            # this one produces a picture for a clip that was never
+            # downloaded at all, which is what a notification wants.
+            "preview": self._preview(start_time),
             # Whether notifications were muted when this fired.
             #
             # "There was activity and I got no message" has exactly two

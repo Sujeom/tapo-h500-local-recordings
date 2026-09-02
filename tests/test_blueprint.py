@@ -305,6 +305,19 @@ class FirstEventAfterRestart(unittest.TestCase):
                           " ".join(text.split()), name)
 
 
+def _branch_holding(needle: str) -> dict:
+    """The if/then step whose body mentions `needle`."""
+    return next(step for step in DOC["actions"]
+                if "if" in step and needle in str(step.get("then")))
+
+
+def _instant_alert() -> dict:
+    """The notification sent the moment a detection lands."""
+    branch = _branch_holding("{{ service }}")
+    return next(step for step in branch["then"]
+                if step.get("action") == "{{ service }}")
+
+
 class SaveClipButton(unittest.TestCase):
     """Press Save on the photo notification and the clip is kept.
 
@@ -350,16 +363,83 @@ class SaveClipButton(unittest.TestCase):
 
     def test_the_first_notification_does_not(self):
         """Nothing is indexed yet; a button that always fails teaches people
-        to ignore buttons."""
-        first = next(step for step in DOC["actions"]
-                     if step.get("action") == "{{ service }}")
-        self.assertNotIn("photo_buttons", str(first))
+        to ignore buttons.
+
+        Found inside its branch rather than at the top: the instant alert is
+        skipped entirely when only photographed notifications were asked
+        for, so it lives under an `if`.
+        """
+        self.assertNotIn("photo_buttons", str(_instant_alert()))
 
     def test_the_button_carries_what_the_service_needs(self):
         variables = str(DOC["actions"])
         save = variables.split("TAPO_H500_SAVE_CLIP", 2)[-1][:400]
         for key in ("entry", "camera_index", "start_time"):
             self.assertIn(key, save)
+
+
+class OnlyNotifyWithAPhotograph(unittest.TestCase):
+    """The setting for somebody who never wants a notification without one.
+
+    Two notifications per detection is the default because the first arrives
+    in about a second and the hub is still recording; one notification, later,
+    is a real preference and this is where it is expressed.
+    """
+
+    def test_the_option_exists_and_is_off_by_default(self):
+        """On by default would silently delay every doorbell press for
+        everybody who already had this blueprint."""
+        option = DOC["blueprint"]["input"]["photo_only"]
+        self.assertIs(option["default"], False)
+        self.assertIn("boolean", option["selector"])
+
+    def test_it_says_what_it_costs(self):
+        """Silence is indistinguishable from nothing having happened, so
+        the description has to say that is what you are choosing."""
+        said = DOC["blueprint"]["input"]["photo_only"]["description"].lower()
+        self.assertIn("no notification at all", said)
+        self.assertIn("seconds later", said)
+
+    def test_the_instant_alert_is_skipped_when_it_is_on(self):
+        guard = str(_branch_holding("{{ service }}")["if"])
+        self.assertIn("not input_photo_only", guard)
+
+    def test_the_photograph_is_still_sent_when_it_is_on(self):
+        """Turning it on while the follow-up is off would otherwise mean no
+        notification ever, which nobody is asking for."""
+        photo = _branch_holding("photo_buttons")
+        self.assertIn("input_send_photo or input_photo_only",
+                      str(photo["if"]))
+
+    def test_snooze_comes_back_when_it_is_the_only_notification(self):
+        """Nobody was offered it on a first alert that never happened, and
+        there is a free slot exactly when there is no face to name."""
+        variables = str(DOC["actions"])
+        self.assertIn("input_photo_only and full | count < 3", variables)
+
+
+class ThePictureUrlResolves(unittest.TestCase):
+    """`image` addresses the downloaded file and does not check it exists.
+
+    It 404s for every clip that was never downloaded and for every clip at
+    all until the hub stops recording, so a notification using it shows an
+    empty picture with nothing to tell that apart from one still on its way.
+    """
+
+    def test_the_preview_is_preferred(self):
+        variables = str(DOC["actions"])
+        self.assertIn("state_attr(trigger.entity_id, 'preview')", variables)
+
+    def test_and_the_file_is_the_fallback(self):
+        """So the blueprint still works against a version of the integration
+        that has no preview attribute."""
+        frame = str(DOC["actions"]).split("'preview')", 1)[1][:120]
+        self.assertIn("'image'", frame)
+
+    def test_the_preview_comes_first(self):
+        variables = str(DOC["actions"])
+        self.assertLess(variables.index("'preview'"),
+                        variables.index("state_attr(trigger.entity_id, 'image')"))
 
 
 class CameraIndexAttribute(unittest.TestCase):

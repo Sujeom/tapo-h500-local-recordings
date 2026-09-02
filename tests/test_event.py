@@ -113,5 +113,56 @@ class WhyThereWasNoNotification(unittest.TestCase):
         self.assertEqual(entity.triggered[0][1]["camera_index"], 0)
 
 
+
+class TheTwoPictureUrls(unittest.TestCase):
+    """`image` is the downloaded file; `preview` is one fetched on demand.
+
+    The distinction is the whole reason both exist. `image` addresses a path
+    and does not check it, so it 404s for every clip that was never
+    downloaded and for every clip at all until the hub stops recording -- a
+    notification using it shows an empty picture some of the time, with
+    nothing to tell that apart from one that has not arrived yet.
+    """
+
+    def _fired(self, index=1, **entry):
+        coord, _ = harness._build()
+        entity = event_mod.H500ActivityEvent(coord, index, CAMERA)
+        entity.hass = harness._Hass()
+        # `image` is a path under the media root, so there has to be one.
+        entity.hass.config = type("C", (), {
+            "media_dirs": {"local": "/media"}})()
+        entity.entity_id = "event.front_activity"
+        entity._handle("motion", {"events_1": 1 << 1,
+                                  **({"startTime": NOW, "endTime": NOW + 15}
+                                     if not entry else entry)})
+        return entity.triggered[-1][1]
+
+    def test_both_are_offered(self):
+        attributes = self._fired()
+        self.assertTrue(attributes["image"])
+        self.assertTrue(attributes["preview"])
+
+    def test_they_are_not_the_same_url(self):
+        attributes = self._fired()
+        self.assertNotEqual(attributes["image"], attributes["preview"])
+
+    def test_the_preview_goes_to_the_endpoint_that_generates_one(self):
+        self.assertIn("/api/tapo_h500/preview/", self._fired()["preview"])
+
+    def test_it_names_this_event_rather_than_the_newest(self):
+        """Pinned to this clip's own moment: asked two minutes later, a URL
+        for "the newest" answers with the wrong picture."""
+        self.assertIn(str(NOW), self._fired()["preview"])
+
+    def test_it_carries_the_camera_this_event_belongs_to(self):
+        self.assertIn("/1/", self._fired()["preview"],
+                      "camera 1's preview, not camera 0's")
+
+    def test_an_event_with_no_start_time_offers_neither(self):
+        attributes = self._fired(index=0, events_1=1 << 1)
+        self.assertIsNone(attributes["image"])
+        self.assertIsNone(attributes["preview"])
+
+
 if __name__ == "__main__":
     unittest.main()
