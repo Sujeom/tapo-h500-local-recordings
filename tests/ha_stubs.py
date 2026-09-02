@@ -667,9 +667,9 @@ def install(component_path=None):
             return {"type": "create_entry", "title": title, "data": data}
 
     _module("homeassistant.components.repairs", RepairsFlow=_RepairsFlow)
-    # Records how it was asked, so a test can hold the component to signing
-    # as the content user -- the difference between a URL a phone can open
-    # and a 401.
+    # Records how it was asked. Core signs as the content user on its own
+    # when nothing else is in context; a test holds the component to saying
+    # so explicitly rather than leaning on that fallback.
     signed_as_content_user = []
 
     def _sign_path(hass, path, expiry, *, use_content_user=False):

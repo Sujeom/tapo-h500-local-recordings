@@ -32,7 +32,10 @@ class OwnFrame(unittest.TestCase):
         """clip_path maps a start time to that clip's own .jpg."""
         self.assertRegex(
             EVENT, r"clip_path\(\s*self\.hass,\s*self\.camera,\s*start_time,\s*\"\.jpg\"\)")
-        self.assertRegex(EVENT, r'"image":\s*self\._own_frame\(start_time\)')
+        # Built once in _handle and shared with image_link, so the dict
+        # carries the name and the call sits just above it.
+        self.assertRegex(EVENT, r"image = self\._own_frame\(start_time\)")
+        self.assertRegex(EVENT, r'"image":\s*image,')
 
     def test_a_missing_timestamp_yields_no_url_rather_than_a_wrong_one(self):
         body = EVENT.split("def _own_frame", 1)[1].split("@callback", 1)[0]
@@ -206,16 +209,50 @@ class TheVideoUrl(TheTwoPictureUrls):
             f"{video} does not open {written}")
 
 
-class SignedForSomethingWithNoSession(unittest.TestCase):
-    """These URLs are opened by a phone, not by a logged-in browser tab.
+class TheLinksAButtonCanOpen(TheTwoPictureUrls):
+    """`image_link` and `video_link`: the signed paths as absolute URLs.
 
-    The Android companion app opens a notification action in a webview that
-    carries no Home Assistant session for a media path, so the signature is
-    the only credential there is. Signed the ordinary way it is not even
-    that: the plain call binds the signature to whoever is making the current
-    request, and these are minted in a background poll where there is none --
-    which Home Assistant answers with 401. Reported from a phone twice: the
-    picture arrives in the notification and pressing it is unauthorized.
+    The Android companion app routes a notification button by the shape of
+    its URI. A relative path is loaded in the app's own webview, and the app
+    appends `external_auth=1` to it on the way in -- which the frontend
+    needs, and which turns a signed media path into a 401, because Home
+    Assistant rejects any query parameter it did not sign. An absolute URL is
+    handed to the system browser untouched. Read from the app's own source
+    after three relative-path attempts had each answered 401 from a phone.
+    """
+
+    def test_they_are_absolute(self):
+        fired = self._fired()
+        for key in ("image_link", "video_link"):
+            self.assertTrue(fired[key].startswith("http"), fired[key])
+
+    def test_they_carry_the_signed_path_unchanged(self):
+        """The browser sends exactly the query that was signed; so must this."""
+        fired = self._fired()
+        self.assertTrue(fired["image_link"].endswith(fired["preview"]))
+        self.assertTrue(fired["video_link"].endswith(fired["video"]))
+
+    def test_the_image_prefers_the_on_demand_frame(self):
+        """`preview` renders for a clip that was never downloaded; `image`
+        404s until one is. A button should open the one that works."""
+        fired = self._fired()
+        self.assertIn("/api/tapo_h500/preview/", fired["image_link"])
+
+    def test_an_event_with_no_start_time_has_neither(self):
+        attributes = self._fired(index=0, events_1=1 << 1)
+        self.assertIsNone(attributes["image_link"])
+        self.assertIsNone(attributes["video_link"])
+
+
+class SignedForSomethingWithNoSession(unittest.TestCase):
+    """The signing call names the content user rather than relying on it.
+
+    Every URL here is minted in a background poll with no request and no
+    websocket connection behind it. Core already handles that: with nothing
+    else to bind the signature to, `async_sign_path` signs as the content
+    user, the account it keeps for media that something will fetch later on
+    its own. Saying so in the call makes the intent visible and survives a
+    future core deciding to raise instead of falling back.
     """
 
     def _sign(self):

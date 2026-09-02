@@ -105,20 +105,24 @@ def media_content_id(hass: HomeAssistant, path: Path) -> str:
 def sign(hass: HomeAssistant, path: str, lifetime: timedelta = URL_LIFETIME) -> str:
     """Sign a path for something that has no Home Assistant session.
 
-    The plain call binds the signature to whoever is making the current
-    request. There is no request here: these URLs are minted in a background
-    poll, and a signature with nothing behind it is refused with 401 rather
-    than falling through to whatever session the opener might have had.
+    Every URL here is minted in a background poll, with no request and no
+    websocket connection behind it. Home Assistant handles that case itself:
+    with nothing else to bind the signature to, `async_sign_path` signs as
+    the content user -- the account it keeps for media handed to something
+    that will fetch it later on its own. Asking for it explicitly says so in
+    the call rather than leaning on the fallback, and costs nothing.
 
-    `use_content_user` signs as the account Home Assistant keeps for exactly
-    this -- media handed to something that will fetch it later on its own.
-    Cast uses it for the same reason. The Android companion app is another:
-    it opens a notification action in a webview that does not carry a session
-    for a media path, so the signature has to stand on its own or the picture
-    is a 401.
+    What a signature cannot survive is the opener changing the query string.
+    Validation compares the signed parameters with the request's exactly and
+    tolerates only `height` and `width` as additions, so anything that appends
+    a parameter of its own turns a valid signature into a 401. The Android
+    companion app does exactly that to every relative path it loads in its
+    own webview; event.py says how the notification avoids it. Two further
+    limits: the signature is good for `lifetime`, and the signing secret lives
+    only in memory, so a restart of Home Assistant invalidates every URL
+    minted before it.
 
-    Older cores do not take the argument. Signing without it is what this did
-    before and is better than not signing at all.
+    Older cores do not take the argument; the plain call signs the same way.
     """
     try:
         return async_sign_path(hass, path, lifetime, use_content_user=True)

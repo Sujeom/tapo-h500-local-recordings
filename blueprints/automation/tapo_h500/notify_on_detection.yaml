@@ -393,16 +393,23 @@ actions:
       frame: >-
         {{ state_attr(trigger.entity_id, 'preview')
            or state_attr(trigger.entity_id, 'image') }}
-      # This event's own recording, beside `frame`, its own picture. Both are
-      # signed URLs, which is what lets the phone open them: a notification
-      # action opens in a webview carrying no Home Assistant session for a
-      # media path, so the signature is the only credential there is.
-      #
-      # It addresses a downloaded file and there is no on-demand fallback --
-      # the hub will make a frame for a clip nobody kept, but not the clip --
-      # so it is empty until the download lands, and the button is then left
-      # out rather than offered broken.
+      # This event's own recording, beside `frame`, its own picture: a signed
+      # path, carried as an attachment the way `frame` is, because the
+      # companion app fetches attachments with its own token. It addresses a
+      # downloaded file and there is no on-demand fallback -- the hub will make
+      # a frame for a clip nobody kept, but not the clip -- so it is empty
+      # until the download lands, and an empty value attaches nothing.
       clip: "{{ state_attr(trigger.entity_id, 'video') }}"
+      # The same picture and recording as ABSOLUTE URLs, for the buttons. The
+      # Android app routes a button by the shape of its URI: a relative path
+      # is loaded in the app's own webview, which appends `external_auth=1`
+      # to the query on the way in -- right for a dashboard, and a 401 for a
+      # signed media path, because Home Assistant rejects any query parameter
+      # it did not sign. An absolute URL goes to the system browser untouched.
+      # Empty on an integration too old to publish them, or with no external
+      # URL configured, and the buttons are then left out.
+      open_image: "{{ state_attr(trigger.entity_id, 'image_link') }}"
+      open_video: "{{ state_attr(trigger.entity_id, 'video_link') }}"
       when: >-
         {{ (trigger.to_state.state | as_datetime | as_local)
            .strftime('%-I:%M %p') }}
@@ -459,34 +466,44 @@ actions:
       # the document is parsed before any template runs, so Jinja cannot add
       # or remove keys and entries -- it can only fill them in.
       buttons: >-
-        {#- A button may only address a route the frontend serves WITHOUT
-            credentials, because a notification action is opened with none.
-            `/lovelace/...` qualifies: Home Assistant returns the app shell to
-            anyone, and the page authenticates itself afterwards. `/media/...`
-            and `/api/...` do not, and answer 401 -- signed or unsigned, that
-            was the same 401 three times over. The picture and the recording
-            travel as attachments instead, where the app's own token fetches
-            them. So this is the dialog when there is a camera entity to open
-            one for, `/media-browser` otherwise, which is a frontend route and
-            lands on the recordings either way. -#}
-        {%- set base = [{'action': 'URI', 'title': 'Recordings',
-                         'uri': link if camera else '/media-browser'},
-                        {'action': 'TAPO_H500_SNOOZE', 'title': 'Snooze 1h',
-                         'entry': config_entry_id(trigger.entity_id)}] -%}
-        {%- if input_offer_naming and unnamed -%}
-          {#- face_id and entry travel WITH the button: the companion app
-              echoes unknown keys back in the event, which is the only way the
-              reply knows which face it is answering about. Deriving it from a
-              device id afterwards does not work -- the event carries no
-              reliable device. -#}
-          {{ base + [{'action': 'TAPO_H500_NAME_FACE',
-                      'title': 'Name this face',
-                      'behavior': 'textInput',
-                      'textInputButtonTitle': 'Save',
-                      'textInputPlaceholder': 'Who is this?',
-                      'face_id': unnamed,
-                      'entry': config_entry_id(trigger.entity_id)}] }}
-        {%- else -%}{{ base }}{%- endif -%}
+        {#- The Android app routes a button by the shape of its URI. A
+            relative path is loaded inside the app's own webview, and the app
+            appends `external_auth=1` to it on the way in -- which the
+            frontend needs, and which turns a signed media path into a 401,
+            because Home Assistant rejects any query parameter it did not
+            sign. An absolute URL is handed to the system browser untouched.
+            So Image and Video open this event's own files by absolute URL;
+            with neither to offer, Recordings takes the frontend route -- the
+            camera's dialog, or the media browser.
+
+            Android shows three actions and silently drops the rest, so this
+            is a priority list, cut to three: the files first, then a face
+            that wants naming, then Snooze. -#}
+        {%- set has_image = open_image not in [none, '', 'None'] -%}
+        {%- set has_video = open_video not in [none, '', 'None'] -%}
+        {%- set open = ([{'action': 'URI', 'title': 'Image', 'uri': open_image}]
+                        if has_image else [])
+              + ([{'action': 'URI', 'title': 'Video', 'uri': open_video}]
+                 if has_video else []) -%}
+        {%- set browse = [] if open else
+              [{'action': 'URI', 'title': 'Recordings',
+                'uri': link if camera else '/media-browser'}] -%}
+        {#- face_id and entry travel WITH the button: the companion app
+            echoes unknown keys back in the event, which is the only way the
+            reply knows which face it is answering about. Deriving it from a
+            device id afterwards does not work -- the event carries no
+            reliable device. -#}
+        {%- set naming = [{'action': 'TAPO_H500_NAME_FACE',
+                           'title': 'Name this face',
+                           'behavior': 'textInput',
+                           'textInputButtonTitle': 'Save',
+                           'textInputPlaceholder': 'Who is this?',
+                           'face_id': unnamed,
+                           'entry': config_entry_id(trigger.entity_id)}]
+              if input_offer_naming and unnamed else [] -%}
+        {%- set snooze = [{'action': 'TAPO_H500_SNOOZE', 'title': 'Snooze 1h',
+                           'entry': config_entry_id(trigger.entity_id)}] -%}
+        {{ (open + browse + naming + snooze)[:3] }}
       # The photo notification's buttons: Save clip takes Snooze's slot.
       # Android shows at most three actions, so appending a fourth would
       # silently drop one -- and by the time the photograph arrives, anyone
@@ -494,6 +511,11 @@ actions:
       # ago. Save only exists here because at first-notification time the
       # hub is usually still recording and there is nothing indexed to
       # save. camera_index rides on the event entity for exactly this.
+      #
+      # The Image button goes too: this notification carries the picture
+      # itself, so a button that opens the same picture is a slot spent on
+      # nothing. Video stays -- the recording is not attached as anything a
+      # person can play.
       #
       # Unless this is the only notification. Then nobody has been offered
       # Snooze at all, so it goes back into whatever slot is left -- which
@@ -505,14 +527,15 @@ actions:
                          'camera_index': state_attr(trigger.entity_id,
                                                     'camera_index'),
                          'start_time': moment}] -%}
-        {%- set without_snooze = buttons
-              | rejectattr('action', 'eq', 'TAPO_H500_SNOOZE') | list -%}
+        {%- set keep = buttons
+              | rejectattr('action', 'eq', 'TAPO_H500_SNOOZE')
+              | rejectattr('title', 'eq', 'Image') | list -%}
         {%- set snooze = buttons
               | selectattr('action', 'eq', 'TAPO_H500_SNOOZE') | list -%}
-        {%- set full = without_snooze + save -%}
+        {%- set full = keep + save -%}
         {%- if input_photo_only and full | count < 3 -%}
-          {{ full + snooze }}
-        {%- else -%}{{ full }}{%- endif -%}
+          {{ (full + snooze)[:3] }}
+        {%- else -%}{{ full[:3] }}{%- endif -%}
 
   # First: immediately, without a picture. There is not one yet -- the hub is
   # still recording. Skipped entirely when only photographed notifications
@@ -563,14 +586,12 @@ actions:
             {% if who %}{{ who }} — {% endif %}{% if seen %}{{ seen }}, {% endif %}{{ when }}
           data:
             image: "{{ frame }}"
-            # The recording, carried the same way the picture is. This is the
-            # one channel that authenticates: the companion app fetches an
-            # attachment with its own token, which is why `image` has always
-            # worked. A notification ACTION is opened with no Home Assistant
-            # credentials at all, so a button addressing a media path answers
-            # 401 no matter how it is signed -- three attempts proved it.
-            # Empty until the download lands, and an empty value attaches
-            # nothing.
+            # The recording, carried the same way the picture is: the
+            # companion app fetches an attachment with its own token, which is
+            # why `image` has always arrived. Android renders it as a sequence
+            # of frames rather than a player; the Video button opens the file
+            # itself. Empty until the download lands, and an empty value
+            # attaches nothing.
             video: "{{ clip }}"
             tag: "tapo-h500-{{ camera }}"
             # Same channel as the first, or replacing it would quietly demote

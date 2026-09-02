@@ -620,15 +620,19 @@ class ButtonBudget(unittest.TestCase):
         for step in DOC["actions"]:
             if "variables" in step:
                 variables = step["variables"]
+        # The worst case: both files are there to open AND a face wants
+        # naming, so Image, Video, Name this face and Snooze all compete.
         base = env.from_string(variables["buttons"]).render(
             input_offer_naming=True,
             unnamed="12345" if unnamed else "",
-            link="/x",
+            link="/x", camera="camera.front",
+            open_image="https://ha.example/api/tapo_h500/preview/e/0/1?authSig=s",
+            open_video="https://ha.example/media/local/tapo_h500/f/d/1.mp4?authSig=s",
             trigger=types.SimpleNamespace(entity_id="event.front"))
         buttons = eval(base)  # noqa: S307 - our own template's output
         if which == "photo":
             photo = env.from_string(variables["photo_buttons"]).render(
-                buttons=buttons, moment=1,
+                buttons=buttons, moment=1, input_photo_only=False,
                 trigger=types.SimpleNamespace(entity_id="event.front"))
             return eval(photo)  # noqa: S307
         return buttons
@@ -753,7 +757,7 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
             VARIABLES["link"]).render(
                 camera=camera, dashboard=dashboard).strip()
 
-    def _buttons(self, camera, frame, clip="",
+    def _buttons(self, camera, frame, clip="", open_image="", open_video="",
                  link="/lovelace/0?more-info-entity-id=x"):
         import ast
         import jinja2
@@ -761,6 +765,7 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         rendered = jinja2.Environment().from_string(  # noqa: S701 - not HTML
             VARIABLES["buttons"]).render(
                 camera=camera, frame=frame, clip=clip, link=link,
+                open_image=open_image, open_video=open_video,
                 input_offer_naming=False, unnamed="",
                 config_entry_id=lambda entity: "entry1",
                 trigger=types.SimpleNamespace(entity_id=self.EVENT))
@@ -806,28 +811,54 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         self.assertEqual(self._link(""), "/lovelace/0")
         self.assertNotIn("more-info-entity-id", self._link(""))
 
-    def test_no_button_addresses_a_path_that_needs_credentials(self):
-        """The bug, three times over. A notification action is opened with no
-        Home Assistant credentials, so `/media/...` and `/api/...` answer 401
-        whether the URL is signed or not. Only routes the frontend serves to
-        anyone -- the app shell, which authenticates itself afterwards -- can
-        be the target of a button. The picture and the recording travel as
-        attachments instead, where the app's own token fetches them."""
-        for camera, frame, clip in ((self.REAL, self.STILL, self.CLIP),
-                                    ("", self.STILL, self.CLIP),
-                                    ("", "", "")):
-            for uri in self._uris(self._buttons(camera, frame, clip)):
-                self.assertFalse(
-                    uri.startswith(("/media/", "/api/")),
-                    f"{uri} needs credentials a notification action lacks")
+    IMAGE_LINK = "https://ha.example/api/tapo_h500/preview/e/1/1786600000?authSig=x"
+    VIDEO_LINK = "https://ha.example" + CLIP + "?authSig=x"
 
-    def test_the_button_lands_on_the_recordings_either_way(self):
-        """With a camera entity, its dialog; without one, the media browser.
-        Both are frontend routes, so both load."""
-        with_camera = self._uris(self._buttons(self.REAL, self.STILL))
-        self.assertEqual(with_camera, ["/lovelace/0?more-info-entity-id=x"])
-        without = self._uris(self._buttons("", self.STILL))
-        self.assertEqual(without, ["/media-browser"])
+    def _every_combination(self):
+        for camera in (self.REAL, ""):
+            for frame in ("/api/preview/1", ""):
+                for links in ((self.IMAGE_LINK, self.VIDEO_LINK),
+                              (self.IMAGE_LINK, ""), ("", "")):
+                    yield self._buttons(camera, frame, self.CLIP, *links)
+
+    def test_a_media_path_is_absolute_and_a_frontend_route_is_relative(self):
+        """The rule, from the Android app's own source. A relative URI is
+        loaded in the app's webview with `external_auth=1` appended, which
+        Home Assistant's signed-path check rejects -- so a signed media path
+        must be absolute, handed to the system browser untouched. A frontend
+        route must stay relative, so the app opens it in itself."""
+        for buttons in self._every_combination():
+            for uri in self._uris(buttons):
+                if "/media/" in uri or "/api/" in uri:
+                    self.assertTrue(uri.startswith("http"),
+                                    f"{uri} would be loaded in the app's webview")
+                else:
+                    self.assertTrue(uri.startswith("/"),
+                                    f"{uri} would leave the app for a dashboard")
+
+    def test_image_and_video_open_this_events_own_files(self):
+        buttons = [b for b in self._buttons(self.REAL, "", self.CLIP,
+                                            self.IMAGE_LINK, self.VIDEO_LINK)
+                   if b["action"] == "URI"]
+        self.assertEqual([b["title"] for b in buttons], ["Image", "Video"])
+        self.assertEqual([b["uri"] for b in buttons],
+                         [self.IMAGE_LINK, self.VIDEO_LINK])
+
+    def test_video_is_left_out_until_there_is_a_recording(self):
+        buttons = self._buttons(self.REAL, "", "", self.IMAGE_LINK, "")
+        self.assertNotIn("Video", [b.get("title") for b in buttons])
+
+    def test_recordings_fills_in_when_there_is_nothing_to_open(self):
+        """An integration too old to publish the links, or no external URL:
+        the frontend route still lands on the recordings."""
+        self.assertEqual(self._uris(self._buttons(self.REAL, "")),
+                         ["/lovelace/0?more-info-entity-id=x"])
+        self.assertEqual(self._uris(self._buttons("", "")), ["/media-browser"])
+
+    def test_three_actions_is_the_ceiling(self):
+        """Android shows three."""
+        for buttons in self._every_combination():
+            self.assertLessEqual(len(buttons), 3)
 
     def test_the_recording_rides_the_notification(self):
         """`image` has always worked because the app fetches an attachment

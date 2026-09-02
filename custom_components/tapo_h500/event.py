@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.network import get_url
 from homeassistant.util import dt as dt_util
 
 from .clips import (
@@ -107,7 +108,7 @@ class H500ActivityEvent(H500Entity, EventEntity):
             return None
 
     def _video(self, start_time: int | None) -> str | None:
-        """This event's own recording, signed so the phone can just open it.
+        """This event's own recording, as a signed path.
 
         The suffix is the one the download was told to write -- ffmpeg
         remuxes to `.mp4` unless that is turned off, in which case the raw
@@ -129,10 +130,42 @@ class H500ActivityEvent(H500Entity, EventEntity):
         except Exception:  # noqa: BLE001 - an attribute is never worth failing on
             return None
 
+    def _link(self, signed: str | None) -> str | None:
+        """A signed path as an absolute URL, for a notification button.
+
+        The Android companion app routes a button by the shape of its URI. A
+        relative path is loaded inside the app's own frontend webview, and on
+        the way in the app appends `external_auth=1` to the query string so
+        the frontend knows to authenticate through the app. Right for a
+        dashboard, fatal for a signed media path: Home Assistant compares the
+        signed parameters with the request's exactly, tolerating only `height`
+        and `width` as extras, so that one appended parameter makes every
+        signed relative path answer 401 from a notification -- however it was
+        signed, and it was signed correctly. An absolute URL takes the other
+        route: the app hands it to the system browser untouched, the browser
+        sends exactly the query that was signed, and the file is served.
+
+        Attachments are the exception, and why `image` can stay relative: the
+        app fetches those itself, with its own token.
+
+        Built on the instance's external URL when one is configured, since a
+        phone is mostly not on the LAN. Good for URL_LIFETIME, and only until
+        the next restart -- the signing secret lives in memory.
+        """
+        if not signed:
+            return None
+        try:
+            return get_url(self.hass, prefer_external=True).rstrip("/") + signed
+        except Exception:  # noqa: BLE001 - an attribute is never worth failing on
+            return None
+
     @callback
     def _handle(self, kind: str, entry: dict) -> None:
         start_time = start_of(entry)
         end_time = end_of(entry)
+        image = self._own_frame(start_time)
+        preview = self._preview(start_time)
+        video = self._video(start_time)
         self._trigger_event(kind, {
             # Which paired-list position this camera is: what
             # tapo_h500.download_recording calls camera_index, so a
@@ -164,7 +197,7 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # have to re-implement a window that wraps midnight.
             "notable": self._notable(entry, start_time),
             # This event's own recording, beside `image`, its own still.
-            "video": self._video(start_time),
+            "video": video,
             # This event's OWN frame, addressed by its timestamp.
             #
             # The camera entity deliberately serves whatever thumbnail is
@@ -178,12 +211,19 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # The file does not exist yet -- the hub is still recording -- so
             # this 404s until the download lands. Signing does not check for
             # the file, and the URL is good for 12 hours.
-            "image": self._own_frame(start_time),
+            "image": image,
             # The same frame, fetched on demand rather than read off disk.
             # `image` is the downloaded file and 404s until there is one;
             # this one produces a picture for a clip that was never
             # downloaded at all, which is what a notification wants.
-            "preview": self._preview(start_time),
+            "preview": preview,
+            # The picture and the recording again, as absolute URLs: the
+            # form a notification button has to carry, because the app hands
+            # an absolute URL to the system browser rather than loading it
+            # in its own webview. _link says why that is the only route that
+            # works for a signed media path.
+            "image_link": self._link(preview or image),
+            "video_link": self._link(video),
             # Whether notifications were muted when this fired.
             #
             # "There was activity and I got no message" has exactly two
