@@ -794,6 +794,29 @@ because that is how far back the hub is asked.
 
 Unknown, not off, before the first check completes.
 
+### The latest event, as a picture
+
+`image.<camera>_latest_event` is the frame of the last event that fired, pinned
+to that event's start time until the next one fires. Before any event has
+fired since Home Assistant started, it is the newest indexed clip's frame.
+`frame_taken` and `frame_age_seconds` say how old the picture is, because a
+wedged camera keeps serving its last frame forever and a still picture cannot
+say so itself.
+
+This is what the notification blueprint's **Image** button opens: an
+`entityId:` action, which the Android companion app turns into this entity's
+own more-info dialog. Of every way a button can leave a notification it is the
+one that lands inside the app with no dashboard to set up -- a relative media
+link is broken by the `external_auth=1` the app appends, and an absolute one
+goes to the system browser. The event entity publishes the id as
+`image_entity`, looked up by the picture's frozen unique id so a renamed entity
+is still found.
+
+One entity per camera means it shows the *last* event. Two visitors a minute
+apart, and the first notification's Image opens the second picture; that is
+the honest limit of the design, and the dashboard-landing Video button is
+addressed by clip and does not share it.
+
 ### Today, in one picture
 
 `image.<camera>_today` is a contact sheet: every frame from today's recordings,

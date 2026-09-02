@@ -6,6 +6,7 @@ from .models import Camera
 from homeassistant.components.event import EventDeviceClass, EventEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
@@ -129,6 +130,26 @@ class H500ActivityEvent(H500Entity, EventEntity):
         except Exception:  # noqa: BLE001 - an attribute is never worth failing on
             return None
 
+    def _image_entity(self) -> str | None:
+        """The entity id of this camera's latest-event picture, for a button.
+
+        A notification action of `entityId:<id>` opens that entity's dialog
+        inside the companion app -- the one in-app surface a button reaches
+        without the app rewriting the URL on the way (a relative path gets
+        `external_auth=1` appended, which a signed media URL does not
+        survive, and an absolute one goes to the system browser). The picture
+        entity pins itself to the last event that fired, so the dialog shows
+        the moment the notification was about.
+
+        Looked up by the picture's frozen unique id rather than spelled from
+        a name, so an entity somebody renamed is still found.
+        """
+        try:
+            return er.async_get(self.hass).async_get_entity_id(
+                "image", DOMAIN, f"{self.camera['device_id']}_latest_event")
+        except Exception:  # noqa: BLE001 - an attribute is never worth failing on
+            return None
+
     @callback
     def _handle(self, kind: str, entry: dict) -> None:
         start_time = start_of(entry)
@@ -187,6 +208,9 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # this one produces a picture for a clip that was never
             # downloaded at all, which is what a notification wants.
             "preview": preview,
+            # The entity whose dialog shows this event's frame, for a button
+            # that has to stay inside the app. See _image_entity.
+            "image_entity": self._image_entity(),
             # Whether notifications were muted when this fired.
             #
             # "There was activity and I got no message" has exactly two

@@ -403,6 +403,12 @@ actions:
       # a frame for a clip nobody kept, but not the clip -- so it is empty
       # until the download lands, and an empty value attaches nothing.
       clip: "{{ state_attr(trigger.entity_id, 'video') }}"
+      # The entity whose dialog shows this event's frame. Tested on a phone:
+      # of every way a button can leave a notification, `entityId:` is the
+      # one that lands in the app's own more-info dialog -- and the picture
+      # entity pins itself to the last event that fired, so that dialog is
+      # this event. Empty on an integration too old to publish it.
+      picture_entity: "{{ state_attr(trigger.entity_id, 'image_entity') }}"
       when: >-
         {{ (trigger.to_state.state | as_datetime | as_local)
            .strftime('%-I:%M %p') }}
@@ -476,10 +482,18 @@ actions:
         {%- set here = '/lovelace/' ~ dashboard ~ '?h500_clip=' ~ moment
               ~ '&h500_camera='
               ~ (state_attr(trigger.entity_id, 'camera_index') | int(0)) -%}
-        {%- set open = ([{'action': 'URI', 'title': 'Image', 'uri': here},
-                         {'action': 'URI', 'title': 'Video',
-                          'uri': here ~ '&h500_play=1'}]
-                        if moment else []) -%}
+        {#- Image opens the picture entity's dialog when there is one: the
+            app's native more-info, which needs no dashboard set up and shows
+            this event's frame. Without it, the dashboard view, landing on the
+            clip. Video has no dialog to open and always takes the view. -#}
+        {%- set dialog = picture_entity not in [none, '', 'None'] -%}
+        {%- set image = ([{'action': 'URI', 'title': 'Image',
+                           'uri': 'entityId:' ~ picture_entity}] if dialog
+                         else [{'action': 'URI', 'title': 'Image', 'uri': here}]
+                         if moment else []) -%}
+        {%- set video = ([{'action': 'URI', 'title': 'Video',
+                           'uri': here ~ '&h500_play=1'}] if moment else []) -%}
+        {%- set open = image + video -%}
         {%- set browse = [] if open else
               [{'action': 'URI', 'title': 'Recordings',
                 'uri': link if camera else '/media-browser'}] -%}

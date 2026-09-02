@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from .api import H500Client
 
 import asyncio
+from pathlib import Path
 import logging
 from datetime import timedelta
 
@@ -47,7 +48,7 @@ from .const import (
 from .models import Camera, Clip
 from .media_health import MediaHealth
 from .media import (
-    EmptyRecordingError, async_download_clip, async_latest_image,
+    EmptyRecordingError, async_download_clip, async_latest_image, clip_path,
     async_preview_clip, async_prune, async_prune_previews, async_verify,
     async_existing_clip,
 )
@@ -95,6 +96,11 @@ def loaded_hubs(hass: HomeAssistant) -> list["H500Coordinator"]:
             if getattr(entry, "runtime_data", None) is not None]
 
 
+def _frame_bytes(path: Path) -> bytes | None:
+    """The thumbnail if the fetch produced one. Blocking; run off the loop."""
+    return path.read_bytes() if path.is_file() else None
+
+
 class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
     """One poller per hub. Cameras are addressed by their paired-list index."""
 
@@ -113,7 +119,7 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self._seen_clips: dict[int, set[int]] = {}
         # Per camera, the newest clip start a frame fetch was begun for and
         # the task doing it; see async_latest_frame.
-        self._frame_attempts: dict[int, tuple[int, asyncio.Task]] = {}
+        self._frame_attempts: dict[tuple[int, int], asyncio.Task] = {}
         # One scan of the window per poll, shared by every entity that asks.
         # The source each answer was computed from, so a new poll's clips
         # invalidate it by being a different object.
@@ -668,17 +674,52 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                   and (end_of(clip) or 0) > start]
         newest = max(starts, default=None)
         if newest is not None:
-            attempted, fetch = self._frame_attempts.get(index, (None, None))
-            if attempted != newest:
-                fetch = self.hass.async_create_task(
-                    self._fetch_frame(camera, newest))
-                self._frame_attempts[index] = (newest, fetch)
-            # Shielded, so a viewer closing the tab mid-fetch cancels its own
-            # wait and not the fetch: the attempt is already marked, so a
-            # cancelled fetch would leave this clip marked as tried and never
-            # tried, and the old frame would stay until the next event.
-            await asyncio.shield(fetch)
+            await self._ensure_frame(index, camera, newest)
         return await async_latest_image(self.hass, camera)
+
+    async def async_frame_for(self, index: int, camera: dict,
+                              start_time: int) -> bytes | None:
+        """One event's own frame, fetched from the hub if need be.
+
+        What the latest-event picture serves once an event has fired: the
+        frame of THAT event, addressed by its start time, rather than of
+        whatever clip is newest in the index -- which a minute later is the
+        next visitor. A notification's Image button opens this picture's
+        dialog, so the picture has to be the one the notification was about.
+
+        The same one-attempt-per-clip guard as async_latest_frame, keyed by
+        clip rather than by camera, so a look at this event and a look at the
+        newest one cannot take turns cancelling each other's attempt.
+
+        Falls back to the newest thumbnail on disk when the hub would not
+        produce this one: a picture of the wrong moment beats a dialog with
+        nothing in it, and it is what this entity always showed before.
+        """
+        await self._ensure_frame(index, camera, start_time)
+        frame = await self.hass.async_add_executor_job(
+            _frame_bytes, clip_path(self.hass, camera, start_time, ".jpg"))
+        if frame is not None:
+            return frame
+        return await async_latest_image(self.hass, camera)
+
+    async def _ensure_frame(self, index: int, camera: dict, start_time: int) -> None:
+        """One fetch per clip, shared by everyone who asks while it runs."""
+        key = (index, start_time)
+        fetch = self._frame_attempts.get(key)
+        if fetch is None:
+            # Attempts for clips older than the poll window can go: the hub
+            # no longer lists them, so nothing will ask for them again.
+            for old in [k for k in self._frame_attempts
+                        if k[0] == index and k[1] < start_time - LOOKBACK_SECONDS]:
+                del self._frame_attempts[old]
+            fetch = self.hass.async_create_task(
+                self._fetch_frame(camera, start_time))
+            self._frame_attempts[key] = fetch
+        # Shielded, so a viewer closing the tab mid-fetch cancels its own
+        # wait and not the fetch: the attempt is already marked, so a
+        # cancelled fetch would leave this clip marked as tried and never
+        # tried, and the old frame would stay until the next event.
+        await asyncio.shield(fetch)
 
     async def _fetch_frame(self, camera: dict, start_time: int) -> None:
         """Fetch one clip's frame, then keep the strays in check.

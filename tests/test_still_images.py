@@ -38,7 +38,14 @@ def _coordinator(clips=()):
         coord.frames_asked.append(index)
         return b"the newest frame"
 
+    coord.frames_for = []
+
+    async def frame_for(index, camera, start_time):
+        coord.frames_for.append((index, start_time))
+        return b"that event's own frame"
+
     coord.async_latest_frame = latest_frame
+    coord.async_frame_for = frame_for
     return coord
 
 
@@ -158,6 +165,41 @@ class TheLatestEventPicture(unittest.TestCase):
         entity, coord = self._image([clip(NOW - 60)])
         self.assertEqual(asyncio.run(entity.async_image()),
                          b"the newest frame")
+
+    def test_once_an_event_fires_the_picture_is_that_events_frame(self):
+        """Not whatever clip is newest in the index, which a minute later is
+        the next visitor. A notification's Image button opens this entity's
+        dialog, so the picture has to be the event the notification named."""
+        entity, coord = self._image([clip(NOW - 30)])
+        entity._handle("motion", clip(NOW - 600))
+        self.assertEqual(asyncio.run(entity.async_image()),
+                         b"that event's own frame")
+        self.assertEqual(coord.frames_for, [(0, NOW - 600)])
+        self.assertEqual(coord.frames_asked, [], "the newest was not asked for")
+
+    def test_the_stamp_and_the_age_follow_the_event_too(self):
+        entity, _ = self._image([clip(NOW - 30)])
+        entity._handle("motion", clip(NOW - 600))
+        self.assertEqual(int(entity.image_last_updated.timestamp()), NOW - 600)
+        self.assertGreaterEqual(entity.extra_state_attributes["frame_age_seconds"],
+                                600)
+
+    def test_an_event_without_a_start_time_does_not_unpin_the_last_one(self):
+        entity, coord = self._image([clip(NOW - 30)])
+        entity._handle("motion", clip(NOW - 600))
+        entity._handle("motion", {})
+        asyncio.run(entity.async_image())
+        self.assertEqual(coord.frames_for, [(0, NOW - 600)])
+
+    def test_the_next_event_moves_it_on(self):
+        """One entity per camera: it shows the last event, and the last event
+        changes. The notification for the earlier one then opens the later
+        picture -- the honest limit of a per-camera entity."""
+        entity, coord = self._image([])
+        entity._handle("motion", clip(NOW - 600))
+        entity._handle("ring", clip(NOW - 60))
+        asyncio.run(entity.async_image())
+        self.assertEqual(coord.frames_for, [(0, NOW - 60)])
 
     def test_the_age_is_spelled_out_for_a_person(self):
         """A wedged camera keeps serving its last frame forever, and a still

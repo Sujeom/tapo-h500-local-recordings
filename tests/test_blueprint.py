@@ -626,6 +626,7 @@ class ButtonBudget(unittest.TestCase):
             input_offer_naming=True,
             unnamed="12345" if unnamed else "",
             link="/x", camera="camera.front", moment=1786600000, dashboard="0",
+            picture_entity="image.front_latest_event",
             trigger=types.SimpleNamespace(entity_id="event.front"))
         buttons = eval(base)  # noqa: S307 - our own template's output
         if which == "photo":
@@ -756,14 +757,14 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
                 camera=camera, dashboard=dashboard).strip()
 
     def _buttons(self, camera, frame, clip="", moment=0, dashboard="0",
-                 link="/lovelace/0?more-info-entity-id=x"):
+                 picture_entity="", link="/lovelace/0?more-info-entity-id=x"):
         import ast
         import jinja2
         import types
         rendered = jinja2.Environment().from_string(  # noqa: S701 - not HTML
             VARIABLES["buttons"]).render(
                 camera=camera, frame=frame, clip=clip, link=link,
-                moment=moment, dashboard=dashboard,
+                moment=moment, dashboard=dashboard, picture_entity=picture_entity,
                 state_attr=lambda entity, name: 1,
                 input_offer_naming=False, unnamed="",
                 config_entry_id=lambda entity: "entry1",
@@ -825,7 +826,8 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         is handed to the system browser -- so neither may be a button."""
         for buttons in self._every_combination():
             for uri in self._uris(buttons):
-                self.assertTrue(uri.startswith("/lovelace/") or uri == "/media-browser",
+                self.assertTrue(uri.startswith(("/lovelace/", "entityId:"))
+                                or uri == "/media-browser",
                                 f"{uri} does not stay in the app")
                 self.assertFalse("/media/" in uri or "/api/" in uri, uri)
 
@@ -836,6 +838,23 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         image, video = (b["uri"] for b in buttons)
         self.assertEqual(image, f"/lovelace/cams?h500_clip={self.MOMENT}&h500_camera=1")
         self.assertEqual(video, image + "&h500_play=1")
+
+    def test_image_opens_the_picture_entitys_dialog_when_there_is_one(self):
+        """Tested on the phone: `entityId:` is the one route that lands in
+        the app's own more-info dialog, and it needs no dashboard set up."""
+        buttons = [b for b in self._buttons(self.REAL, "", self.CLIP, self.MOMENT,
+                                            picture_entity="image.side_latest_event")
+                   if b["action"] == "URI"]
+        self.assertEqual([b["title"] for b in buttons], ["Image", "Video"])
+        self.assertEqual(buttons[0]["uri"], "entityId:image.side_latest_event")
+        self.assertTrue(buttons[1]["uri"].endswith("&h500_play=1"),
+                        "video has no dialog to open and takes the view")
+
+    def test_the_dialog_needs_no_clip_start(self):
+        """An integration that publishes the entity but an event without a
+        start time: the dialog still opens; only Video has nothing to name."""
+        buttons = self._buttons(self.REAL, "", "", 0, picture_entity="image.x")
+        self.assertEqual(self._uris(buttons), ["entityId:image.x"])
 
     def test_the_query_survives_the_apps_url_handling(self):
         """The app decodes the path and re-splits it on '/', which is what

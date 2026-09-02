@@ -7,7 +7,11 @@ this hub can do, because a media session opens, is acknowledged, and the
 camera never wakes to send anything.
 
 An image entity promises exactly what there is: a picture, and the time it was
-taken. That timestamp is the useful part. `image_last_updated` tells the
+taken. Once an event has fired, the picture is THAT event's frame, pinned to
+its start time, and stays so until the next event -- not whatever clip is
+newest in the index, which a minute later is the next visitor. This is what
+lets a notification's Image button open this entity's dialog and show the
+moment the notification was about. That timestamp is the useful part. `image_last_updated` tells the
 frontend the picture changed, so a dashboard refreshes when an event lands
 rather than polling, and anyone looking at it can see how old it is instead of
 wondering whether they are looking at now.
@@ -29,6 +33,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 
+from .clips import start_of
 from .coordinator import H500Coordinator
 from .entity import add_cameras_as_they_appear, H500Entity
 from .contact_sheet import async_contact_sheet
@@ -58,6 +63,9 @@ class H500EventImage(H500Entity, ImageEntity):
         H500Entity.__init__(self, coordinator, index, camera)
         ImageEntity.__init__(self, hass)
         self._attr_unique_id = f"{camera['device_id']}_latest_event"
+        # The start time of the last event that fired, once one has. Until
+        # then the newest indexed clip stands in, as it always did.
+        self._event_start: int | None = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -74,13 +82,22 @@ class H500EventImage(H500Entity, ImageEntity):
 
     @callback
     def _handle(self, kind: str, entry: dict) -> None:
-        """Stamp the picture as changed when an event lands.
+        """Pin the picture to this event, and stamp it as changed.
 
         Early on purpose: the coordinator fetches the frame on demand now, so
         a fetch triggered by this stamp usually finds it. The second stamp in
         _stamp covers the fetch that raced the download and lost.
         """
+        start = start_of(entry)
+        if start is not None:
+            self._event_start = start
         self._stamp()
+
+    def _moment(self) -> int | None:
+        """When the picture was taken: the pinned event, else the newest clip."""
+        if self._event_start is not None:
+            return self._event_start
+        return self.coordinator.last_activity(self.index)
 
     @callback
     def _stamp(self) -> None:
@@ -99,7 +116,7 @@ class H500EventImage(H500Entity, ImageEntity):
         frame it was waiting for either way. Falls back to now() only when the
         camera has produced nothing at all, where there is no truer answer.
         """
-        moment = self.coordinator.last_activity(self.index)
+        moment = self._moment()
         self._attr_image_last_updated = (
             dt_util.utc_from_timestamp(moment) if moment is not None
             else dt_util.utcnow())
@@ -109,6 +126,9 @@ class H500EventImage(H500Entity, ImageEntity):
         # Through the coordinator, so a clip that will never be downloaded --
         # rings-only mode, a download-type filter -- still gets its frame
         # fetched rather than this picture freezing on the last downloaded one.
+        if self._event_start is not None:
+            return await self.coordinator.async_frame_for(
+                self.index, self.camera, self._event_start)
         return await self.coordinator.async_latest_frame(self.index, self.camera)
 
     @property
@@ -123,7 +143,7 @@ class H500EventImage(H500Entity, ImageEntity):
         still picture cannot say so itself. This can: the age is the signal
         that what you are looking at is not what is happening now.
         """
-        moment = self.coordinator.last_activity(self.index)
+        moment = self._moment()
         if moment is None:
             return {"frame_taken": None, "frame_age_seconds": None}
         age = max(0, int(dt_util.utcnow().timestamp()) - moment)

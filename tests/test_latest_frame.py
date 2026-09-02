@@ -187,8 +187,10 @@ class HealsWithTheHub(unittest.TestCase):
     """
 
     # A stand-in for a real (start time, fetch task) mark. Nothing here runs
-    # the fetch; only whether the mark survives is under test.
-    MARK = (NOW - 30, None)
+    # the fetch; only whether the mark survives is under test. Keyed by
+    # (camera, clip) since the latest-event picture began asking for one
+    # specific clip's frame beside the newest.
+    MARK = None
 
     def _flagged(self, coord):
         coord.note_empty_download()
@@ -196,30 +198,30 @@ class HealsWithTheHub(unittest.TestCase):
 
     def test_recovery_from_hollow_sessions_clears_the_marks(self):
         coord, _ = harness._build()
-        coord._frame_attempts[0] = self.MARK
+        coord._frame_attempts[(0, NOW - 30)] = self.MARK
         self._flagged(coord)
         coord.note_served_download()
         self.assertEqual(coord._frame_attempts, {})
 
     def test_recovery_from_the_wedge_clears_the_marks(self):
         coord, _ = harness._build()
-        coord._frame_attempts[0] = self.MARK
+        coord._frame_attempts[(0, NOW - 30)] = self.MARK
         coord.media.status = "wedged"
         coord.note_media_status("healthy")
         self.assertEqual(coord._frame_attempts, {})
 
     def test_a_routine_download_does_not(self):
         coord, _ = harness._build()
-        coord._frame_attempts[0] = self.MARK
+        coord._frame_attempts[(0, NOW - 30)] = self.MARK
         coord.note_served_download()
-        self.assertEqual(coord._frame_attempts, {0: self.MARK})
+        self.assertEqual(coord._frame_attempts, {(0, NOW - 30): self.MARK})
 
     def test_staying_healthy_does_not_either(self):
         coord, _ = harness._build()
-        coord._frame_attempts[0] = self.MARK
+        coord._frame_attempts[(0, NOW - 30)] = self.MARK
         coord.media.status = "healthy"
         coord.note_media_status("healthy")
-        self.assertEqual(coord._frame_attempts, {0: self.MARK})
+        self.assertEqual(coord._frame_attempts, {(0, NOW - 30): self.MARK})
 
 
 IMAGE_SOURCE = (COMPONENT / "image.py").read_text()
@@ -250,8 +252,14 @@ class ThePictureSaysHowOldItIs(unittest.TestCase):
 
     def test_the_stamp_is_the_events_moment_not_the_lookup(self):
         code = _stamp_code()
-        self.assertIn("last_activity", code)
+        self.assertIn("self._moment()", code)
         self.assertIn("utc_from_timestamp", code)
+        # ...and the moment is the pinned event, else the newest clip: two
+        # real times, and never the lookup.
+        moment = IMAGE_SOURCE.split("def _moment", 1)[1].split("    def ", 1)[0]
+        self.assertIn("_event_start", moment)
+        self.assertIn("last_activity", moment)
+        self.assertNotIn("utcnow", moment)
 
     def test_now_survives_only_as_the_no_activity_fallback(self):
         """A camera that has produced nothing has no truer answer -- but
@@ -346,7 +354,7 @@ class SharedFetch(unittest.TestCase):
             looker.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await looker
-            await self.coord._frame_attempts[0][1]
+            await self.coord._frame_attempts[(0, NOW - 30)]
 
         asyncio.run(scenario())
         self.assertEqual(self.finished, [NOW - 30])

@@ -171,7 +171,7 @@ class TheCoordinatorStillSpeaksForIt(unittest.TestCase):
     def test_recovery_still_clears_the_frame_marks(self):
         """The one thing the coordinator keeps for itself: those marks are
         about pictures, not about the media path."""
-        self.coord._frame_attempts[0] = (1, None)
+        self.coord._frame_attempts[(0, 1)] = None
         self.coord.note_media_status("wedged")
         self.coord.note_media_status("healthy")
         self.assertEqual(self.coord._frame_attempts, {})

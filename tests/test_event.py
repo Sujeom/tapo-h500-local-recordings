@@ -209,6 +209,53 @@ class TheVideoUrl(TheTwoPictureUrls):
             f"{video} does not open {written}")
 
 
+class ThePictureEntityForAButton(unittest.TestCase):
+    """`image_entity`: whose dialog a notification's Image button opens.
+
+    Tested on a phone: an `entityId:` action is the one way a button lands
+    in the app's own more-info dialog. Looked up by the latest-event
+    picture's frozen unique id, so an entity somebody renamed is still found.
+    """
+
+    def _fired(self, register=True):
+        from homeassistant.helpers import entity_registry as er
+        coord, _ = harness._build()
+        entity = event_mod.H500ActivityEvent(coord, 1, CAMERA)
+        entity.hass = harness._Hass()
+        entity.hass.config = type("C", (), {"media_dirs": {"local": "/media"}})()
+        entity.entity_id = "event.front_activity"
+        if register:
+            er.async_get(entity.hass).entity_ids[
+                ("image", "tapo_h500", f"{CAMERA['device_id']}_latest_event")
+            ] = "image.front_doorbell_latest_event"
+        entity._handle("motion", {"events_1": 1 << 1,
+                                  "startTime": NOW, "endTime": NOW + 15})
+        return entity.triggered[-1][1]
+
+    def test_it_names_this_cameras_latest_event_picture(self):
+        self.assertEqual(self._fired()["image_entity"],
+                         "image.front_doorbell_latest_event")
+
+    def test_it_is_looked_up_by_unique_id_not_spelled(self):
+        """A renamed entity keeps its unique id; only the spelling changes."""
+        from homeassistant.helpers import entity_registry as er
+        coord, _ = harness._build()
+        entity = event_mod.H500ActivityEvent(coord, 1, CAMERA)
+        entity.hass = harness._Hass()
+        entity.hass.config = type("C", (), {"media_dirs": {"local": "/media"}})()
+        entity.entity_id = "event.front_activity"
+        er.async_get(entity.hass).entity_ids[
+            ("image", "tapo_h500", f"{CAMERA['device_id']}_latest_event")
+        ] = "image.porch_camera"
+        entity._handle("motion", {"events_1": 1 << 1,
+                                  "startTime": NOW, "endTime": NOW + 15})
+        self.assertEqual(entity.triggered[-1][1]["image_entity"], "image.porch_camera")
+
+    def test_an_unregistered_picture_is_simply_absent(self):
+        """The event still fires; the button falls back to the dashboard."""
+        self.assertIsNone(self._fired(register=False)["image_entity"])
+
+
 class SignedForSomethingWithNoSession(unittest.TestCase):
     """The signing call names the content user rather than relying on it.
 

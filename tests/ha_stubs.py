@@ -384,6 +384,16 @@ class _OptionsFlow:
         return {"type": "abort", "reason": reason}
 
 
+class _EntityRegistry:
+    """What er.async_get(hass) answers. Fill `entity_ids` to register one."""
+
+    def __init__(self):
+        self.entity_ids = {}
+
+    def async_get_entity_id(self, domain, platform, unique_id):
+        return self.entity_ids.get((domain, platform, unique_id))
+
+
 def _module(path: str, **names) -> types.ModuleType:
     """Register `path` now, with real behaviour. For names a test exercises."""
     module = types.ModuleType(path)
@@ -549,6 +559,16 @@ def install(component_path=None):
             CoordinatorEntity=_CoordinatorEntity,
             UpdateFailed=type("UpdateFailed", (Exception,), {}))
     _module("homeassistant.helpers.device_registry", DeviceInfo=dict)
+    # The entity registry, as much of it as the component reads: a lookup
+    # from (domain, platform, unique_id) to an entity id. Kept on hass.data
+    # like the real one, so a test fills the registry of the hass it hands
+    # the entity. Anything else the component asks of the module is
+    # manufactured as before.
+    _module("homeassistant.helpers.entity_registry",
+            async_get=lambda hass: (
+                hass.data.setdefault("entity_registry", _EntityRegistry())
+                if isinstance(getattr(hass, "data", None), dict)
+                else _EntityRegistry()))
 
     # A real timer double: the manufactured one returned an uncallable class,
     # so cancelling a detection hold raised. Tests fire or cancel through it.
