@@ -147,7 +147,7 @@ the hour the clock goes back needs a suffix.
 | `sensor.py` | 829 | Hub and per-camera sensors, built only from responses seen on real hardware. |
 | `binary_sensor.py` | 642 | Hub and per-camera on/off state. |
 | `image.py` | 178 | One still per camera: the frame from its most recent event. |
-| `event.py` | 157 | Doorbell and motion events for each paired camera. |
+| `event.py` | 245 | Doorbell and motion events for each paired camera. |
 | `switch.py` | 159 | Hub settings that are simply on or off. |
 | `calendar.py` | 141 | Every detection as a calendar entry, so a day can be read at a glance. |
 | `siren.py` | 96 | The hub siren, which is a real controllable device on this firmware. |

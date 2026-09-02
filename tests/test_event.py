@@ -176,13 +176,24 @@ class TheMediaBrowserPath(TheTwoPictureUrls):
     the playable clips together.
     """
 
-    def test_it_points_at_the_media_browser(self):
-        self.assertTrue(
-            self._fired()["media"].startswith("/media-browser/local/tapo_h500/"))
+    def test_it_points_at_this_events_own_still(self):
+        self.assertTrue(self._fired()["media"].startswith("/media/local/tapo_h500/"))
+        self.assertTrue(self._fired()["media"].endswith(".jpg"))
 
-    def test_it_carries_no_signature(self):
+    def test_the_video_is_the_recording_beside_it(self):
+        fired = self._fired()
+        self.assertEqual(fired["video"], fired["media"][:-4] + ".mp4")
+
+    def test_neither_carries_a_signature(self):
         """The entire point: nothing here can expire or be rejected."""
         self.assertNotIn("authSig", self._fired()["media"])
+        self.assertNotIn("authSig", self._fired()["video"])
+
+    def test_the_signed_still_addresses_the_same_file(self):
+        """`image` and `media` are the same picture; only the credential
+        differs, and that difference is the whole bug."""
+        fired = self._fired()
+        self.assertTrue(fired["image"].startswith(fired["media"]))
 
     def test_it_opens_the_folder_the_clip_is_actually_written_into(self):
         """The invariant worth holding. Both sides derive camera and day
@@ -200,15 +211,17 @@ class TheMediaBrowserPath(TheTwoPictureUrls):
         entity.entity_id = "event.front_activity"
         entity._handle("motion", {"events_1": 1 << 1,
                                   "startTime": NOW, "endTime": NOW + 15})
-        media = entity.triggered[-1][1]["media"]
-        written = clip_path(entity.hass, CAMERA, NOW, ".mp4").parent
-        self.assertTrue(
-            media.endswith(f"/{written.parent.name}/{written.name}"),
-            f"{media} does not open {written}")
+        video = entity.triggered[-1][1]["video"]
+        written = clip_path(entity.hass, CAMERA, NOW, ".mp4")
+        self.assertTrue(video.endswith(
+            f"/{written.parent.parent.name}/{written.parent.name}/{written.name}"),
+            f"{video} does not open {written}")
 
-    def test_an_event_with_no_start_time_has_no_folder(self):
-        """There is no day to open without a moment to take it from."""
-        self.assertIsNone(self._fired(index=0, events_1=1 << 1)["media"])
+    def test_an_event_with_no_start_time_has_neither(self):
+        """There is no file to name without a moment to name it from."""
+        attributes = self._fired(index=0, events_1=1 << 1)
+        self.assertIsNone(attributes["media"])
+        self.assertIsNone(attributes["video"])
 
 
 if __name__ == "__main__":
