@@ -393,6 +393,12 @@ actions:
       frame: >-
         {{ state_attr(trigger.entity_id, 'preview')
            or state_attr(trigger.entity_id, 'image') }}
+      # This camera's recordings for this day, in the media browser. The
+      # media browser is part of the frontend the companion app is already
+      # signed in to, so unlike `frame` -- a signed media URL opened in a
+      # plain webview, where the signature is the only credential and an
+      # unusable one answers 401 -- pressing this always lands somewhere.
+      recordings: "{{ state_attr(trigger.entity_id, 'media') }}"
       when: >-
         {{ (trigger.to_state.state | as_datetime | as_local)
            .strftime('%-I:%M %p') }}
@@ -449,7 +455,11 @@ actions:
       # the document is parsed before any template runs, so Jinja cannot add
       # or remove keys and entries -- it can only fill them in.
       buttons: >-
-        {#- The picture this event is about. `frame` is the on-demand preview
+        {#- Where to see what happened. The media browser first: it holds this
+            camera's thumbnails AND its playable clips for the day, and it is
+            reached through the frontend the app is already signed in to, so
+            it cannot answer 401 the way a signed media URL opened in a bare
+            webview can. Then `frame`, the on-demand preview
             endpoint, which renders the frame in Home Assistant whether or not
             the clip was ever downloaded -- so pressing it shows the thing
             being reported, rather than a dashboard the dialog may or may not
@@ -457,8 +467,8 @@ actions:
             an integration too old to publish a preview, and with neither
             there is no button: an action that cannot do anything is worse
             than one action fewer. -#}
-        {%- set view = frame or (link if camera else '') -%}
-        {%- set base = ([{'action': 'URI', 'title': 'Image', 'uri': view}]
+        {%- set view = recordings or frame or (link if camera else '') -%}
+        {%- set base = ([{'action': 'URI', 'title': 'Recordings', 'uri': view}]
                         if view else [])
               + [{'action': 'TAPO_H500_SNOOZE', 'title': 'Snooze 1h',
                   'entry': config_entry_id(trigger.entity_id)}] -%}

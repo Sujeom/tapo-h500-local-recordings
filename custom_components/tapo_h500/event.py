@@ -11,11 +11,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .clips import (
-    describe_detection, detection_types, end_of, face_ids, hub_label,
-    notable, start_of,
+    camera_slug, describe_detection, detection_types, end_of, face_ids,
+    hub_label, notable, start_of,
 )
 from .const import (
     CONF_NIGHT_END, CONF_NIGHT_START, DEFAULT_NIGHT_END, DEFAULT_NIGHT_START, DOMAIN, EVENT_TYPES,
+    MEDIA_DIR,
 )
 from .coordinator import H500Coordinator
 from .entity import add_cameras_as_they_appear, H500Entity
@@ -105,6 +106,32 @@ class H500ActivityEvent(H500Entity, EventEntity):
         except Exception:  # noqa: BLE001 - an attribute is never worth failing on
             return None
 
+    def _media(self, start_time: int | None) -> str | None:
+        """Where this clip lives in the media browser: this camera, this day.
+
+        `image` and `preview` are signed media URLs, and a signed URL carries
+        its own credential because whatever opens it has no Home Assistant
+        session of its own. A notification action opens in a plain webview,
+        where that signature is the only thing standing between the request
+        and a 401 -- and a 401 is indistinguishable, to the person holding the
+        phone, from a picture that is simply not there.
+
+        The media browser is the frontend the companion app is already signed
+        in to, so this needs no signature at all. It lands on the folder
+        holding this camera's recordings for this day: the thumbnails and the
+        playable clips together, which is both halves of "show me what
+        happened" in one place.
+        """
+        if start_time is None:
+            return None
+        try:
+            day = dt_util.as_local(
+                dt_util.utc_from_timestamp(int(start_time))).strftime("%Y-%m-%d")
+            return (f"/media-browser/local/{MEDIA_DIR}/"
+                    f"{camera_slug(self.camera)}/{day}")
+        except Exception:  # noqa: BLE001 - an attribute is never worth failing on
+            return None
+
     @callback
     def _handle(self, kind: str, entry: dict) -> None:
         start_time = start_of(entry)
@@ -139,6 +166,9 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # different alarm sound. Derived here so an automation does not
             # have to re-implement a window that wraps midnight.
             "notable": self._notable(entry, start_time),
+            # This camera's recordings for this day, in the media browser.
+            # Unsigned on purpose -- see _media.
+            "media": self._media(start_time),
             # This event's OWN frame, addressed by its timestamp.
             #
             # The camera entity deliberately serves whatever thumbnail is

@@ -164,5 +164,52 @@ class TheTwoPictureUrls(unittest.TestCase):
         self.assertIsNone(attributes["preview"])
 
 
+class TheMediaBrowserPath(TheTwoPictureUrls):
+    """`media` is the one place to look that needs no signature.
+
+    `image` and `preview` are signed URLs: whatever opens them has no Home
+    Assistant session, so the signature IS the credential, and a notification
+    action opens in a bare webview where an unusable one answers 401. To the
+    person holding the phone a 401 and a missing picture look the same. The
+    media browser is served by the frontend the companion app is already
+    signed in to, so it needs no signature -- and it holds the thumbnails and
+    the playable clips together.
+    """
+
+    def test_it_points_at_the_media_browser(self):
+        self.assertTrue(
+            self._fired()["media"].startswith("/media-browser/local/tapo_h500/"))
+
+    def test_it_carries_no_signature(self):
+        """The entire point: nothing here can expire or be rejected."""
+        self.assertNotIn("authSig", self._fired()["media"])
+
+    def test_it_opens_the_folder_the_clip_is_actually_written_into(self):
+        """The invariant worth holding. Both sides derive camera and day
+        independently -- `clip_path` for the file, `_media` for the link --
+        and if they ever disagree the button opens an empty folder while the
+        recording sits somewhere else. HA's own local time decides the day,
+        so computing it here from the system zone proves nothing.
+        """
+        from custom_components.tapo_h500.media import clip_path
+        coord, _ = harness._build()
+        entity = event_mod.H500ActivityEvent(coord, 1, CAMERA)
+        entity.hass = harness._Hass()
+        entity.hass.config = type("C", (), {
+            "media_dirs": {"local": "/media"}})()
+        entity.entity_id = "event.front_activity"
+        entity._handle("motion", {"events_1": 1 << 1,
+                                  "startTime": NOW, "endTime": NOW + 15})
+        media = entity.triggered[-1][1]["media"]
+        written = clip_path(entity.hass, CAMERA, NOW, ".mp4").parent
+        self.assertTrue(
+            media.endswith(f"/{written.parent.name}/{written.name}"),
+            f"{media} does not open {written}")
+
+    def test_an_event_with_no_start_time_has_no_folder(self):
+        """There is no day to open without a moment to take it from."""
+        self.assertIsNone(self._fired(index=0, events_1=1 << 1)["media"])
+
+
 if __name__ == "__main__":
     unittest.main()

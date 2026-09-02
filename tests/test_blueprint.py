@@ -751,13 +751,14 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
             VARIABLES["link"]).render(
                 camera=camera, dashboard=dashboard).strip()
 
-    def _buttons(self, camera, frame, link="/lovelace/0?more-info-entity-id=x"):
+    def _buttons(self, camera, frame, recordings="",
+                 link="/lovelace/0?more-info-entity-id=x"):
         import ast
         import jinja2
         import types
         rendered = jinja2.Environment().from_string(  # noqa: S701 - not HTML
             VARIABLES["buttons"]).render(
-                camera=camera, frame=frame, link=link,
+                camera=camera, frame=frame, recordings=recordings, link=link,
                 input_offer_naming=False, unnamed="",
                 config_entry_id=lambda entity: "entry1",
                 trigger=types.SimpleNamespace(entity_id=self.EVENT))
@@ -809,10 +810,19 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         uris = self._uris(self._buttons(self.REAL, "/api/preview/1"))
         self.assertEqual(uris, ["/api/preview/1"])
 
-    def test_it_is_called_image_because_that_is_what_it_shows(self):
+    def test_it_is_called_recordings_because_that_is_where_it_lands(self):
         buttons = self._buttons(self.REAL, "/api/preview/1")
         self.assertEqual([b["title"] for b in buttons if b["action"] == "URI"],
-                         ["Image"])
+                         ["Recordings"])
+
+    def test_the_media_browser_wins_over_a_signed_url(self):
+        """A signed media URL opened in a bare webview has only its signature
+        to authenticate it, and an unusable one answers 401 -- which reads,
+        to the person holding the phone, exactly like a missing picture. The
+        media browser goes through the frontend the app is signed in to."""
+        media = "/media-browser/local/tapo_h500/front_doorbell/2026-09-02"
+        uris = self._uris(self._buttons(self.REAL, "/api/preview/1", media))
+        self.assertEqual(uris, [media])
 
     def test_the_cameras_dialog_is_the_fallback(self):
         """An integration too old to publish `preview` has no frame to show."""
