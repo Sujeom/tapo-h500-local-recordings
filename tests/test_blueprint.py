@@ -166,6 +166,118 @@ class Photograph(unittest.TestCase):
         self.assertIn("frame not in [none, '', 'None']", RAW)
 
 
+class ThisEventsOwnClip(unittest.TestCase):
+    """`moment` is the clip's start time, and both consumers depend on it.
+
+    An event entity's state is the instant `_trigger_event` ran, which is the
+    poll that noticed the recording -- seconds to minutes after the recording
+    itself began. `sensor.<cam>_last_activity` holds clip START times
+    (`coordinator.last_activity` is `max(start_of(clip) ...)`), so a wait for
+    that sensor to pass the event's FIRE time is a wait for a clip only the
+    next visitor can produce: three minutes, then silence.
+
+    Rendered for real, because the two timestamps are both plausible integers
+    and a grepped-for template cannot tell them apart.
+    """
+
+    CLIP = 1_786_600_000              # when the recording began
+    FIRED = CLIP + 40                 # when the poll noticed it and fired
+    PREVIOUS = CLIP - 600             # the visitor before this one
+
+    WAIT = next(line.strip() for line in RAW.splitlines()
+                if "states(activity)" in line and ">= moment" in line)
+
+    @staticmethod
+    def _iso(moment):
+        """A timestamp sensor's state: ISO 8601, UTC, as HA writes it."""
+        import datetime
+        return datetime.datetime.fromtimestamp(
+            moment, datetime.timezone.utc).isoformat()
+
+    def _env(self):
+        """HA's `as_timestamp`, which answers its default for a state that is
+        not a time -- `unknown` after a restart, most of all."""
+        import datetime
+        import jinja2
+        env = jinja2.Environment()  # noqa: S701 - not HTML
+
+        def as_timestamp(value, default=None):
+            try:
+                return datetime.datetime.fromisoformat(value).timestamp()
+            except (TypeError, ValueError):
+                return default
+
+        env.filters["as_timestamp"] = as_timestamp
+        env.globals["as_timestamp"] = as_timestamp
+        return env
+
+    def _variables(self):
+        return next(step["variables"] for step in DOC["actions"]
+                    if "variables" in step)
+
+    def _moment(self, start_time):
+        """The blueprint's own `moment`, rendered and given the native type
+        Home Assistant gives a variable."""
+        import types
+        rendered = self._env().from_string(self._variables()["moment"]).render(
+            trigger=types.SimpleNamespace(
+                entity_id="event.front_doorbell_activity",
+                to_state=types.SimpleNamespace(state=self._iso(self.FIRED))),
+            state_attr=lambda entity, name: start_time)
+        return int(rendered)
+
+    def _waited_out(self, sensor, moment):
+        """True when the wait at the photo step is satisfied."""
+        env = self._env()
+        env.globals["states"] = lambda entity: sensor
+        rendered = env.from_string(self.WAIT).render(
+            activity="sensor.front_doorbell_last_activity", moment=moment)
+        return rendered.strip() == "True"
+
+    def test_the_wait_is_satisfied_by_this_events_own_clip(self):
+        """The defect, stated as the thing that has to be true: the hub has
+        indexed this event's clip, so the photograph is due now."""
+        self.assertTrue(
+            self._waited_out(self._iso(self.CLIP), self._moment(self.CLIP)),
+            "the photo step is still waiting for a clip this event never "
+            "produced, and will time out in silence")
+
+    def test_a_later_clip_alone_is_not_what_satisfies_it(self):
+        """The half that must not regress. A `moment` low enough to be true
+        immediately would be no wait at all: while the sensor still holds the
+        PREVIOUS visitor's clip start, nothing has arrived for this event and
+        the picture on disk is that visitor's."""
+        self.assertFalse(
+            self._waited_out(self._iso(self.PREVIOUS), self._moment(self.CLIP)))
+
+    def test_the_save_button_asks_for_the_clips_own_start_time(self):
+        """`moment`'s other consumer. Save clip hands `start_time` straight to
+        tapo_h500.download_recording, which looks the clip up in the hub's own
+        index -- a fire time matches nothing there."""
+        import types
+        env = self._env()
+        env.globals["config_entry_id"] = lambda entity: "entry1"
+        env.globals["state_attr"] = lambda entity, name: 0
+        rendered = env.from_string(self._variables()["photo_buttons"]).render(
+            buttons=[{"action": "TAPO_H500_SNOOZE", "title": "Snooze 1h"}],
+            moment=self._moment(self.CLIP), input_photo_only=False,
+            trigger=types.SimpleNamespace(
+                entity_id="event.front_doorbell_activity"))
+        save = next(button for button in eval(rendered)  # noqa: S307
+                    if button["action"] == "TAPO_H500_SAVE_CLIP")
+        self.assertEqual(save["start_time"], self.CLIP)
+
+    def test_a_missing_start_time_does_not_block_the_notification(self):
+        """The hub can index a clip whose start it does not report. Lenient on
+        purpose: 0 satisfies the wait at once and the run carries on to the
+        `frame not in [none, '', 'None']` guard, which is the thing that knows
+        whether there is a picture. A sentinel that never compares true would
+        turn a missing attribute into permanent silence -- the failure being
+        fixed, not a fix for it."""
+        self.assertEqual(self._moment(None), 0)
+        self.assertTrue(self._waited_out("unknown", self._moment(None)))
+
+
 class FirstEventAfterRestart(unittest.TestCase):
     """The availability guard must not swallow the first real press.
 

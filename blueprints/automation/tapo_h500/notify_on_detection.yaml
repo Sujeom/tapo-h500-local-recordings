@@ -353,13 +353,21 @@ actions:
       camera: >-
         {{ trigger.entity_id | replace('event.', 'camera.')
            | replace('_activity', '') }}
-      # ...and -> sensor.front_doorbell_last_activity, which says when this
-      # event's own clip has been indexed.
+      # ...and -> sensor.front_doorbell_last_activity, which holds the START
+      # time of the newest clip. A recording is only indexed once it has
+      # finished, so this sensor never says "when the clip was indexed" -- it
+      # is a clip start, and only another clip start can be compared to it.
       activity: >-
         {{ trigger.entity_id | replace('event.', 'sensor.')
            | replace('_activity', '_last_activity') }}
       where: "{{ trigger.to_state.name | replace(' Activity', '') }}"
-      moment: "{{ trigger.to_state.state | as_timestamp | int }}"
+      # This event's own clip start, off the event's own payload -- NOT the
+      # entity's state, which is the instant the event fired, seconds to
+      # minutes after the clip began. Compared against a clip start it is
+      # always in the future, so the wait below would sit out its three
+      # minutes and the photograph would never be sent. Absent -> 0, which
+      # lets the run through to the frame guard rather than into that timeout.
+      moment: "{{ state_attr(trigger.entity_id, 'start_time') | int(0) }}"
       # A URL pinned to this event's own timestamp, not "whatever is newest".
       #
       # `preview` in preference to `image`: `image` addresses the downloaded

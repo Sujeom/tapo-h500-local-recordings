@@ -2,10 +2,10 @@
 #
 # A press fires immediately; the recording exists on the hub perhaps half a
 # minute later and is auto-downloaded moments after that. So this waits for
-# the camera's own "last activity" sensor to reach the press it was woken
-# by, gives the download a few seconds, asks list_recordings for the day,
-# and casts the newest downloaded clip's media_content_id to a player —
-# a Chromecast, an Android TV, a Google or Alexa display, anything that
+# the camera's own "last activity" sensor to reach the start of the clip that
+# press produced, gives the download a few seconds, asks list_recordings for
+# the day, and casts the newest downloaded clip's media_content_id to a player
+# — a Chromecast, an Android TV, a Google or Alexa display, anything that
 # plays media in Home Assistant.
 #
 # Two things to change: the entity ids for YOUR doorbell, and the player.
@@ -29,7 +29,11 @@ conditions:
 
 actions:
   - variables:
-      moment: "{{ trigger.to_state.state | as_timestamp | int }}"
+      # This press's own clip start, off the event's own payload. The
+      # entity's state is when the event fired, minutes after the clip
+      # began, and last_activity below holds clip STARTS -- so comparing
+      # the two would wait for a clip that does not exist yet.
+      moment: "{{ state_attr(trigger.entity_id, 'start_time') | int(0) }}"
       camera_index: "{{ state_attr(trigger.entity_id, 'camera_index') }}"
   # Wait until this press's own clip has been indexed by the hub...
   - wait_template: >-
