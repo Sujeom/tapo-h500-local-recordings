@@ -667,8 +667,18 @@ def install(component_path=None):
             return {"type": "create_entry", "title": title, "data": data}
 
     _module("homeassistant.components.repairs", RepairsFlow=_RepairsFlow)
+    # Records how it was asked, so a test can hold the component to signing
+    # as the content user -- the difference between a URL a phone can open
+    # and a 401.
+    signed_as_content_user = []
+
+    def _sign_path(hass, path, expiry, *, use_content_user=False):
+        signed_as_content_user.append(use_content_user)
+        return f"{path}?authSig=stub"
+
     _module("homeassistant.components.http.auth",
-            async_sign_path=lambda hass, path, expiry: f"{path}?authSig=stub")
+            async_sign_path=_sign_path,
+            signed_as_content_user=signed_as_content_user)
 
     package = types.ModuleType("tapo_h500")
     package.__path__ = [str(COMPONENT_PATH)]

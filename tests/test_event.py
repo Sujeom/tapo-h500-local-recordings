@@ -164,43 +164,30 @@ class TheTwoPictureUrls(unittest.TestCase):
         self.assertIsNone(attributes["preview"])
 
 
-class TheMediaBrowserPath(TheTwoPictureUrls):
-    """`media` is the one place to look that needs no signature.
+class TheVideoUrl(TheTwoPictureUrls):
+    """`video` is this event's own recording, beside `image`, its still.
 
-    `image` and `preview` are signed URLs: whatever opens them has no Home
-    Assistant session, so the signature IS the credential, and a notification
-    action opens in a bare webview where an unusable one answers 401. To the
-    person holding the phone a 401 and a missing picture look the same. The
-    media browser is served by the frontend the companion app is already
-    signed in to, so it needs no signature -- and it holds the thumbnails and
-    the playable clips together.
+    It addresses a downloaded file and there is no on-demand fallback: the
+    hub will produce a frame for a clip nobody kept, but not the clip itself.
     """
 
-    def test_it_points_at_this_events_own_still(self):
-        self.assertTrue(self._fired()["media"].startswith("/media/local/tapo_h500/"))
-        self.assertTrue(self._fired()["media"].endswith(".jpg"))
-
-    def test_the_video_is_the_recording_beside_it(self):
+    def test_it_is_the_recording_beside_the_still(self):
         fired = self._fired()
-        self.assertEqual(fired["video"], fired["media"][:-4] + ".mp4")
+        self.assertEqual(fired["video"].replace(".mp4", ".jpg"), fired["image"])
 
-    def test_neither_carries_a_signature(self):
-        """The entire point: nothing here can expire or be rejected."""
-        self.assertNotIn("authSig", self._fired()["media"])
-        self.assertNotIn("authSig", self._fired()["video"])
+    def test_it_is_signed(self):
+        """A notification action opens in a webview with no session, so the
+        signature is the only credential there is."""
+        self.assertIn("authSig", self._fired()["video"])
 
-    def test_the_signed_still_addresses_the_same_file(self):
-        """`image` and `media` are the same picture; only the credential
-        differs, and that difference is the whole bug."""
-        fired = self._fired()
-        self.assertTrue(fired["image"].startswith(fired["media"]))
+    def test_an_event_with_no_start_time_has_none(self):
+        """There is no file to name without a moment to name it from."""
+        self.assertIsNone(self._fired(index=0, events_1=1 << 1)["video"])
 
-    def test_it_opens_the_folder_the_clip_is_actually_written_into(self):
-        """The invariant worth holding. Both sides derive camera and day
-        independently -- `clip_path` for the file, `_media` for the link --
-        and if they ever disagree the button opens an empty folder while the
-        recording sits somewhere else. HA's own local time decides the day,
-        so computing it here from the system zone proves nothing.
+    def test_it_addresses_the_file_the_download_actually_writes(self):
+        """The invariant worth holding. `clip_path` decides where the clip
+        lands and `_video` decides what the button opens; if they ever
+        disagree the phone gets a 404 for a recording that is right there.
         """
         from custom_components.tapo_h500.media import clip_path
         coord, _ = harness._build()
@@ -211,17 +198,53 @@ class TheMediaBrowserPath(TheTwoPictureUrls):
         entity.entity_id = "event.front_activity"
         entity._handle("motion", {"events_1": 1 << 1,
                                   "startTime": NOW, "endTime": NOW + 15})
-        video = entity.triggered[-1][1]["video"]
+        video = entity.triggered[-1][1]["video"].split("?")[0]
         written = clip_path(entity.hass, CAMERA, NOW, ".mp4")
-        self.assertTrue(video.endswith(
-            f"/{written.parent.parent.name}/{written.parent.name}/{written.name}"),
+        self.assertTrue(
+            video.endswith(f"/{written.parent.parent.name}"
+                           f"/{written.parent.name}/{written.name}"),
             f"{video} does not open {written}")
 
-    def test_an_event_with_no_start_time_has_neither(self):
-        """There is no file to name without a moment to name it from."""
-        attributes = self._fired(index=0, events_1=1 << 1)
-        self.assertIsNone(attributes["media"])
-        self.assertIsNone(attributes["video"])
+
+class SignedForSomethingWithNoSession(unittest.TestCase):
+    """These URLs are opened by a phone, not by a logged-in browser tab.
+
+    The Android companion app opens a notification action in a webview that
+    carries no Home Assistant session for a media path, so the signature is
+    the only credential there is. Signed the ordinary way it is not even
+    that: the plain call binds the signature to whoever is making the current
+    request, and these are minted in a background poll where there is none --
+    which Home Assistant answers with 401. Reported from a phone twice: the
+    picture arrives in the notification and pressing it is unauthorized.
+    """
+
+    def _sign(self):
+        from homeassistant.components.http import auth
+        from custom_components.tapo_h500.media import sign
+        auth.signed_as_content_user.clear()
+        url = sign(harness._Hass(), "/media/local/x.jpg")
+        return url, auth.signed_as_content_user
+
+    def test_it_signs_as_the_content_user(self):
+        """The account Home Assistant keeps for media handed to something
+        that will fetch it later on its own. Cast signs this way too."""
+        _, asked = self._sign()
+        self.assertEqual(asked, [True])
+
+    def test_it_still_signs_on_a_core_that_cannot(self):
+        """Older cores do not take the argument, and signing without it is
+        what this did before -- better than not signing at all."""
+        from custom_components.tapo_h500 import media as media_mod
+        original = media_mod.async_sign_path
+        try:
+            # Rebound where media.py holds it: `from ... import` copies the
+            # name, so patching the auth module would change nothing.
+            media_mod.async_sign_path = (
+                lambda hass, path, expiry: f"{path}?authSig=old")
+            self.assertEqual(media_mod.sign(harness._Hass(), "/media/local/x.jpg"),
+                             "/media/local/x.jpg?authSig=old")
+        finally:
+            media_mod.async_sign_path = original
 
 
 if __name__ == "__main__":

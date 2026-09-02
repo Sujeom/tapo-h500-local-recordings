@@ -393,17 +393,15 @@ actions:
       frame: >-
         {{ state_attr(trigger.entity_id, 'preview')
            or state_attr(trigger.entity_id, 'image') }}
-      # This event's own still and its own recording, as plain paths. The
-      # companion app opens an internal path in the webview it is already
-      # signed in to, so these need no signature -- and a signature is worse
-      # than none here, because one minted in a background poll cannot be
-      # validated and Home Assistant answers 401 rather than falling through
-      # to the session. That is `frame` opening to a 401 while the very same
-      # picture sits in the notification above it.
+      # This event's own recording, beside `frame`, its own picture. Both are
+      # signed URLs, which is what lets the phone open them: a notification
+      # action opens in a webview carrying no Home Assistant session for a
+      # media path, so the signature is the only credential there is.
       #
-      # They address downloaded files, so they are empty until the download
-      # lands. `frame` stays as the fallback for exactly that gap.
-      still: "{{ state_attr(trigger.entity_id, 'media') }}"
+      # It addresses a downloaded file and there is no on-demand fallback --
+      # the hub will make a frame for a clip nobody kept, but not the clip --
+      # so it is empty until the download lands, and the button is then left
+      # out rather than offered broken.
       clip: "{{ state_attr(trigger.entity_id, 'video') }}"
       when: >-
         {{ (trigger.to_state.state | as_datetime | as_local)
@@ -471,7 +469,7 @@ actions:
             an integration too old to publish a preview, and with neither
             there is no button: an action that cannot do anything is worse
             than one action fewer. -#}
-        {%- set view = still or frame or (link if camera else '') -%}
+        {%- set view = frame or (link if camera else '') -%}
         {%- set base = ([{'action': 'URI', 'title': 'Image', 'uri': view}]
                         if view else [])
               + ([{'action': 'URI', 'title': 'Video', 'uri': clip}]

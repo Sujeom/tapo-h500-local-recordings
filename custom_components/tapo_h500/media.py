@@ -102,10 +102,33 @@ def media_content_id(hass: HomeAssistant, path: Path) -> str:
     return f"media-source://media_source/local/{relative(hass, path)}"
 
 
+def sign(hass: HomeAssistant, path: str, lifetime: timedelta = URL_LIFETIME) -> str:
+    """Sign a path for something that has no Home Assistant session.
+
+    The plain call binds the signature to whoever is making the current
+    request. There is no request here: these URLs are minted in a background
+    poll, and a signature with nothing behind it is refused with 401 rather
+    than falling through to whatever session the opener might have had.
+
+    `use_content_user` signs as the account Home Assistant keeps for exactly
+    this -- media handed to something that will fetch it later on its own.
+    Cast uses it for the same reason. The Android companion app is another:
+    it opens a notification action in a webview that does not carry a session
+    for a media path, so the signature has to stand on its own or the picture
+    is a 401.
+
+    Older cores do not take the argument. Signing without it is what this did
+    before and is better than not signing at all.
+    """
+    try:
+        return async_sign_path(hass, path, lifetime, use_content_user=True)
+    except TypeError:  # pragma: no cover - core too old for the argument
+        return async_sign_path(hass, path, lifetime)
+
+
 def signed_url(hass: HomeAssistant, path: Path) -> str:
     """A URL the dashboard can put straight into <img> or <video>."""
-    return async_sign_path(
-        hass, f"/media/local/{relative(hass, path)}", URL_LIFETIME)
+    return sign(hass, f"/media/local/{relative(hass, path)}")
 
 
 def existing_clip(hass: HomeAssistant, camera: Camera, start_time: int) -> Path | None:

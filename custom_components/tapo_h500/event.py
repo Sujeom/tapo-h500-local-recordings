@@ -20,7 +20,7 @@ from .const import (
 )
 from .coordinator import H500Coordinator
 from .entity import add_cameras_as_they_appear, H500Entity
-from .media import clip_path, relative, signed_url
+from .media import clip_path, signed_url
 from .preview import preview_url
 
 # Unlimited: nothing here polls the hub. Every value comes from the
@@ -106,50 +106,26 @@ class H500ActivityEvent(H500Entity, EventEntity):
         except Exception:  # noqa: BLE001 - an attribute is never worth failing on
             return None
 
-    def _file_url(self, start_time: int, suffix: str) -> str:
-        """The plain path a downloaded file sits at, with no signature.
-
-        `image` and `preview` sign their URLs, because a signed URL is meant
-        to be opened by something with no Home Assistant session -- a Cast
-        device, a browser nobody is logged into. A notification action is not
-        that: the companion app opens an internal path in the webview it is
-        already signed in to, which is why a plain `/lovelace/...` link has
-        always worked from a notification.
-
-        Against that, a signature is not merely unnecessary, it is a
-        liability. It is minted in a background poll where there is no request
-        and no user to bind it to, and Home Assistant answers a signature it
-        cannot validate with 401 rather than falling through to the session
-        that would have been sufficient. Reported from a phone: the picture
-        arrives in the notification, and pressing it answers 401.
-
-        So this addresses the file and lets the session do the authenticating.
-        """
-        return f"/media/local/{relative(self.hass, clip_path(self.hass, self.camera, start_time, suffix))}"
-
-    def _media(self, start_time: int | None) -> str | None:
-        """This event's own still, as a path the phone can just open."""
-        if start_time is None:
-            return None
-        try:
-            return self._file_url(int(start_time), ".jpg")
-        except Exception:  # noqa: BLE001 - an attribute is never worth failing on
-            return None
-
     def _video(self, start_time: int | None) -> str | None:
-        """This event's own recording, likewise.
+        """This event's own recording, signed so the phone can just open it.
 
         The suffix is the one the download was told to write -- ffmpeg
         remuxes to `.mp4` unless that is turned off, in which case the raw
         `.ts` is kept. Read from the options rather than by looking on disk,
         because this runs on the event loop.
+
+        Like `image`, this addresses a downloaded file and does not check it
+        is there. Unlike `image` there is no on-demand fallback: the hub will
+        produce a frame for a clip nobody kept, but not the clip itself.
         """
         if start_time is None:
             return None
         try:
             convert = self.coordinator.entry.options.get(
                 CONF_CONVERT_MP4, DEFAULT_CONVERT_MP4)
-            return self._file_url(int(start_time), ".mp4" if convert else ".ts")
+            return signed_url(self.hass, clip_path(
+                self.hass, self.camera, int(start_time),
+                ".mp4" if convert else ".ts"))
         except Exception:  # noqa: BLE001 - an attribute is never worth failing on
             return None
 
@@ -187,10 +163,7 @@ class H500ActivityEvent(H500Entity, EventEntity):
             # different alarm sound. Derived here so an automation does not
             # have to re-implement a window that wraps midnight.
             "notable": self._notable(entry, start_time),
-            # This event's own still and its own recording, as plain paths
-            # the phone's already-signed-in webview can open. Unsigned on
-            # purpose -- see _file_url.
-            "media": self._media(start_time),
+            # This event's own recording, beside `image`, its own still.
             "video": self._video(start_time),
             # This event's OWN frame, addressed by its timestamp.
             #

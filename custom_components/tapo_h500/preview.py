@@ -12,11 +12,10 @@ import logging
 
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
-from homeassistant.components.http.auth import async_sign_path
 from homeassistant.core import HomeAssistant
 
 
-from .media import URL_LIFETIME, async_preview_clip
+from .media import async_preview_clip, sign
 
 try:  # KEY_HASS replaced the string key; the fallback keeps older cores working
     from homeassistant.components.http import KEY_HASS
@@ -31,11 +30,10 @@ PREVIEW_PATH = "/api/tapo_h500/preview/{entry_id}/{camera_index}/{start_time}"
 def preview_url(hass: HomeAssistant, entry_id: str, camera_index: int,
                 start_time: int) -> str:
     """A signed URL the dashboard can put straight into <img>."""
-    return async_sign_path(
+    return sign(
         hass,
         PREVIEW_PATH.format(entry_id=entry_id, camera_index=camera_index,
                             start_time=int(start_time)),
-        URL_LIFETIME,
     )
 
 

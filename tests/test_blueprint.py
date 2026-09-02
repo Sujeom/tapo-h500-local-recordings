@@ -751,14 +751,14 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
             VARIABLES["link"]).render(
                 camera=camera, dashboard=dashboard).strip()
 
-    def _buttons(self, camera, frame, still="", clip="",
+    def _buttons(self, camera, frame, clip="",
                  link="/lovelace/0?more-info-entity-id=x"):
         import ast
         import jinja2
         import types
         rendered = jinja2.Environment().from_string(  # noqa: S701 - not HTML
             VARIABLES["buttons"]).render(
-                camera=camera, frame=frame, still=still, clip=clip, link=link,
+                camera=camera, frame=frame, clip=clip, link=link,
                 input_offer_naming=False, unnamed="",
                 config_entry_id=lambda entity: "entry1",
                 trigger=types.SimpleNamespace(entity_id=self.EVENT))
@@ -813,29 +813,22 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
     STILL = "/media/local/tapo_h500/side_doorbell/2026-09-01/235339.jpg"
     CLIP = "/media/local/tapo_h500/side_doorbell/2026-09-01/235339.mp4"
 
-    def test_the_plain_file_path_wins_over_a_signed_url(self):
-        """A signature minted in a background poll cannot be validated, and
-        Home Assistant answers 401 rather than falling through to the session
-        the app's webview already has. Unsigned is not merely enough here, it
-        is strictly better."""
-        uris = self._uris(self._buttons(self.REAL, "/api/preview/1", self.STILL))
-        self.assertEqual(uris, [self.STILL])
-
     def test_image_then_video_each_opening_its_own_file(self):
-        buttons = [b for b in self._buttons(self.REAL, "", self.STILL, self.CLIP)
+        buttons = [b for b in self._buttons(self.REAL, self.STILL, self.CLIP)
                    if b["action"] == "URI"]
         self.assertEqual([b["title"] for b in buttons], ["Image", "Video"])
         self.assertEqual([b["uri"] for b in buttons], [self.STILL, self.CLIP])
 
     def test_no_video_button_without_a_recording(self):
-        """The clip is only there once the download has landed."""
-        buttons = self._buttons(self.REAL, "", self.STILL)
+        """The hub will make a frame for a clip nobody kept, but not the
+        clip, so there is nothing to fall back to and nothing to offer."""
+        buttons = self._buttons(self.REAL, self.STILL)
         self.assertNotIn("Video", [b.get("title") for b in buttons])
 
     def test_three_actions_is_the_ceiling(self):
         """The companion app shows three."""
         self.assertLessEqual(
-            len(self._buttons(self.REAL, "/api/preview/1", self.STILL, self.CLIP)), 3)
+            len(self._buttons(self.REAL, self.STILL, self.CLIP)), 3)
 
     def test_the_cameras_dialog_is_the_fallback(self):
         """An integration too old to publish `preview` has no frame to show."""
