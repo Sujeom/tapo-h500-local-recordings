@@ -704,5 +704,122 @@ class QuietHours(unittest.TestCase):
             self.assertIn("time", str(DOC["blueprint"]["input"][name]))
 
 
+def _variables():
+    """The blueprint's declared variables, in declaration order."""
+    for step in DOC["actions"]:
+        if isinstance(step, dict) and "variables" in step:
+            return step["variables"]
+    raise AssertionError("the blueprint declares no variables")
+
+
+VARIABLES = _variables()
+
+
+class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
+    """The Camera button pointed wherever spelling produced, checked by nobody.
+
+    `event.side_door_activity` was rewritten into `camera.side_door` and
+    handed straight to `?more-info-entity-id=`. Rename either entity, let
+    Home Assistant append a `_2` to one of them, or have no camera entity at
+    all -- which is what a camera the hub has stopped listing looks like --
+    and the id named nothing. An unknown entity is not an error to the
+    frontend: it opens the dashboard and no dialog, so the button reads as
+    dead. Every entity for a camera is built by H500Entity with the same
+    `identifiers={(DOMAIN, camera["device_id"])}`, so the device registry
+    answers this without spelling anything.
+    """
+
+    EVENT = "event.side_door_activity"
+    GUESS = "camera.side_door"          # what rewriting the id produced
+    REAL = "camera.front_doorbell"      # what is actually on the device
+
+    def _camera(self, entities, device="dev_1"):
+        import jinja2
+        import types
+        env = jinja2.Environment()  # noqa: S701 - not HTML
+        env.tests["search"] = lambda value, pattern: bool(
+            re.search(pattern, value))
+        env.globals["device_id"] = lambda entity: device
+        env.globals["device_entities"] = lambda dev: (
+            entities if dev == device else [])
+        return env.from_string(VARIABLES["camera"]).render(
+            trigger=types.SimpleNamespace(entity_id=self.EVENT)).strip()
+
+    def _link(self, camera, dashboard="0"):
+        import jinja2
+        return jinja2.Environment().from_string(  # noqa: S701 - not HTML
+            VARIABLES["link"]).render(
+                camera=camera, dashboard=dashboard).strip()
+
+    def _buttons(self, camera, frame, link="/lovelace/0?more-info-entity-id=x"):
+        import ast
+        import jinja2
+        import types
+        rendered = jinja2.Environment().from_string(  # noqa: S701 - not HTML
+            VARIABLES["buttons"]).render(
+                camera=camera, frame=frame, link=link,
+                input_offer_naming=False, unnamed="",
+                config_entry_id=lambda entity: "entry1",
+                trigger=types.SimpleNamespace(entity_id=self.EVENT))
+        return ast.literal_eval(rendered.strip())
+
+    def _uris(self, buttons):
+        return [b["uri"] for b in buttons if b["action"] == "URI"]
+
+    def test_the_camera_on_this_events_device_is_the_one_offered(self):
+        """The pairing lives in the device registry, not in the spelling."""
+        found = self._camera([self.EVENT, self.REAL, "sensor.side_door_silent"])
+        self.assertEqual(found, self.REAL)
+
+    def test_the_rewritten_id_is_not_what_gets_used(self):
+        """The whole defect: `camera.side_door` is not on this device and is
+        not an entity at all, but it is what the button used to address."""
+        found = self._camera([self.EVENT, self.REAL])
+        self.assertNotEqual(found, self.GUESS)
+
+    def test_a_device_with_no_camera_entity_resolves_to_nothing(self):
+        """A camera the hub has stopped listing has no camera entity, and
+        there is then nothing for a dialog to open."""
+        self.assertEqual(self._camera([self.EVENT, "sensor.side_door_silent"]),
+                         "")
+
+    def test_an_entity_merely_mentioning_camera_is_not_one(self):
+        """`^camera[.]` is anchored on the domain, so a binary sensor about
+        the camera is not mistaken for the camera."""
+        self.assertEqual(self._camera([self.EVENT, "binary_sensor.camera_tamper"]),
+                         "")
+
+    def test_an_entity_with_no_device_resolves_to_nothing(self):
+        """`device_entities(None)` raises rather than answering empty."""
+        self.assertEqual(self._camera([self.REAL], device=None), "")
+
+    def test_the_link_opens_the_dialog_when_there_is_a_camera(self):
+        self.assertEqual(self._link(self.REAL),
+                         f"/lovelace/0?more-info-entity-id={self.REAL}")
+
+    def test_the_link_asks_for_no_dialog_when_there_is_no_camera(self):
+        """A dangling `more-info-entity-id=` is a dashboard and no dialog --
+        exactly what a broken button looks like."""
+        self.assertEqual(self._link(""), "/lovelace/0")
+        self.assertNotIn("more-info-entity-id", self._link(""))
+
+    def test_the_button_prefers_the_cameras_own_dialog(self):
+        uris = self._uris(self._buttons(self.REAL, "/api/preview/1"))
+        self.assertEqual(uris, ["/lovelace/0?more-info-entity-id=x"])
+
+    def test_the_button_falls_back_to_this_events_frame(self):
+        """Better a picture of the thing being reported than a dashboard
+        with nothing on it."""
+        uris = self._uris(self._buttons("", "/api/preview/1"))
+        self.assertEqual(uris, ["/api/preview/1"])
+
+    def test_the_button_is_left_out_when_there_is_nothing_to_show(self):
+        """An action that cannot do anything is worse than one action
+        fewer -- and Snooze must survive losing it."""
+        buttons = self._buttons("", "")
+        self.assertEqual(self._uris(buttons), [])
+        self.assertIn("TAPO_H500_SNOOZE", [b["action"] for b in buttons])
+
+
 if __name__ == "__main__":
     unittest.main()

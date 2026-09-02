@@ -349,10 +349,23 @@ actions:
 
   - variables:
       codes: "{{ state_attr(trigger.entity_id, 'detection_types') or [] }}"
-      # event.front_doorbell_activity -> camera.front_doorbell
+      # The camera entity on this event's own device. Every entity for a
+      # camera is built by H500Entity with the same
+      # `identifiers={(DOMAIN, camera["device_id"])}`, so the device registry
+      # is where that pairing is actually recorded.
+      #
+      # Spelling `camera.` out of the event's entity id read as equivalent and
+      # was not. It named nothing once either entity had been renamed, once
+      # Home Assistant had appended a `_2` to one of them, and whenever there
+      # was no camera entity at all -- which is what a camera the hub has
+      # stopped listing looks like. Nothing checked the result, so the
+      # notification offered a Camera button addressing an entity that did not
+      # exist, and pressing it opened the dashboard and no dialog.
       camera: >-
-        {{ trigger.entity_id | replace('event.', 'camera.')
-           | replace('_activity', '') }}
+        {%- set device = device_id(trigger.entity_id) -%}
+        {%- set cams = (device_entities(device) if device else [])
+              | select('search', '^camera[.]') | list -%}
+        {{ cams[0] if cams else '' }}
       # ...and -> sensor.front_doorbell_last_activity, which holds the START
       # time of the newest clip. A recording is only indexed once it has
       # finished, so this sensor never says "when the clip was indexed" -- it
@@ -417,7 +430,12 @@ actions:
         {% elif 9 in codes %}Animal at {{ where }}
         {% elif 19 in codes %}Tampering at {{ where }}
         {% else %}Activity at {{ where }}{% endif %}
-      link: "/lovelace/{{ dashboard }}?more-info-entity-id={{ camera }}"
+      # `more-info-entity-id=` with nothing after it is a dashboard and no
+      # dialog, which cannot be told apart from a button that does not work.
+      # Ask for the dashboard on its own instead.
+      link: >-
+        {{ '/lovelace/' ~ dashboard
+           ~ ('?more-info-entity-id=' ~ camera if camera else '') }}
       # An unfamiliar face during the configured night, decided by the
       # integration so this does not re-implement a window wrapping midnight.
       notable: "{{ state_attr(trigger.entity_id, 'notable') or false }}"
@@ -431,10 +449,16 @@ actions:
       # the document is parsed before any template runs, so Jinja cannot add
       # or remove keys and entries -- it can only fill them in.
       buttons: >-
-        {%- set base = [
-              {'action': 'URI', 'title': 'Camera', 'uri': link},
-              {'action': 'TAPO_H500_SNOOZE', 'title': 'Snooze 1h',
-               'entry': config_entry_id(trigger.entity_id)}] -%}
+        {#- The camera's own dialog when this device has a camera entity; this
+            event's frame when it does not, which is a picture of the thing
+            being reported rather than a dashboard with nothing on it; and no
+            button at all when there is neither, because an action that cannot
+            do anything is worse than one action fewer. -#}
+        {%- set view = link if camera else frame -%}
+        {%- set base = ([{'action': 'URI', 'title': 'Camera', 'uri': view}]
+                        if view else [])
+              + [{'action': 'TAPO_H500_SNOOZE', 'title': 'Snooze 1h',
+                  'entry': config_entry_id(trigger.entity_id)}] -%}
         {%- if input_offer_naming and unnamed -%}
           {#- face_id and entry travel WITH the button: the companion app
               echoes unknown keys back in the event, which is the only way the

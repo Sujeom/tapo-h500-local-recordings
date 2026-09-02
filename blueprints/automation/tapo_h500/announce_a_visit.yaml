@@ -226,7 +226,15 @@ actions:
         {% elif 19 in codes %}Tampering at the {{ where }}
         {% elif 22 in codes %}Someone unrecognised at the {{ where }}
         {% else %}Someone at the {{ where }}{% endif %}
-      link: "/lovelace/{{ dashboard }}?more-info-entity-id=sensor.{{ where | slugify }}_last_activity"
+      # A visit arrives on the bus rather than from an entity, so there is
+      # nothing here to look up and the sensor has to be guessed from the
+      # camera's display name. Checked before it is offered: a slug matching no
+      # entity is a dashboard and no dialog, which reads as a broken button.
+      link: >-
+        {%- set guess = 'sensor.' ~ (where | slugify) ~ '_last_activity' -%}
+        {{ '/lovelace/' ~ dashboard
+           ~ ('?more-info-entity-id=' ~ guess
+              if states[guess] is not none else '') }}
 
   - action: "{{ service }}"
     data:

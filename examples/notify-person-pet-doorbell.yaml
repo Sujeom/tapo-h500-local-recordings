@@ -49,10 +49,15 @@ conditions:
 actions:
   - variables:
       codes: "{{ state_attr(trigger.entity_id, 'detection_types') or [] }}"
-      # event.front_doorbell_activity -> camera.front_doorbell
+      # The camera entity on this event's own device. Rewriting the event's
+      # entity id into a camera one names nothing after either entity has been
+      # renamed, or when Home Assistant has appended a `_2`, and the Camera
+      # button then opens a dashboard with no dialog on it.
       camera: >-
-        {{ trigger.entity_id | replace('event.', 'camera.')
-           | replace('_activity', '') }}
+        {%- set device = device_id(trigger.entity_id) -%}
+        {%- set cams = (device_entities(device) if device else [])
+              | select('search', '^camera[.]') | list -%}
+        {{ cams[0] if cams else '' }}
       # "Front Doorbell Activity" -> "Front Doorbell"
       where: "{{ trigger.to_state.name | replace(' Activity', '') }}"
       # event.front_doorbell_activity -> sensor.front_doorbell_last_activity
