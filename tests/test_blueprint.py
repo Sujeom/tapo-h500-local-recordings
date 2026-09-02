@@ -625,9 +625,7 @@ class ButtonBudget(unittest.TestCase):
         base = env.from_string(variables["buttons"]).render(
             input_offer_naming=True,
             unnamed="12345" if unnamed else "",
-            link="/x", camera="camera.front",
-            open_image="https://ha.example/api/tapo_h500/preview/e/0/1?authSig=s",
-            open_video="https://ha.example/media/local/tapo_h500/f/d/1.mp4?authSig=s",
+            link="/x", camera="camera.front", moment=1786600000, dashboard="0",
             trigger=types.SimpleNamespace(entity_id="event.front"))
         buttons = eval(base)  # noqa: S307 - our own template's output
         if which == "photo":
@@ -757,7 +755,7 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
             VARIABLES["link"]).render(
                 camera=camera, dashboard=dashboard).strip()
 
-    def _buttons(self, camera, frame, clip="", open_image="", open_video="",
+    def _buttons(self, camera, frame, clip="", moment=0, dashboard="0",
                  link="/lovelace/0?more-info-entity-id=x"):
         import ast
         import jinja2
@@ -765,7 +763,8 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         rendered = jinja2.Environment().from_string(  # noqa: S701 - not HTML
             VARIABLES["buttons"]).render(
                 camera=camera, frame=frame, clip=clip, link=link,
-                open_image=open_image, open_video=open_video,
+                moment=moment, dashboard=dashboard,
+                state_attr=lambda entity, name: 1,
                 input_offer_naming=False, unnamed="",
                 config_entry_id=lambda entity: "entry1",
                 trigger=types.SimpleNamespace(entity_id=self.EVENT))
@@ -811,46 +810,45 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         self.assertEqual(self._link(""), "/lovelace/0")
         self.assertNotIn("more-info-entity-id", self._link(""))
 
-    IMAGE_LINK = "https://ha.example/api/tapo_h500/preview/e/1/1786600000?authSig=x"
-    VIDEO_LINK = "https://ha.example" + CLIP + "?authSig=x"
+    MOMENT = 1786600000
 
     def _every_combination(self):
         for camera in (self.REAL, ""):
             for frame in ("/api/preview/1", ""):
-                for links in ((self.IMAGE_LINK, self.VIDEO_LINK),
-                              (self.IMAGE_LINK, ""), ("", "")):
-                    yield self._buttons(camera, frame, self.CLIP, *links)
+                for moment in (self.MOMENT, 0):
+                    yield self._buttons(camera, frame, self.CLIP, moment)
 
-    def test_a_media_path_is_absolute_and_a_frontend_route_is_relative(self):
-        """The rule, from the Android app's own source. A relative URI is
-        loaded in the app's webview with `external_auth=1` appended, which
-        Home Assistant's signed-path check rejects -- so a signed media path
-        must be absolute, handed to the system browser untouched. A frontend
-        route must stay relative, so the app opens it in itself."""
+    def test_every_button_stays_inside_the_app(self):
+        """The rule, from the Android app's own source: a relative URI is
+        loaded in the app's own frontend webview. A media path there is
+        broken by the `external_auth=1` the app appends, and an absolute URL
+        is handed to the system browser -- so neither may be a button."""
         for buttons in self._every_combination():
             for uri in self._uris(buttons):
-                if "/media/" in uri or "/api/" in uri:
-                    self.assertTrue(uri.startswith("http"),
-                                    f"{uri} would be loaded in the app's webview")
-                else:
-                    self.assertTrue(uri.startswith("/"),
-                                    f"{uri} would leave the app for a dashboard")
+                self.assertTrue(uri.startswith("/lovelace/") or uri == "/media-browser",
+                                f"{uri} does not stay in the app")
+                self.assertFalse("/media/" in uri or "/api/" in uri, uri)
 
-    def test_image_and_video_open_this_events_own_files(self):
-        buttons = [b for b in self._buttons(self.REAL, "", self.CLIP,
-                                            self.IMAGE_LINK, self.VIDEO_LINK)
+    def test_image_and_video_land_on_this_clip_in_the_dashboard_view(self):
+        buttons = [b for b in self._buttons(self.REAL, "", self.CLIP, self.MOMENT, "cams")
                    if b["action"] == "URI"]
         self.assertEqual([b["title"] for b in buttons], ["Image", "Video"])
-        self.assertEqual([b["uri"] for b in buttons],
-                         [self.IMAGE_LINK, self.VIDEO_LINK])
+        image, video = (b["uri"] for b in buttons)
+        self.assertEqual(image, f"/lovelace/cams?h500_clip={self.MOMENT}&h500_camera=1")
+        self.assertEqual(video, image + "&h500_play=1")
 
-    def test_video_is_left_out_until_there_is_a_recording(self):
-        buttons = self._buttons(self.REAL, "", "", self.IMAGE_LINK, "")
-        self.assertNotIn("Video", [b.get("title") for b in buttons])
+    def test_the_query_survives_the_apps_url_handling(self):
+        """The app decodes the path and re-splits it on '/', which is what
+        shredded an encoded media-browser link. Digits and '&' in a query
+        string pass through untouched, so nothing here may need encoding."""
+        for b in self._buttons(self.REAL, "", self.CLIP, self.MOMENT):
+            if b["action"] == "URI" and "?" in b["uri"]:
+                query = b["uri"].split("?", 1)[1]
+                self.assertRegex(query, r"^[a-z0-9_=&]+$", query)
 
-    def test_recordings_fills_in_when_there_is_nothing_to_open(self):
-        """An integration too old to publish the links, or no external URL:
-        the frontend route still lands on the recordings."""
+    def test_recordings_fills_in_when_there_is_no_clip_to_name(self):
+        """An event without a start time, or an integration too old to
+        publish one: the frontend route still lands on the recordings."""
         self.assertEqual(self._uris(self._buttons(self.REAL, "")),
                          ["/lovelace/0?more-info-entity-id=x"])
         self.assertEqual(self._uris(self._buttons("", "")), ["/media-browser"])

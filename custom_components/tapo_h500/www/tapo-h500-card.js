@@ -451,6 +451,61 @@ class H500Base extends HTMLElement {
     this._cappedByUser = config.max_height !== undefined;
     this._pinned = config.camera_index !== undefined;
     this._index = config.camera_index ?? 0;
+    // A notification's Image or Video button arrives here with the clip it
+    // is about in the query string. Read once and spent on the first listing
+    // that comes back, so a later poll does not drag the view back to it.
+    this._deepLink = this._deepLinkFromUrl();
+    if (this._deepLink && !this._pinned && this._deepLink.camera !== null) {
+      this._index = this._deepLink.camera;
+    }
+  }
+
+  /** Which clip a link named, or null when the page was opened plainly.
+   *
+   * Only digits are accepted for the two numbers: these values were built by
+   * an automation from the hub's own timestamps, and anything else is a URL
+   * somebody edited by hand.
+   */
+  _deepLinkFromUrl() {
+    const search = (window.location && window.location.search) || "";
+    if (!search.includes("h500_clip=")) return null;
+    const params = new URLSearchParams(search);
+    const clip = params.get("h500_clip") || "";
+    const camera = params.get("h500_camera") || "";
+    return {
+      clip: /^\d+$/.test(clip) ? clip : null,
+      camera: /^\d+$/.test(camera) ? Number(camera) : null,
+      play: params.get("h500_play") === "1",
+    };
+  }
+
+  /** Land on the clip a link named, once, if the listing has it.
+   *
+   * Playing is the one state change; where to look is handled by focus, in
+   * _render, because a focused control is one the browser scrolls to.
+   */
+  _landOnLinkedClip() {
+    const link = this._deepLink;
+    if (!link) return;
+    this._deepLink = null;
+    if (!link.clip) return;
+    const found = this._recordings.some(
+      (item) => String(item.start_time) === link.clip);
+    if (!found) return;
+    if (link.play) this._playing = link.clip;
+    this._jump = link.clip;
+  }
+
+  /** Put the keyboard -- and with it the viewport -- on one clip's control. */
+  _jumpTo(start) {
+    const buttons = this._card.querySelectorAll
+      ? this._card.querySelectorAll("button[data-action]") : [];
+    for (const button of buttons) {
+      if (button.dataset.start === start) {
+        if (button.focus) button.focus();
+        return;
+      }
+    }
   }
 
   set hass(hass) {
@@ -564,6 +619,7 @@ class H500Base extends HTMLElement {
       // card's own `names:` still wins, so an existing card keeps working.
       this._sharedNames = response.face_names || {};
       this._recordings = response.recordings.slice().reverse();
+      this._landOnLinkedClip();
       this._error = null;
     } catch (err) {
       // A failure belonging to a question nobody asked any more is not an
@@ -826,6 +882,10 @@ class H500Base extends HTMLElement {
     this._card.innerHTML = markup;
     if (resume) this._resume(resume);
     if (had) this._refocus(had);
+    if (this._jump) {
+      this._jumpTo(this._jump);
+      this._jump = null;
+    }
   }
 
   /** Give the keyboard back to the control that had it.

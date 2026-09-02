@@ -167,7 +167,10 @@ blueprint:
     dashboard_path:
       name: Dashboard path
       description: >-
-        Where tapping the notification should go. `0` is your first dashboard.
+        Where tapping the notification goes, and where its Image and Video
+        buttons land: the view holding a Tapo H500 recordings card, which
+        opens on the clip the notification is about. `0` is your first
+        dashboard.
       default: "0"
       selector:
         text:
@@ -400,16 +403,6 @@ actions:
       # a frame for a clip nobody kept, but not the clip -- so it is empty
       # until the download lands, and an empty value attaches nothing.
       clip: "{{ state_attr(trigger.entity_id, 'video') }}"
-      # The same picture and recording as ABSOLUTE URLs, for the buttons. The
-      # Android app routes a button by the shape of its URI: a relative path
-      # is loaded in the app's own webview, which appends `external_auth=1`
-      # to the query on the way in -- right for a dashboard, and a 401 for a
-      # signed media path, because Home Assistant rejects any query parameter
-      # it did not sign. An absolute URL goes to the system browser untouched.
-      # Empty on an integration too old to publish them, or with no external
-      # URL configured, and the buttons are then left out.
-      open_image: "{{ state_attr(trigger.entity_id, 'image_link') }}"
-      open_video: "{{ state_attr(trigger.entity_id, 'video_link') }}"
       when: >-
         {{ (trigger.to_state.state | as_datetime | as_local)
            .strftime('%-I:%M %p') }}
@@ -466,25 +459,27 @@ actions:
       # the document is parsed before any template runs, so Jinja cannot add
       # or remove keys and entries -- it can only fill them in.
       buttons: >-
-        {#- The Android app routes a button by the shape of its URI. A
-            relative path is loaded inside the app's own webview, and the app
-            appends `external_auth=1` to it on the way in -- which the
-            frontend needs, and which turns a signed media path into a 401,
-            because Home Assistant rejects any query parameter it did not
-            sign. An absolute URL is handed to the system browser untouched.
-            So Image and Video open this event's own files by absolute URL;
-            with neither to offer, Recordings takes the frontend route -- the
+        {#- Everything a button opens stays inside the app. A relative URI is
+            loaded in the app's own frontend webview, which is where the
+            recordings card lives; a media path or an absolute URL is not --
+            the first is broken by the `external_auth=1` the app appends and
+            the second is handed to the system browser. So Image and Video
+            both go to the configured dashboard view and name the clip in the
+            query string, which survives the app intact; the card there
+            lands on that clip, and plays it for Video. With no clip start
+            to name, Recordings takes the same route without one -- the
             camera's dialog, or the media browser.
 
             Android shows three actions and silently drops the rest, so this
-            is a priority list, cut to three: the files first, then a face
+            is a priority list, cut to three: the clip first, then a face
             that wants naming, then Snooze. -#}
-        {%- set has_image = open_image not in [none, '', 'None'] -%}
-        {%- set has_video = open_video not in [none, '', 'None'] -%}
-        {%- set open = ([{'action': 'URI', 'title': 'Image', 'uri': open_image}]
-                        if has_image else [])
-              + ([{'action': 'URI', 'title': 'Video', 'uri': open_video}]
-                 if has_video else []) -%}
+        {%- set here = '/lovelace/' ~ dashboard ~ '?h500_clip=' ~ moment
+              ~ '&h500_camera='
+              ~ (state_attr(trigger.entity_id, 'camera_index') | int(0)) -%}
+        {%- set open = ([{'action': 'URI', 'title': 'Image', 'uri': here},
+                         {'action': 'URI', 'title': 'Video',
+                          'uri': here ~ '&h500_play=1'}]
+                        if moment else []) -%}
         {%- set browse = [] if open else
               [{'action': 'URI', 'title': 'Recordings',
                 'uri': link if camera else '/media-browser'}] -%}

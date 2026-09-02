@@ -209,41 +209,6 @@ class TheVideoUrl(TheTwoPictureUrls):
             f"{video} does not open {written}")
 
 
-class TheLinksAButtonCanOpen(TheTwoPictureUrls):
-    """`image_link` and `video_link`: the signed paths as absolute URLs.
-
-    The Android companion app routes a notification button by the shape of
-    its URI. A relative path is loaded in the app's own webview, and the app
-    appends `external_auth=1` to it on the way in -- which the frontend
-    needs, and which turns a signed media path into a 401, because Home
-    Assistant rejects any query parameter it did not sign. An absolute URL is
-    handed to the system browser untouched. Read from the app's own source
-    after three relative-path attempts had each answered 401 from a phone.
-    """
-
-    def test_they_are_absolute(self):
-        fired = self._fired()
-        for key in ("image_link", "video_link"):
-            self.assertTrue(fired[key].startswith("http"), fired[key])
-
-    def test_they_carry_the_signed_path_unchanged(self):
-        """The browser sends exactly the query that was signed; so must this."""
-        fired = self._fired()
-        self.assertTrue(fired["image_link"].endswith(fired["preview"]))
-        self.assertTrue(fired["video_link"].endswith(fired["video"]))
-
-    def test_the_image_prefers_the_on_demand_frame(self):
-        """`preview` renders for a clip that was never downloaded; `image`
-        404s until one is. A button should open the one that works."""
-        fired = self._fired()
-        self.assertIn("/api/tapo_h500/preview/", fired["image_link"])
-
-    def test_an_event_with_no_start_time_has_neither(self):
-        attributes = self._fired(index=0, events_1=1 << 1)
-        self.assertIsNone(attributes["image_link"])
-        self.assertIsNone(attributes["video_link"])
-
-
 class SignedForSomethingWithNoSession(unittest.TestCase):
     """The signing call names the content user rather than relying on it.
 

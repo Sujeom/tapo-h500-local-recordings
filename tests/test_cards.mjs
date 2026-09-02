@@ -309,6 +309,109 @@ const build = (Cls, config = {}) => {
   return card;
 };
 
+// --- landing on the clip a notification named --------------------------------
+
+/** A card opened from a URL, fed one real listing, exactly as _load does it.
+ *
+ * The listing goes over in the order the integration sends it -- oldest
+ * first -- because _load reverses it, and a fixture already newest-first
+ * would come out backwards, with the hero card showing the wrong clip.
+ */
+const opened = async (Cls, search, config = {}, recordings = [...CLIPS].reverse()) => {
+  globalThis.window.location = { search };
+  try {
+    const card = new Cls();
+    card.setConfig({ ...config });
+    card._hass = {
+      states: {},
+      callWS: async () => [{ entry_id: "e" }],
+      connection: { sendMessagePromise: async () => ({ response: {
+        recordings, camera: { alias: "Front Doorbell" }, days: 1,
+        cameras: [{ index: 0, alias: "Front" }, { index: 1, alias: "Side" }],
+      } }) },
+    };
+    await card._load();
+    return card;
+  } finally {
+    globalThis.window.location = { search: "" };
+  }
+};
+const focusedStart = (card) =>
+  (card._card.querySelectorAll().find((b) => b.focused) || { dataset: {} }).dataset.start;
+const LINKED = String(CLIPS[0].start_time);
+
+test("a link names the clip, and the card lands on it", async () => {
+  const card = await opened(TapoH500Card, `?h500_clip=${LINKED}&h500_camera=0`);
+  assert.equal(focusedStart(card), LINKED, "focus, and so the viewport, is on it");
+  assert.ok(!card._playing, "Image looks; it does not press play");
+});
+
+test("a link may ask for it to play", async () => {
+  const card = await opened(TapoH500Card, `?h500_clip=${LINKED}&h500_play=1`);
+  assert.equal(card._playing, LINKED);
+  assert.ok(card._card.innerHTML.includes("<video"), "the player is up");
+  assert.equal(focusedStart(card), LINKED);
+});
+
+test("a link chooses the camera before the first listing is asked for", async () => {
+  // Otherwise the listing that comes back is the wrong camera's, and the
+  // clip is never in it.
+  const card = await opened(TapoH500Card, `?h500_clip=${LINKED}&h500_camera=1`);
+  assert.equal(card._index, 1);
+});
+
+test("a pinned card keeps its own camera", async () => {
+  const card = await opened(TapoH500Card, `?h500_clip=${LINKED}&h500_camera=1`,
+                            { camera_index: 0 });
+  assert.equal(card._index, 0);
+});
+
+test("a clip not in the listing changes nothing", async () => {
+  const card = await opened(TapoH500Card, "?h500_clip=42&h500_play=1");
+  assert.equal(card._playing, undefined);
+  assert.equal(focusedStart(card), undefined);
+});
+
+test("a link is spent on the first listing and does not fire again", async () => {
+  // The minute poll rebuilds the list; dragging the view back to the clip
+  // every time would make the card unusable while a notification is open.
+  const card = await opened(TapoH500Card, `?h500_clip=${LINKED}&h500_play=1`);
+  assert.equal(card._deepLink, null, "consumed");
+  card._playing = null;
+  await card._load();
+  assert.equal(card._playing, null, "the second listing did not replay it");
+});
+
+test("a hand-edited link with junk in it is ignored", async () => {
+  const card = await opened(TapoH500Card, "?h500_clip=<script>&h500_camera=x&h500_play=1");
+  assert.equal(card._index, 0, "not a number, so not a camera");
+  assert.equal(card._playing, undefined, "not a number, so not a clip");
+});
+
+test("a page opened plainly has no link to spend", async () => {
+  const card = await opened(TapoH500Card, "");
+  assert.equal(card._deepLink, null);
+  assert.equal(focusedStart(card), undefined);
+});
+
+test("landing works on every card that lists clips", async () => {
+  for (const Cls of [TapoH500HeroCard, TapoH500GridCard, TapoH500TimelineCard]) {
+    const card = await opened(Cls, `?h500_clip=${LINKED}`);
+    assert.equal(focusedStart(card), LINKED, Cls.name);
+  }
+});
+
+test("a control without focus() is simply not focused", async () => {
+  // Nothing in the fake distinguishes this from the browser except that the
+  // browser's buttons always have it; the guard is for a rendering with none.
+  const card = await opened(TapoH500Card, `?h500_clip=${LINKED}`);
+  for (const b of card._card.querySelectorAll()) delete b.focus;
+  card._jump = LINKED;
+  card._markup = null;
+  card._render();
+  assert.equal(card._jump, null, "spent even when nothing could take focus");
+});
+
 // --- finding the hub the card belongs to ------------------------------------
 
 test("a card told which entry to use never asks", () => {

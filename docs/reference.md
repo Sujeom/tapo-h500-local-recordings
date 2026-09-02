@@ -267,6 +267,30 @@ days: 2
 max_height: 400
 ```
 
+### Landing on one clip
+
+Every card that lists clips reads three query parameters from the page URL,
+once, when it first loads:
+
+| parameter | meaning |
+|---|---|
+| `h500_clip` | the clip's `start_time` -- the card puts focus on that clip, which scrolls it into view |
+| `h500_camera` | the camera's `camera_index`, chosen before the first listing is fetched; ignored by a card pinned with its own `camera_index` |
+| `h500_play` | `1` to play it as well |
+
+So `/lovelace/cameras?h500_clip=1786600000&h500_camera=1&h500_play=1` opens
+the `cameras` view with that recording playing. The notification blueprint's
+Image and Video buttons build exactly this, pointed at its **Dashboard path**
+input -- which is why that input should name the view that holds one of these
+cards. The link is spent on the first listing, so the minute poll does not
+keep dragging the view back to it.
+
+This is the one form that survives the Android companion app, which loads a
+relative link in its own frontend webview: it appends `external_auth=1` to the
+query (harmless here) and, on the way, decodes and re-splits the *path* -- which
+is what shreds a percent-encoded media-browser deep link. A query string of
+digits passes through untouched.
+
 ### The summary card
 
 Events by hour of the local day, as a bar chart — when things actually happen,
