@@ -449,13 +449,16 @@ actions:
       # the document is parsed before any template runs, so Jinja cannot add
       # or remove keys and entries -- it can only fill them in.
       buttons: >-
-        {#- The camera's own dialog when this device has a camera entity; this
-            event's frame when it does not, which is a picture of the thing
-            being reported rather than a dashboard with nothing on it; and no
-            button at all when there is neither, because an action that cannot
-            do anything is worse than one action fewer. -#}
-        {%- set view = link if camera else frame -%}
-        {%- set base = ([{'action': 'URI', 'title': 'Camera', 'uri': view}]
+        {#- The picture this event is about. `frame` is the on-demand preview
+            endpoint, which renders the frame in Home Assistant whether or not
+            the clip was ever downloaded -- so pressing it shows the thing
+            being reported, rather than a dashboard the dialog may or may not
+            open on top of. The camera's own dialog stays as the fallback for
+            an integration too old to publish a preview, and with neither
+            there is no button: an action that cannot do anything is worse
+            than one action fewer. -#}
+        {%- set view = frame or (link if camera else '') -%}
+        {%- set base = ([{'action': 'URI', 'title': 'Image', 'uri': view}]
                         if view else [])
               + [{'action': 'TAPO_H500_SNOOZE', 'title': 'Snooze 1h',
                   'entry': config_entry_id(trigger.entity_id)}] -%}

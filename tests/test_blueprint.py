@@ -803,15 +803,21 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         self.assertEqual(self._link(""), "/lovelace/0")
         self.assertNotIn("more-info-entity-id", self._link(""))
 
-    def test_the_button_prefers_the_cameras_own_dialog(self):
+    def test_the_button_shows_this_events_own_picture(self):
+        """What pressing it is for. A dashboard that may or may not open a
+        dialog on top is not a picture."""
         uris = self._uris(self._buttons(self.REAL, "/api/preview/1"))
-        self.assertEqual(uris, ["/lovelace/0?more-info-entity-id=x"])
-
-    def test_the_button_falls_back_to_this_events_frame(self):
-        """Better a picture of the thing being reported than a dashboard
-        with nothing on it."""
-        uris = self._uris(self._buttons("", "/api/preview/1"))
         self.assertEqual(uris, ["/api/preview/1"])
+
+    def test_it_is_called_image_because_that_is_what_it_shows(self):
+        buttons = self._buttons(self.REAL, "/api/preview/1")
+        self.assertEqual([b["title"] for b in buttons if b["action"] == "URI"],
+                         ["Image"])
+
+    def test_the_cameras_dialog_is_the_fallback(self):
+        """An integration too old to publish `preview` has no frame to show."""
+        uris = self._uris(self._buttons(self.REAL, ""))
+        self.assertEqual(uris, ["/lovelace/0?more-info-entity-id=x"])
 
     def test_the_button_is_left_out_when_there_is_nothing_to_show(self):
         """An action that cannot do anything is worse than one action
