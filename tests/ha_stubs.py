@@ -687,9 +687,10 @@ def install(component_path=None):
             return {"type": "create_entry", "title": title, "data": data}
 
     _module("homeassistant.components.repairs", RepairsFlow=_RepairsFlow)
-    # Records how it was asked. Core signs as the content user on its own
-    # when nothing else is in context; a test holds the component to saying
-    # so explicitly rather than leaning on that fallback.
+    # Records how it was asked. Core signs as whoever is in context and falls
+    # back to the content user only when nobody is; a test holds the
+    # component to not forcing the content user, a leftover from a fix for
+    # a 401 that had a different cause.
     signed_as_content_user = []
 
     def _sign_path(hass, path, expiry, *, use_content_user=False):

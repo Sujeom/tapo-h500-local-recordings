@@ -256,44 +256,22 @@ class ThePictureEntityForAButton(unittest.TestCase):
         self.assertIsNone(self._fired(register=False)["image_entity"])
 
 
-class SignedForSomethingWithNoSession(unittest.TestCase):
-    """The signing call names the content user rather than relying on it.
+class SignedAsWhoeverIsAsking(unittest.TestCase):
+    """The signing call does not force the content user.
 
-    Every URL here is minted in a background poll with no request and no
-    websocket connection behind it. Core already handles that: with nothing
-    else to bind the signature to, `async_sign_path` signs as the content
-    user, the account it keeps for media that something will fetch later on
-    its own. Saying so in the call makes the intent visible and survives a
-    future core deciding to raise instead of falling back.
+    Home Assistant signs as the websocket connection or request in context
+    and falls back to the content user only when there is none. Forcing the
+    content user everywhere was a fix for a 401 that had a different cause
+    (the app appending a query parameter), so it fixed nothing -- and it
+    signed a card's clip URLs as an account other than the one asking.
     """
 
-    def _sign(self):
+    def test_the_content_user_is_not_forced(self):
         from homeassistant.components.http import auth
         from custom_components.tapo_h500.media import sign
         auth.signed_as_content_user.clear()
-        url = sign(harness._Hass(), "/media/local/x.jpg")
-        return url, auth.signed_as_content_user
-
-    def test_it_signs_as_the_content_user(self):
-        """The account Home Assistant keeps for media handed to something
-        that will fetch it later on its own. Cast signs this way too."""
-        _, asked = self._sign()
-        self.assertEqual(asked, [True])
-
-    def test_it_still_signs_on_a_core_that_cannot(self):
-        """Older cores do not take the argument, and signing without it is
-        what this did before -- better than not signing at all."""
-        from custom_components.tapo_h500 import media as media_mod
-        original = media_mod.async_sign_path
-        try:
-            # Rebound where media.py holds it: `from ... import` copies the
-            # name, so patching the auth module would change nothing.
-            media_mod.async_sign_path = (
-                lambda hass, path, expiry: f"{path}?authSig=old")
-            self.assertEqual(media_mod.sign(harness._Hass(), "/media/local/x.jpg"),
-                             "/media/local/x.jpg?authSig=old")
-        finally:
-            media_mod.async_sign_path = original
+        sign(harness._Hass(), "/media/local/x.mp4")
+        self.assertEqual(auth.signed_as_content_user, [False])
 
 
 if __name__ == "__main__":
