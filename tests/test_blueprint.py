@@ -654,6 +654,31 @@ class ButtonBudget(unittest.TestCase):
         titles = [button["title"] for button in self._buttons("first", False)]
         self.assertIn("Snooze 1h", titles)
 
+    def test_the_photo_notification_keeps_image_and_video(self):
+        """Image opens the picture's dialog, full size and inside the app,
+        which the thumbnail on the notification is not. Reported: only a
+        Video button on the notification that actually gets looked at."""
+        titles = [button["title"] for button in self._buttons("photo", False)]
+        self.assertEqual(titles, ["Image", "Video", "Save clip"])
+
+    def test_the_only_notification_keeps_snooze_over_save(self):
+        """A recording can be kept from the card later; a night's quiet
+        cannot be asked for later."""
+        import types
+        import jinja2
+        env = jinja2.Environment()  # noqa: S701 - not HTML
+        env.globals["config_entry_id"] = lambda entity: "entry1"
+        env.globals["state_attr"] = lambda entity, name: 0
+        variables = next(s["variables"] for s in DOC["actions"] if "variables" in s)
+        buttons = [{"action": "URI", "title": "Image", "uri": "entityId:image.x"},
+                   {"action": "URI", "title": "Video", "uri": "/lovelace/0?h500_play=1"},
+                   {"action": "TAPO_H500_SNOOZE", "title": "Snooze 1h"}]
+        photo = env.from_string(variables["photo_buttons"]).render(
+            buttons=buttons, moment=1, input_photo_only=True,
+            trigger=types.SimpleNamespace(entity_id="event.front"))
+        self.assertEqual([b["title"] for b in eval(photo)],  # noqa: S307
+                         ["Image", "Video", "Snooze 1h"])
+
 
 class QuietHours(unittest.TestCase):
     """No notifications between two clock times -- unless it matters.

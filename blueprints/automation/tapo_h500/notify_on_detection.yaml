@@ -521,14 +521,13 @@ actions:
       # hub is usually still recording and there is nothing indexed to
       # save. camera_index rides on the event entity for exactly this.
       #
-      # The Image button goes too: this notification carries the picture
-      # itself, so a button that opens the same picture is a slot spent on
-      # nothing. Video stays -- the recording is not attached as anything a
-      # person can play.
+      # Image stays: it opens the picture entity's dialog, full size and
+      # inside the app, which the thumbnail on the notification is not. So
+      # the three are Image, Video, and Save clip.
       #
       # Unless this is the only notification. Then nobody has been offered
-      # Snooze at all, so it goes back into whatever slot is left -- which
-      # is one exactly when there is no face to name.
+      # Snooze at all, and it takes Save's seat: a recording can be kept
+      # from the card later, but a night's quiet cannot be asked for later.
       photo_buttons: >-
         {%- set save = [{'action': 'TAPO_H500_SAVE_CLIP',
                          'title': 'Save clip',
@@ -537,13 +536,14 @@ actions:
                                                     'camera_index'),
                          'start_time': moment}] -%}
         {%- set keep = buttons
-              | rejectattr('action', 'eq', 'TAPO_H500_SNOOZE')
-              | rejectattr('title', 'eq', 'Image') | list -%}
+              | rejectattr('action', 'eq', 'TAPO_H500_SNOOZE') | list -%}
         {%- set snooze = buttons
               | selectattr('action', 'eq', 'TAPO_H500_SNOOZE') | list -%}
         {%- set full = keep + save -%}
         {%- if input_photo_only and full | count < 3 -%}
           {{ (full + snooze)[:3] }}
+        {%- elif input_photo_only -%}
+          {{ (keep + snooze)[:3] }}
         {%- else -%}{{ full[:3] }}{%- endif -%}
 
   # First: immediately, without a picture. There is not one yet -- the hub is
