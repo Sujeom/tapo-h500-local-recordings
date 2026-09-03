@@ -121,6 +121,20 @@ If it worked before and stopped after an upgrade, this is the first place to
 look — it is the integration's only dependency on another integration's
 internals.
 
+## The card did not change after an update
+
+The card's resource URL carries a tag — the integration's version and a
+digest of the card file — and the integration rewrites the dashboard's
+resource entry to the current tag on every start. A browser or the companion
+app fetches the card again the next time the frontend loads, so a card that
+still behaves the old way after an update has not loaded the frontend since:
+reload the page, or close the companion app fully and open it again.
+
+Before the digest, the tag was the version alone, which only changes on a
+release. Card changes shipped between releases were invisible to anyone who
+had the card cached — a notification button that landed on the dashboard and
+did nothing, on a card that had learned to do something an update earlier.
+
 ## Two cameras share a folder
 
 The repair notice **"Two cameras share a name"**. Downloads are filed under a

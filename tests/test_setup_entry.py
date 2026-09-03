@@ -515,12 +515,25 @@ class TheDashboardCard(unittest.TestCase):
         self.assertEqual(resources.items[0]["res_type"], "module")
         self.assertIn("?v=1.4.0", resources.items[0]["url"])
 
-    def test_the_version_is_what_makes_a_browser_refetch_it(self):
+    def _card_bytes(self):
+        from pathlib import Path
+        return (Path(self.init.__file__).parent / "www" / "tapo-h500-card.js").read_bytes()
+
+    def test_the_tag_is_what_makes_a_browser_refetch_it(self):
         """A cached copy of the old card is the failure this prevents, and
-        it looks like nothing at all going wrong."""
+        it looks like nothing at all going wrong. The version alone only
+        changes on a release; the card changes between releases too, so
+        the tag follows the file."""
         resources = self._Resources()
         run(self.init._async_register_card(self._hass(resources)))
-        self.assertTrue(resources.items[0]["url"].endswith("?v=1.4.0"))
+        expected = self.init.card_version("1.4.0", self._card_bytes())
+        self.assertTrue(resources.items[0]["url"].endswith(f"?v={expected}"))
+
+    def test_the_tag_changes_with_the_file_and_only_with_the_file(self):
+        same = self.init.card_version("1.4.0", b"card")
+        self.assertEqual(same, self.init.card_version("1.4.0", b"card"))
+        self.assertNotEqual(same, self.init.card_version("1.4.0", b"card v2"))
+        self.assertTrue(same.startswith("1.4.0-"), "the version stays readable")
 
     def test_an_upgrade_rewrites_the_existing_entry_rather_than_adding_one(self):
         resources = self._Resources(
@@ -530,11 +543,20 @@ class TheDashboardCard(unittest.TestCase):
         self.assertIn("?v=1.4.0", resources.items[0]["url"])
 
     def test_an_entry_already_current_is_left_alone(self):
-        resources = self._Resources(
-            [{"id": "old", "url": f"{self.init.CARD_URL}?v=1.4.0"}])
+        current = f"{self.init.CARD_URL}?v={self.init.card_version('1.4.0', self._card_bytes())}"
+        resources = self._Resources([{"id": "old", "url": current}])
         run(self.init._async_register_card(self._hass(resources)))
-        self.assertEqual(resources.items[0]["id"], "old")
+        self.assertEqual(resources.items, [{"id": "old", "url": current}])
+
+    def test_a_changed_card_under_the_same_version_is_refetched(self):
+        """The case that hid for a whole afternoon: same integration version,
+        new card file, and every browser kept the old one."""
+        stale = f"{self.init.CARD_URL}?v={self.init.card_version('1.4.0', b'the old card')}"
+        resources = self._Resources([{"id": "old", "url": stale}])
+        run(self.init._async_register_card(self._hass(resources)))
         self.assertEqual(len(resources.items), 1)
+        self.assertNotEqual(resources.items[0]["url"], stale)
+        self.assertIn("?v=1.4.0-", resources.items[0]["url"])
 
     def test_an_unloaded_resource_list_is_loaded_first(self):
         """Reading it before it has loaded reports no resources, and the card

@@ -24,7 +24,7 @@ from .const import (
 from .coordinator import H500Coordinator
 from .media import media_root
 from .preview import H500PreviewView
-from .repairs import card_not_registered, card_registered
+from .repairs import card_not_registered, card_registered, card_version
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -138,13 +138,15 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     data = hass.data.setdefault(DOMAIN, {})
     if data.get(DATA_CARD):
         return
+    card = Path(__file__).parent / "www" / "tapo-h500-card.js"
     await hass.http.async_register_static_paths([StaticPathConfig(
-        CARD_URL, str(Path(__file__).parent / "www" / "tapo-h500-card.js"), True)])
+        CARD_URL, str(card), True)])
 
-    # The URL carries the version so a browser holding a cached copy fetches
-    # the new one instead of silently keeping the old card.
+    # Version and a digest of the file, so a cached copy is refetched whenever
+    # the card changes, not only when a release is cut. See card_version.
     integration = await async_get_integration(hass, DOMAIN)
-    versioned = f"{CARD_URL}?v={integration.version}"
+    source = await hass.async_add_executor_job(card.read_bytes)
+    versioned = f"{CARD_URL}?v={card_version(integration.version, source)}"
 
     # Only one mechanism, or the file loads twice and the second define()
     # throws. The resource list is what dashboards actually read; the extra JS

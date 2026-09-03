@@ -17,6 +17,8 @@ nothing without knowing the disk size.
 """
 from __future__ import annotations
 
+import hashlib
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 
@@ -136,6 +138,20 @@ def _storage(hass: HomeAssistant, entry_id: str,
         translation_key=STORAGE_ISSUE,
         translation_placeholders={"used": str(used_percent)},
     )
+
+
+def card_version(version: str, source: bytes) -> str:
+    """The tag that makes a browser fetch the card again.
+
+    The integration's version, then a digest of the file itself. The version
+    alone was the whole cache-buster, and it only changes on a release -- but
+    the card changes between releases too, and a browser or the companion
+    app holding `?v=0.123.0` kept serving the old card through every update.
+    That looked like nothing at all going wrong: a notification button that
+    lands on the dashboard and does nothing, on a card that had learned to
+    do something an update ago.
+    """
+    return f"{version}-{hashlib.sha256(source).hexdigest()[:12]}"
 
 
 def card_not_registered(hass: HomeAssistant, url: str) -> None:
