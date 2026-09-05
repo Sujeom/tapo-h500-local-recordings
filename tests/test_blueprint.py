@@ -563,6 +563,38 @@ class CameraIndexAttribute(unittest.TestCase):
         self.assertIn('"camera_index": self.index', event_src)
 
 
+class StartTimeAttribute(unittest.TestCase):
+    """`moment` is `state_attr(trigger.entity_id, 'start_time')`, and every
+    render test stubs state_attr with a lambda that ignores the name. So a
+    rename on either side -- the key event.py writes, or the one the
+    templates read -- leaves the suite green while `moment` renders 0 for
+    every event, the wait passes at once, and the photograph is the previous
+    visitor's again. Both sides are pinned to the literal here.
+    """
+
+    def test_the_event_entity_carries_the_clip_start(self):
+        """The entity payload specifically, located by ast: the bus event at
+        the end of the same handler says start_time too, so a whole-file
+        search would still pass with the one the blueprint reads renamed."""
+        import ast
+        tree = ast.parse((ROOT / "custom_components" / "tapo_h500"
+                          / "event.py").read_text())
+        payloads = [call.args[1] for call in ast.walk(tree)
+                    if isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "_trigger_event"]
+        self.assertEqual(len(payloads), 1)
+        keys = [key.value for key in payloads[0].keys
+                if isinstance(key, ast.Constant)]
+        self.assertIn("start_time", keys)
+
+    def test_the_blueprint_and_both_examples_read_that_key(self):
+        for path in (PATH, ROOT / "examples" / "cast-last-clip.yaml",
+                     ROOT / "examples" / "notify-person-pet-doorbell.yaml"):
+            self.assertIn("state_attr(trigger.entity_id, 'start_time')",
+                          path.read_text(), path.name)
+
+
 class SnoozeButton(unittest.TestCase):
     """Quiet for an hour, from the notification that interrupted you.
 

@@ -148,7 +148,12 @@ class ApiTest(unittest.TestCase):
 
             def executeFunction(self, *_, **__):
                 Hub.calls += 1
-                raise RuntimeError("-40106 method not supported")
+                # What pytapo 3.4.18's executeFunction raises: the sub-reply,
+                # json-dumped after "Response: ", which is the body the code
+                # is read out of. A message no hub sends proves nothing.
+                raise Exception(
+                    "Error: UNSUPPORTED_METHOD, Response: "
+                    '{"method": "searchDetectionList", "error_code": -40106}')
 
         client._hub = Hub()
         self.assertIsNone(client.detections(CAMERA, 0, 10))
@@ -821,6 +826,24 @@ class DetectionTest(unittest.TestCase):
         client._hub = _FakeHub({"playback": {"search_detection_list": self.REAL}})
         self.assertEqual(len(client.detections({"device_id": "c", "mac": "m"}, 0, 1)), 8)
 
+    def test_a_transient_failure_must_not_disable_the_call(self):
+        """The same bug one layer down: a timeout is an answer the hub failed
+        to give this once, not a refusal to ever give it."""
+        client = H500Client("host", "admin", "local", "cloud")
+
+        class Hub:
+            calls = 0
+
+            def executeFunction(self, *_, **__):
+                Hub.calls += 1
+                raise TimeoutError("read timed out")
+
+        client._hub = Hub()
+        self.assertIsNone(client.detections({"device_id": "c", "mac": "m"}, 0, 1))
+        self.assertTrue(client._detection_supported, "one timeout disabled it")
+        self.assertIsNone(client.detections({"device_id": "c", "mac": "m"}, 0, 1))
+        self.assertEqual(Hub.calls, 2, "the next poll did not ask again")
+
 
 class HubSettingsTest(unittest.TestCase):
     """Writable hub settings.
@@ -1127,6 +1150,24 @@ class ActivityBatchTest(unittest.TestCase):
         self.assertFalse(client._detection_supported)
         # ...and once disabled it is not asked for again.
         client.activity(CAMERA, 10, 20)
+
+    def test_a_transient_detection_error_does_not_disable_the_search(self):
+        """Any other code is a search that failed this once, not a method the
+        firmware lacks: the clips still arrive, and the next envelope still
+        carries the detection search."""
+        responses = self._ok()
+        responses[1] = {"method": "searchDetectionList",
+                        "error_code": -71103}
+        client, hub = self._client(responses)
+        clips, detections = client.activity(CAMERA, 10, 20)
+        self.assertEqual((clips, detections),
+                         ([{"startTime": 10, "endTime": 25}], None))
+        self.assertTrue(client._detection_supported, "one failed search disabled it")
+        client.activity(CAMERA, 10, 20)
+        methods = [request["method"]
+                   for request in hub.requests[1]["params"]["requests"]]
+        self.assertEqual(methods,
+                         ["searchVideoWithUTC", "searchDetectionList"])
 
     def test_a_failed_video_search_fails_the_poll(self):
         """Silence here would read as a quiet camera, which is the lie the

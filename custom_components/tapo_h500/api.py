@@ -174,6 +174,16 @@ def check_media_port(host: str, port: int = 8800, timeout: float = 5.0) -> str:
 # fine. That is the exact direction is_auth_failure exists to refuse.
 AUTH_ERROR_CODES = frozenset({-40414, -40418})
 
+# The hub's own code for "no such method" (docs/protocol-notes.md): the one
+# reply that says searchDetectionList does not exist on this firmware, and so
+# the one reply allowed to switch the detection search off for the rest of
+# the session. Everything else -- a timeout, a reset, a body that will not
+# parse, any other code -- is an answer the hub failed to give this once, not
+# a refusal to ever give it, and is asked for again on the next poll. Latching
+# on those is the quiet-window mistake one layer down: one hiccup, and every
+# later event of the session is a bare "Activity" headline.
+NOT_A_METHOD = -40106
+
 # pytapo's only route for a code that survived its own retries is the text of
 # `Exception("Error: <msg>, Response: {... \"error_code\": N ...}")`.
 def _refused_code(err: BaseException) -> int | None:
@@ -464,6 +474,13 @@ class H500Client:
         state of a quiet camera. Treating it as "unsupported" is what made this
         look dead: one quiet poll disabled the call for the rest of the session
         and it was never retried, so the classification never arrived.
+
+        A failure is not "unsupported" either. Only the hub's own NOT_A_METHOD
+        refusal switches this off for the rest of the session; a timeout, a
+        reset or a body that will not parse returns None this once and is
+        asked for again on the next poll -- the direction is_auth_failure
+        already takes for the same hub, whose transport failures carry no
+        code at all.
         """
         if not self._detection_supported:
             return None
@@ -479,8 +496,11 @@ class H500Client:
                         "start_index": 0, "end_index": 999,
                     }}},
                 )
-        except Exception:
-            self._detection_supported = False
+        except Exception as err:
+            # Only the hub's own "no such method" switches this off. Anything
+            # else returns None this once, and the next poll asks again.
+            if _refused_code(err) == NOT_A_METHOD:
+                self._detection_supported = False
             return None
         detections = result.get("playback", {}).get("search_detection_list")
         # A quiet window is {} rather than an empty list. That is an answer,
@@ -498,9 +518,10 @@ class H500Client:
         ever refused, this falls back to the two single calls and remembers.
 
         Returns (clips, detections) with exactly the semantics of recent()
-        and detections(): a failed clip search raises, an unsupported
-        detection search returns None and disables itself, a quiet window is
-        empty answers.
+        and detections(): a failed clip search raises, a quiet window is
+        empty answers, and a failed detection search returns None beside the
+        clips -- switching itself off only on the hub's own NOT_A_METHOD
+        refusal, so any other code is asked for again on the next poll.
         """
         if not self._batch_supported:
             return (self._search_videos(camera, start_time, end_time),
@@ -543,7 +564,12 @@ class H500Client:
             return clips, None
         detection_reply = by_method.get("searchDetectionList") or {}
         if detection_reply.get("error_code", 0):
-            self._detection_supported = False
+            # The clips are still good and still delivered. Only the hub's
+            # own "no such method" switches the detection search off; any
+            # other code is asked for again on the next poll, as in
+            # detections().
+            if detection_reply.get("error_code") == NOT_A_METHOD:
+                self._detection_supported = False
             return clips, None
         detections = ((detection_reply.get("result") or {})
                       .get("playback", {}).get("search_detection_list"))
