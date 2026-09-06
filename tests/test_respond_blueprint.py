@@ -42,11 +42,14 @@ class Structure(unittest.TestCase):
         self.assertIn("source_url", DOC["blueprint"])
         self.assertEqual(DOC["blueprint"]["domain"], "automation")
 
-    def test_it_does_not_run_twice_at_once(self):
-        """Two people arriving together produce two events a second apart.
-        Running the whole sequence twice means the second run turns the lights
-        off while the first is still waiting."""
+    def test_one_run_per_burst_is_the_siren_re_arm(self):
+        """The blueprint's only repeat suppression. The hub revises a
+        detection in place while it unfolds, and each revision is an event
+        of its own, a poll apart: `single` drops whatever lands while a run
+        is in its light delay, so one visit is one siren and one sentence.
+        `restart` re-armed the siren and spoke again on every revision."""
         self.assertEqual(DOC["mode"], "single")
+        self.assertEqual(DOC["max_exceeded"], "silent")
 
 
 class QuietByDefault(unittest.TestCase):
@@ -120,6 +123,18 @@ class Gates(unittest.TestCase):
         tripped motion."""
         self.assertIn("detection_types", self._conditions())
 
+    def test_the_filter_and_the_night_gate_read_the_entity_itself(self):
+        """Under `single` the run that acts is a burst's earliest, so the
+        send/drop decision reads what the entity holds by the time it looks
+        -- the newest classification -- not the trigger's snapshot. The
+        event's own time stays on the trigger."""
+        conditions = self._conditions()
+        self.assertIn("state_attr(trigger.entity_id, 'detection_types')",
+                      conditions)
+        self.assertIn("state_attr(trigger.entity_id, 'notable')", conditions)
+        self.assertNotIn("trigger.to_state.attributes", conditions)
+        self.assertIn("trigger.to_state.state", conditions)
+
 
 class Codes(unittest.TestCase):
     def test_every_offered_code_is_one_the_hub_names(self):
@@ -150,7 +165,31 @@ class Announcement(unittest.TestCase):
 
     def test_it_uses_the_names_the_integration_resolved(self):
         """An automation cannot read the hub's name map itself."""
-        self.assertIn("trigger.to_state.attributes.get('faces')", RAW)
+        self.assertIn("state_attr(trigger.entity_id, 'faces')", RAW)
+
+    def test_the_words_are_the_newest_the_entity_holds(self):
+        """`codes` and `who` read the entity itself, not the trigger's
+        snapshot: `single` keeps one run per burst, so what the entity holds
+        when that run looks is the classification worth saying. The camera
+        stays on the trigger. The comment above `mode` has to say why, or
+        the next reader moves these to the snapshot to match the notify
+        blueprint and the burst's first, poorer entry is what gets said."""
+        variables = DOC["actions"][0]["variables"]
+        self.assertIn("state_attr(trigger.entity_id, 'detection_types')",
+                      variables["codes"])
+        self.assertIn("state_attr(trigger.entity_id, 'faces')",
+                      variables["who"])
+        self.assertIn("trigger.to_state.name", variables["where"])
+        self.assertNotIn("trigger.to_state.attributes", RAW)
+        above = RAW.split("\nmode: single", 1)[0].splitlines()
+        comment = []
+        while above and above[-1].startswith("#"):
+            comment.insert(0, above.pop().lstrip("# "))
+        comment = " ".join(comment)
+        self.assertIn("siren", comment)
+        self.assertIn("snapshot", comment)
+        self.assertIn("newest", comment)
+        self.assertRegex(comment, r"time or camera")
 
     def test_it_is_a_sentence_rather_than_a_headline(self):
         spoken = RAW.split("      spoken: >-", 1)[1].split("\n\n", 1)[0]
@@ -169,6 +208,20 @@ class Lights(unittest.TestCase):
         it delays for five minutes and then targets an empty list."""
         self.assertIn("input_lights | count > 0 and input_light_minutes",
                       RAW)
+
+    def test_the_light_timer_comes_after_the_announcement(self):
+        """The light delay is the whole window in which `single` drops later
+        events, up to two hours. Lights on and the sentence come before it,
+        so a visitor is lit and named at once; moved below the delay, the
+        sentence would wait out the light timer."""
+        steps = DOC["actions"]
+
+        def index(needle):
+            return next(position for position, step in enumerate(steps)
+                        if "if" in step and needle in str(step["then"]))
+
+        self.assertLess(index("homeassistant.turn_on"), index("tts.speak"))
+        self.assertLess(index("tts.speak"), index("delay"))
 
 
 class Templating(unittest.TestCase):

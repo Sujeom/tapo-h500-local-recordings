@@ -294,18 +294,27 @@ conditions:
           # motion and a person -- and the integration keys a detection on its
           # start time and its codes, so the rewrite arrives as a second event
           # with the same start time. That run corrects the earlier alert
-          # under the same tag rather than adding to it, and a start time both
-          # sides agree on is what says it is the same clip; without one, the
-          # ordinary gate decides.
+          # under the same tag rather than adding to it. A start time both
+          # sides agree on says it is the same clip, and a classification
+          # that grew -- everything the earlier state carried, and more --
+          # says it is that clip better classified; a reading with fewer or
+          # different codes takes the ordinary gate, and so does a clip
+          # without a start time. The one thing this cannot know is whether
+          # the earlier state produced an alert at all: quiet hours or the
+          # detection filter may have dropped it, and the gate compares two
+          # states of the entity, not two notifications.
           - condition: template
             value_template: >-
               {%- set before = trigger.from_state.attributes
                   if trigger.from_state is not none else {} -%}
               {%- set start = trigger.to_state.attributes.get('start_time') -%}
+              {%- set earlier = before.get('detection_types') or [] -%}
+              {%- set latest = trigger.to_state.attributes.get('detection_types')
+                  or [] -%}
               {%- set revised = trigger.from_state is not none
                   and start is not none and start == before.get('start_time')
-                  and trigger.to_state.attributes.get('detection_types')
-                      != before.get('detection_types') -%}
+                  and earlier | reject('in', latest) | list | count == 0
+                  and latest | reject('in', earlier) | list | count > 0 -%}
               {% if input_repeat_minutes | int == 0 or revised %}true
               {% else %}
                 {{ (this.attributes.get('last_triggered') is none)

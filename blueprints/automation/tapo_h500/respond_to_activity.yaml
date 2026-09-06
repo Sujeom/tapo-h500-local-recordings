@@ -150,9 +150,18 @@ blueprint:
           filter:
             - domain: media_player
 
-# One response at a time. Two people arriving together produce two events a
-# second apart, and running the whole sequence twice means the second run's
-# "turn the lights off" fires while the first is still waiting.
+# One run per burst, and the siren re-arm depends on it. The hub revises a
+# detection in place while it unfolds -- motion, then motion and a person --
+# and each revision arrives as an event of its own, a poll apart; `single`
+# drops whatever lands while a run is still in its light delay, quietly, so
+# one visit is one siren and one sentence. `restart` re-armed the siren and
+# spoke again on every revision, and `queued` would hold the second sentence
+# behind the first run's light delay, up to two hours. The run that acts is
+# therefore the burst's earliest, so the send/drop filter and the spoken
+# words read the entity itself rather than the trigger's snapshot: what it
+# holds by the time the run looks is the newest classification, and that is
+# what gets said. Anything naming the event's own time or camera stays on
+# the trigger.
 mode: single
 max_exceeded: silent
 
@@ -174,13 +183,11 @@ conditions:
               - (trigger.to_state.state | as_timestamp(0)) < 300
          ) }}
   # detection_types lists everything that fired at once, so an unfamiliar face
-  # that also tripped motion still matches. Read off this run's own snapshot
-  # of the entity: a poll can report two detections back to back, and the
-  # entity can already hold the later one by the time this looks.
+  # that also tripped motion still matches.
   - condition: template
     value_template: >-
       {% set wanted = input_detections | map('int') | list %}
-      {% set seen = trigger.to_state.attributes.get('detection_types') or [] %}
+      {% set seen = state_attr(trigger.entity_id, 'detection_types') or [] %}
       {#- Unclassified passes: the clip was indexed before the detection log
           caught up, so the list is empty for a moment. Acting on it beats
           silently doing nothing. A populated list still has to match. -#}
@@ -190,7 +197,7 @@ conditions:
   - condition: template
     value_template: >-
       {{ not input_night_only
-         or (trigger.to_state.attributes.get('notable') or false) }}
+         or (state_attr(trigger.entity_id, 'notable') or false) }}
   - condition: template
     value_template: >-
       {{ not input_armed_entity
@@ -215,12 +222,12 @@ variables:
 
 actions:
   - variables:
-      codes: "{{ trigger.to_state.attributes.get('detection_types') or [] }}"
+      codes: "{{ state_attr(trigger.entity_id, 'detection_types') or [] }}"
       where: "{{ trigger.to_state.name | replace(' Activity', '') }}"
       # Anyone recognised AND named. An automation cannot read the hub's name
       # map itself, so the integration resolves it onto the event.
       who: >-
-        {%- set names = trigger.to_state.attributes.get('faces') or [] -%}
+        {%- set names = state_attr(trigger.entity_id, 'faces') or [] -%}
         {%- if names | count > 1 -%}
           {{ names[:-1] | join(', ') }} and {{ names[-1] }}
         {%- else -%}{{ names | join }}{%- endif -%}

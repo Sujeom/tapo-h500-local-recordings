@@ -573,9 +573,8 @@ class StartTimeAttribute(unittest.TestCase):
     would not: the snapshot is a plain mapping, `moment` would render 0 for
     every event, the wait would pass at once, and the photograph would be the
     previous visitor's again. So the key event.py writes is pinned here, and
-    the literal each file reads beside it -- `cast-last-clip.yaml` still reads
-    the entity live, `state_attr(trigger.entity_id, ...)`, and is pinned to
-    that until it moves.
+    the literal each file reads beside it: the blueprint and both examples
+    read the snapshot.
     """
 
     def test_the_event_entity_carries_the_clip_start(self):
@@ -595,12 +594,10 @@ class StartTimeAttribute(unittest.TestCase):
         self.assertIn("start_time", keys)
 
     def test_the_blueprint_and_both_examples_read_that_key(self):
-        snapshot = "trigger.to_state.attributes.get('start_time')"
-        live = "state_attr(trigger.entity_id, 'start_time')"
-        for path, read in (
-                (PATH, snapshot),
-                (ROOT / "examples" / "notify-person-pet-doorbell.yaml", snapshot),
-                (ROOT / "examples" / "cast-last-clip.yaml", live)):
+        read = "trigger.to_state.attributes.get('start_time')"
+        for path in (PATH,
+                     ROOT / "examples" / "notify-person-pet-doorbell.yaml",
+                     ROOT / "examples" / "cast-last-clip.yaml"):
             self.assertIn(read, path.read_text(), path.name)
 
 
@@ -954,10 +951,14 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         self.assertIn('"video": "{{ clip }}"', str(photo).replace("'", '"'))
 
 
-SIBLINGS = (PATH,
-            ROOT / "blueprints" / "automation" / "tapo_h500"
-            / "respond_to_activity.yaml",
-            ROOT / "examples" / "notify-person-pet-doorbell.yaml")
+# The files that carry the snapshot idiom. The respond blueprint is left out
+# on purpose: it runs `single`, so the run that acts is a burst's earliest and
+# its filter and words read the entity itself -- pinned, with the reason, in
+# tests/test_respond_blueprint.py.
+SIBLINGS = (PATH, ROOT / "examples" / "notify-person-pet-doorbell.yaml")
+# The cast example reads the snapshot too, but filters on a press rather than
+# on the notify filter line, so it sits beside SIBLINGS rather than in it.
+READERS = SIBLINGS + (ROOT / "examples" / "cast-last-clip.yaml",)
 
 
 def _burst(first: dict, later: dict) -> dict:
@@ -1098,7 +1099,9 @@ class ARevisionIsNotARepeat(unittest.TestCase):
     time AND the codes, so the rewrite is dispatched again: a second run
     with the same start time and a better snapshot, sharing the first
     alert's tag. The gate looked only at `last_triggered`, so inside the
-    window that correction was what it dropped.
+    window that correction was what it dropped. Only a classification that
+    grew is that correction: the rewrite adds codes, so a reading with fewer
+    or different ones takes the ordinary gate.
 
     Rendered with now() and last_triggered thirty seconds apart and a
     five-minute window. The zero branch renders the literal `true` and the
@@ -1165,6 +1168,35 @@ class ARevisionIsNotARepeat(unittest.TestCase):
             {"start_time": 100, "detection_types": [6]},
             {"start_time": 700, "detection_types": [6]}, ago=600))
 
+    def test_a_downgrade_of_the_announced_clip_is_suppressed(self):
+        """Fewer codes than the state already announced is not that clip
+        better classified, and the exemption must not let it through."""
+        self.assertFalse(self._passes(
+            {"start_time": 100, "detection_types": [2, 6]},
+            {"start_time": 100, "detection_types": [2]}))
+
+    def test_a_sideways_change_takes_the_ordinary_gate(self):
+        self.assertFalse(self._passes(
+            {"start_time": 100, "detection_types": [2, 6]},
+            {"start_time": 100, "detection_types": [2, 9]}))
+
+    def test_a_late_classification_of_an_unclassified_clip_still_passes(self):
+        """The common shape of a revision: the clip indexed before the
+        detection log caught up, then classified."""
+        self.assertTrue(self._passes(
+            {"start_time": 100, "detection_types": []},
+            {"start_time": 100, "detection_types": [2, 6]}))
+
+    def test_a_from_state_without_codes_counts_as_unclassified(self):
+        self.assertTrue(self._passes(
+            {"start_time": 100},
+            {"start_time": 100, "detection_types": [6]}))
+
+    def test_a_to_state_without_codes_is_never_growth(self):
+        self.assertFalse(self._passes(
+            {"start_time": 100, "detection_types": [6]},
+            {"start_time": 100}))
+
 
 class TheSnapshotKeysArePublished(unittest.TestCase):
     """Every key the templates read off the snapshot is one the event puts
@@ -1191,7 +1223,7 @@ class TheSnapshotKeysArePublished(unittest.TestCase):
         self.assertEqual(len(payloads), 1)
         published = {key.value for key in payloads[0].keys
                      if isinstance(key, ast.Constant)}
-        for path in SIBLINGS:
+        for path in READERS:
             with self.subTest(path.name):
                 read = set(self.READ.findall(path.read_text()))
                 # A pattern that matches nothing must not pass.
@@ -1200,9 +1232,11 @@ class TheSnapshotKeysArePublished(unittest.TestCase):
 
 
 class TheSiblingsReadTheSnapshot(unittest.TestCase):
-    """One idiom, three files; drift between them is how the bug returns."""
+    """One idiom; drift between the files that carry it is how the bug
+    returns. The respond blueprint carries the other idiom on purpose and
+    is pinned in its own test file."""
 
-    def test_the_other_blueprint_and_the_example_carry_the_same_filter_line(self):
+    def test_the_example_carries_the_same_filter_line(self):
         line = ("set seen = trigger.to_state.attributes.get('detection_types')"
                 " or []")
         for path in SIBLINGS:
@@ -1210,13 +1244,107 @@ class TheSiblingsReadTheSnapshot(unittest.TestCase):
                 self.assertIn(line, " ".join(path.read_text().split()))
 
     def test_no_live_read_of_the_triggering_entity_remains(self):
-        """The example's `frame` is the one that stays: tests/test_event.py
-        pins that literal, and it moves together with cast-last-clip.yaml
-        and the docs snippets rather than on its own."""
+        """The notify blueprint, both examples and the reference: one live
+        read left in any of them is the form a reader copies next."""
         live = "state_attr(trigger.entity_id"
-        blueprint, respond, example = (path.read_text() for path in SIBLINGS)
-        self.assertEqual(blueprint.count(live), 0)
-        self.assertEqual(respond.count(live), 0)
-        self.assertEqual(example.count(live), 1)
-        holder = next(l for l in example.splitlines() if live in l)
-        self.assertTrue(holder.strip().startswith("frame:"), holder)
+        for path in READERS + (ROOT / "docs" / "reference.md",):
+            with self.subTest(path.name):
+                self.assertEqual(path.read_text().count(live), 0)
+
+    def test_the_reference_explains_the_idiom_once(self):
+        """Every snippet reads the snapshot, and one paragraph of prose says
+        why -- outside the fences, so a comment inside a snippet does not
+        count as the explanation."""
+        text = (ROOT / "docs" / "reference.md").read_text()
+        self.assertEqual(text.count("state_attr(trigger.entity_id"), 0)
+        self.assertEqual(
+            sorted(TheSnapshotKeysArePublished.READ.findall(text)),
+            ["alarm_type", "detection", "detection_types", "event_type",
+             "face_ids"])
+        prose, fenced = [], False
+        for line in text.splitlines():
+            if line.strip().startswith("```"):
+                fenced = not fenced
+                continue
+            prose.append("" if fenced else line)
+        explaining = [
+            paragraph for paragraph in re.split(r"\n\s*\n", "\n".join(prose))
+            if "trigger.to_state" in paragraph
+            and re.search(r"\btwo\b", paragraph, re.I)]
+        self.assertEqual(len(explaining), 1)
+
+
+class TheCastExample(unittest.TestCase):
+    """tests/test_examples.py checks only that it waits; the reads and the
+    run mode carry the blueprint's idiom, so they are pinned beside it."""
+
+    PATH = ROOT / "examples" / "cast-last-clip.yaml"
+
+    def test_a_second_press_is_dropped_rather_than_asked_of_the_hub(self):
+        """A press that lands while the first is still waiting on its clip
+        is dropped, quietly. `restart` gave it a run of its own, and a run
+        of its own reaches `list_recordings`: a press the hub never heard
+        about became a call against it."""
+        doc = yaml.safe_load(self.PATH.read_text())
+        self.assertEqual(doc["mode"], "single")
+        self.assertEqual(doc["max_exceeded"], "silent")
+
+
+class TheExampleReadsItsOwnEvent(unittest.TestCase):
+    """The example's picture belongs to the event its words describe.
+
+    `codes`, `moment` and `who` moved to the snapshot with the blueprint's;
+    `frame` stayed a live read, so in a burst the example put this event's
+    words under the later event's photograph. It reads the snapshot's
+    `image` and never `preview`: the downloaded file contacts nothing, where
+    a preview of a clip not yet downloaded is a media session against the
+    hub. Rendered through `_burst`, which answers the live read too, so the
+    old form fails by value rather than by a missing name.
+    """
+
+    PATH = ROOT / "examples" / "notify-person-pet-doorbell.yaml"
+
+    def _render(self, name, first, later):
+        import jinja2
+        variables = next(
+            step["variables"]
+            for step in yaml.safe_load(self.PATH.read_text())["actions"]
+            if "variables" in step)
+        return jinja2.Environment().from_string(  # noqa: S701 - not HTML
+            variables[name]).render(**_burst(first, later)).strip()
+
+    def test_the_picture_and_the_words_come_from_one_trigger(self):
+        first = {"preview": "/api/p/1", "image": "/media/1.jpg",
+                 "detection_types": [6], "faces": ["Alice"],
+                 "start_time": 100}
+        later = {"preview": "/api/p/2", "image": "/media/2.jpg",
+                 "detection_types": [2], "faces": [], "start_time": 160}
+        self.assertEqual(self._render("frame", first, later), "/media/1.jpg")
+        self.assertEqual(self._render("codes", first, later), "[6]")
+        self.assertEqual(self._render("who", first, later), "Alice")
+        self.assertEqual(self._render("moment", first, later), "100")
+
+    def test_the_picture_is_the_downloaded_file_never_the_hub_preview(self):
+        """A snapshot that offers both still renders the file. One that
+        offers neither renders `None`, and the guard the blueprint carries
+        stops the run before the send: the first notification stays on the
+        phone rather than a second whose picture is the string "None"."""
+        later = {"preview": "/api/p/2", "image": "/media/2.jpg"}
+        self.assertEqual(
+            self._render("frame", {"preview": "/api/p/1",
+                                   "image": "/media/1.jpg"}, later),
+            "/media/1.jpg")
+        self.assertNotIn("get('preview')", self.PATH.read_text())
+        steps = yaml.safe_load(self.PATH.read_text())["actions"]
+        guards = [i for i, step in enumerate(steps)
+                  if "frame not in" in str(step.get("value_template", ""))]
+        self.assertEqual(len(guards), 1)
+        self.assertLess(guards[0], next(
+            i for i, step in enumerate(steps)
+            if "image" in step.get("data", {}).get("data", {})))
+        import jinja2
+        guard = jinja2.Environment().from_string(  # noqa: S701 - not HTML
+            steps[guards[0]]["value_template"])
+        for frame in (self._render("frame", {}, later), None, ""):
+            self.assertEqual(guard.render(frame=frame), "False")
+        self.assertEqual(guard.render(frame="/media/1.jpg"), "True")

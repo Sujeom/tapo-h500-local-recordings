@@ -56,8 +56,15 @@ class OwnFrame(unittest.TestCase):
 
 class AutomationUsesIt(unittest.TestCase):
     def test_the_notification_sends_the_events_own_frame(self):
-        self.assertIn("state_attr(trigger.entity_id, 'image')", AUTOMATION)
+        """Off the trigger's own snapshot, like the words beside it: one poll
+        can report two detections, and by the time the run looks the entity
+        can already hold the later one. `image` and never `preview`: the
+        downloaded file contacts nothing, where a preview of a clip not yet
+        downloaded is a media session against the hub."""
+        self.assertIn("trigger.to_state.attributes.get('image')", AUTOMATION)
         self.assertIn('image: "{{ frame }}"', AUTOMATION)
+        self.assertNotIn("state_attr(trigger.entity_id", AUTOMATION)
+        self.assertNotIn("get('preview')", AUTOMATION)
 
     def test_the_notification_no_longer_sends_the_live_camera(self):
         self.assertNotIn("image: /api/camera_proxy", AUTOMATION)

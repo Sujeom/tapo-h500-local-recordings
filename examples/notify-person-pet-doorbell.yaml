@@ -69,8 +69,11 @@ actions:
       # state is when the event fired, minutes after the clip began, so it
       # would never be reached and the photograph would never be sent.
       moment: "{{ trigger.to_state.attributes.get('start_time') | int(0) }}"
-      # A URL to this event's own thumbnail, fixed at the moment it fired.
-      frame: "{{ state_attr(trigger.entity_id, 'image') }}"
+      # This event's own frame, off the same snapshot as its words. `image`
+      # addresses the downloaded file and contacts nothing; `preview` would
+      # have the hub serve a frame for a clip not yet downloaded -- a media
+      # session this example does not open.
+      frame: "{{ trigger.to_state.attributes.get('image') }}"
       # Anyone the hub recognised AND you have named, already resolved by the
       # integration -- an automation cannot read the name map itself. Empty
       # when the face is unknown or unnamed, which is the usual case.
@@ -171,6 +174,10 @@ actions:
   # Indexed is not yet downloaded, and the thumbnail is written by the
   # download. A short pause covers the gap; the wait above did the real work.
   - delay: "00:00:08"
+  # No frame, no second notification: the first stays on the phone, rather
+  # than one whose picture reads "None".
+  - condition: template
+    value_template: "{{ frame not in [none, '', 'None'] }}"
   - action: notify.mobile_app_phone      # <- same service as above
     data:
       title: >-

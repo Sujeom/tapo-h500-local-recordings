@@ -112,7 +112,7 @@ same id. Name them yourself:
         data:
           message: >-
             {% set who = {272465657857: 'Alice', 1969491410946: 'the courier'} %}
-            {% set ids = state_attr(trigger.entity_id, 'face_ids') or [] %}
+            {% set ids = trigger.to_state.attributes.get('face_ids') or [] %}
             {{ who.get(ids[0], 'Someone') if ids else 'Motion' }} at the door
           data:
             image: /api/camera_proxy/camera.side_doorbell
@@ -174,6 +174,14 @@ state is the timestamp of the last event, so it changes every time; the
 attribute does not change between two events of the same kind, so an attribute
 trigger silently misses the second one.
 
+Read the event off `trigger.to_state.attributes`, the run's own snapshot,
+rather than asking the entity with `state_attr`: one poll can report two
+detections, and by the time the automation looks the entity already holds the
+later one, so a live read can describe the wrong event. The exception is an
+automation that runs `mode: single` and speaks once per burst, as the respond
+blueprint does: it reads the entity live on purpose, so it says the newest
+thing the entity holds.
+
 Notify on any activity, with the camera's own frame attached:
 
 ```yaml
@@ -192,7 +200,7 @@ automation:
       - action: notify.mobile_app_phone
         data:
           message: >-
-            {{ state_attr(trigger.entity_id, 'detection') or 'Activity' }}
+            {{ trigger.to_state.attributes.get('detection') or 'Activity' }}
             at {{ trigger.to_state.name }}
           data:
             # The camera entity serves the newest event's frame.
@@ -205,7 +213,7 @@ Notify only for one kind of detection — here the code that carries a face ID:
     conditions:
       - condition: template
         value_template: >-
-          {{ 20 in (state_attr(trigger.entity_id, 'detection_types') or []) }}
+          {{ 20 in (trigger.to_state.attributes.get('detection_types') or []) }}
 ```
 
 `detection_types` lists **everything** that fired at once, so testing it catches
@@ -214,7 +222,7 @@ a code even when a more significant one is what `alarm_type` reports. Use
 
 ```yaml
       - condition: template
-        value_template: "{{ state_attr(trigger.entity_id, 'alarm_type') == 22 }}"
+        value_template: "{{ trigger.to_state.attributes.get('alarm_type') == 22 }}"
 ```
 
 Once a doorbell press has been identified and its code added to
@@ -223,7 +231,7 @@ Once a doorbell press has been identified and its code added to
 ```yaml
       - condition: template
         value_template: >-
-          {{ state_attr(trigger.entity_id, 'event_type') == 'ring' }}
+          {{ trigger.to_state.attributes.get('event_type') == 'ring' }}
 ```
 
 The recording downloads on its own; the clip and its thumbnail land under
