@@ -234,10 +234,16 @@ conditions:
                  ) }}
           # Only the detections chosen above. detection_types lists everything that
           # fired at once, so a person who also tripped motion still matches.
+          #
+          # Read off this run's own snapshot of the entity, not the entity as
+          # it is now. One poll can report two detections back to back, and
+          # the entity is written for both before any run gets here -- so a
+          # live read describes the later one. Every read below is off the
+          # snapshot for the same reason.
           - condition: template
             value_template: >-
               {% set wanted = input_detections | map('int') | list %}
-              {% set seen = state_attr(trigger.entity_id, 'detection_types')
+              {% set seen = trigger.to_state.attributes.get('detection_types')
                             or [] %}
               {#- Unclassified passes. An empty list is the hub having indexed
                   the clip before its detection log caught up -- the event
@@ -265,7 +271,7 @@ conditions:
             value_template: >-
               {%- set notable = notable
                   if notable is defined
-                  else state_attr(trigger.entity_id, 'notable') or false -%}
+                  else trigger.to_state.attributes.get('notable') or false -%}
               {%- if not input_quiet_start or not input_quiet_end -%}
                 {{ true }}
               {%- elif notable -%}
@@ -282,9 +288,25 @@ conditions:
               {%- endif -%}
           # Repeat suppression. last_triggered belongs to the automation, so this
           # covers every camera it watches rather than each one separately.
+          #
+          # Except for a revision of the clip already announced. The hub
+          # rewrites a detection in place while it unfolds -- motion, then
+          # motion and a person -- and the integration keys a detection on its
+          # start time and its codes, so the rewrite arrives as a second event
+          # with the same start time. That run corrects the earlier alert
+          # under the same tag rather than adding to it, and a start time both
+          # sides agree on is what says it is the same clip; without one, the
+          # ordinary gate decides.
           - condition: template
             value_template: >-
-              {% if input_repeat_minutes | int == 0 %}true
+              {%- set before = trigger.from_state.attributes
+                  if trigger.from_state is not none else {} -%}
+              {%- set start = trigger.to_state.attributes.get('start_time') -%}
+              {%- set revised = trigger.from_state is not none
+                  and start is not none and start == before.get('start_time')
+                  and trigger.to_state.attributes.get('detection_types')
+                      != before.get('detection_types') -%}
+              {% if input_repeat_minutes | int == 0 or revised %}true
               {% else %}
                 {{ (this.attributes.get('last_triggered') is none)
                    or (now() - this.attributes.last_triggered).total_seconds()
@@ -351,7 +373,10 @@ actions:
       - stop: "snoozed"
 
   - variables:
-      codes: "{{ state_attr(trigger.entity_id, 'detection_types') or [] }}"
+      # Off the trigger's own snapshot throughout, for the reason given at the
+      # detection filter: the entity can already hold a later event by the
+      # time this run looks.
+      codes: "{{ trigger.to_state.attributes.get('detection_types') or [] }}"
       # The camera entity on this event's own device. Every entity for a
       # camera is built by H500Entity with the same
       # `identifiers={(DOMAIN, camera["device_id"])}`, so the device registry
@@ -383,7 +408,7 @@ actions:
       # always in the future, so the wait below would sit out its three
       # minutes and the photograph would never be sent. Absent -> 0, which
       # lets the run through to the frame guard rather than into that timeout.
-      moment: "{{ state_attr(trigger.entity_id, 'start_time') | int(0) }}"
+      moment: "{{ trigger.to_state.attributes.get('start_time') | int(0) }}"
       # A URL pinned to this event's own timestamp, not "whatever is newest".
       #
       # `preview` in preference to `image`: `image` addresses the downloaded
@@ -394,21 +419,21 @@ actions:
       # asks the hub for the frame instead and caches it. Falls back for an
       # older version of the integration, which has no preview attribute.
       frame: >-
-        {{ state_attr(trigger.entity_id, 'preview')
-           or state_attr(trigger.entity_id, 'image') }}
+        {{ trigger.to_state.attributes.get('preview')
+           or trigger.to_state.attributes.get('image') }}
       # This event's own recording, beside `frame`, its own picture: a signed
       # path, carried as an attachment the way `frame` is, because the
       # companion app fetches attachments with its own token. It addresses a
       # downloaded file and there is no on-demand fallback -- the hub will make
       # a frame for a clip nobody kept, but not the clip -- so it is empty
       # until the download lands, and an empty value attaches nothing.
-      clip: "{{ state_attr(trigger.entity_id, 'video') }}"
+      clip: "{{ trigger.to_state.attributes.get('video') }}"
       # The entity whose dialog shows this event's frame. Tested on a phone:
       # of every way a button can leave a notification, `entityId:` is the
       # one that lands in the app's own more-info dialog -- and the picture
       # entity pins itself to the last event that fired, so that dialog is
       # this event. Empty on an integration too old to publish it.
-      picture_entity: "{{ state_attr(trigger.entity_id, 'image_entity') }}"
+      picture_entity: "{{ trigger.to_state.attributes.get('image_entity') }}"
       when: >-
         {{ (trigger.to_state.state | as_datetime | as_local)
            .strftime('%-I:%M %p') }}
@@ -434,7 +459,7 @@ actions:
       # Anyone recognised AND named, resolved by the integration: an
       # automation cannot read the hub's name map itself.
       who: >-
-        {%- set names = state_attr(trigger.entity_id, 'faces') or [] -%}
+        {%- set names = trigger.to_state.attributes.get('faces') or [] -%}
         {%- if names | count > 1 -%}
           {{ names[:-1] | join(', ') }} and {{ names[-1] }}
         {%- else -%}{{ names | join }}{%- endif -%}
@@ -454,12 +479,12 @@ actions:
            ~ ('?more-info-entity-id=' ~ camera if camera else '') }}
       # An unfamiliar face during the configured night, decided by the
       # integration so this does not re-implement a window wrapping midnight.
-      notable: "{{ state_attr(trigger.entity_id, 'notable') or false }}"
+      notable: "{{ trigger.to_state.attributes.get('notable') or false }}"
       # The hub gave this sighting a face id and no name of yours matched it.
       # That is the only case where naming from a notification makes sense.
       unnamed: >-
-        {%- set ids = state_attr(trigger.entity_id, 'face_ids') or [] -%}
-        {%- set known = state_attr(trigger.entity_id, 'faces') or [] -%}
+        {%- set ids = trigger.to_state.attributes.get('face_ids') or [] -%}
+        {%- set known = trigger.to_state.attributes.get('faces') or [] -%}
         {{ ids[0] if ids and not known else '' }}
       # Built as a value rather than as YAML with {% if %} around list items:
       # the document is parsed before any template runs, so Jinja cannot add
@@ -481,7 +506,7 @@ actions:
             that wants naming, then Snooze. -#}
         {%- set here = '/lovelace/' ~ dashboard ~ '?h500_clip=' ~ moment
               ~ '&h500_camera='
-              ~ (state_attr(trigger.entity_id, 'camera_index') | int(0)) -%}
+              ~ (trigger.to_state.attributes.get('camera_index') | int(0)) -%}
         {#- Image opens the picture entity's dialog when there is one: the
             app's native more-info, which needs no dashboard set up and shows
             this event's frame. Without it, the dashboard view, landing on the
@@ -532,8 +557,8 @@ actions:
         {%- set save = [{'action': 'TAPO_H500_SAVE_CLIP',
                          'title': 'Save clip',
                          'entry': config_entry_id(trigger.entity_id),
-                         'camera_index': state_attr(trigger.entity_id,
-                                                    'camera_index'),
+                         'camera_index': trigger.to_state.attributes.get(
+                             'camera_index'),
                          'start_time': moment}] -%}
         {%- set keep = buttons
               | rejectattr('action', 'eq', 'TAPO_H500_SNOOZE') | list -%}

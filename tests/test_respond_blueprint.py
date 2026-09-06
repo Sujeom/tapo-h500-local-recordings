@@ -150,7 +150,7 @@ class Announcement(unittest.TestCase):
 
     def test_it_uses_the_names_the_integration_resolved(self):
         """An automation cannot read the hub's name map itself."""
-        self.assertIn("state_attr(trigger.entity_id, 'faces')", RAW)
+        self.assertIn("trigger.to_state.attributes.get('faces')", RAW)
 
     def test_it_is_a_sentence_rather_than_a_headline(self):
         spoken = RAW.split("      spoken: >-", 1)[1].split("\n\n", 1)[0]

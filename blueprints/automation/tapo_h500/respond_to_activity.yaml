@@ -174,11 +174,13 @@ conditions:
               - (trigger.to_state.state | as_timestamp(0)) < 300
          ) }}
   # detection_types lists everything that fired at once, so an unfamiliar face
-  # that also tripped motion still matches.
+  # that also tripped motion still matches. Read off this run's own snapshot
+  # of the entity: a poll can report two detections back to back, and the
+  # entity can already hold the later one by the time this looks.
   - condition: template
     value_template: >-
       {% set wanted = input_detections | map('int') | list %}
-      {% set seen = state_attr(trigger.entity_id, 'detection_types') or [] %}
+      {% set seen = trigger.to_state.attributes.get('detection_types') or [] %}
       {#- Unclassified passes: the clip was indexed before the detection log
           caught up, so the list is empty for a moment. Acting on it beats
           silently doing nothing. A populated list still has to match. -#}
@@ -188,7 +190,7 @@ conditions:
   - condition: template
     value_template: >-
       {{ not input_night_only
-         or (state_attr(trigger.entity_id, 'notable') or false) }}
+         or (trigger.to_state.attributes.get('notable') or false) }}
   - condition: template
     value_template: >-
       {{ not input_armed_entity
@@ -213,12 +215,12 @@ variables:
 
 actions:
   - variables:
-      codes: "{{ state_attr(trigger.entity_id, 'detection_types') or [] }}"
+      codes: "{{ trigger.to_state.attributes.get('detection_types') or [] }}"
       where: "{{ trigger.to_state.name | replace(' Activity', '') }}"
       # Anyone recognised AND named. An automation cannot read the hub's name
       # map itself, so the integration resolves it onto the event.
       who: >-
-        {%- set names = state_attr(trigger.entity_id, 'faces') or [] -%}
+        {%- set names = trigger.to_state.attributes.get('faces') or [] -%}
         {%- if names | count > 1 -%}
           {{ names[:-1] | join(', ') }} and {{ names[-1] }}
         {%- else -%}{{ names | join }}{%- endif -%}

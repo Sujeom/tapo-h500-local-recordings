@@ -132,7 +132,7 @@ class NightEscalation(unittest.TestCase):
     def test_the_integration_decides_what_counts_as_night(self):
         """Not the blueprint: a window that wraps midnight is the obvious
         thing to get wrong, and it is already solved in one place."""
-        self.assertIn("state_attr(trigger.entity_id, 'notable')", RAW)
+        self.assertIn("trigger.to_state.attributes.get('notable')", RAW)
 
     def test_a_notable_alert_sounds_different(self):
         """Marking it without changing the channel changes nothing on a
@@ -222,8 +222,9 @@ class ThisEventsOwnClip(unittest.TestCase):
         rendered = self._env().from_string(self._variables()["moment"]).render(
             trigger=types.SimpleNamespace(
                 entity_id="event.front_doorbell_activity",
-                to_state=types.SimpleNamespace(state=self._iso(self.FIRED))),
-            state_attr=lambda entity, name: start_time)
+                to_state=types.SimpleNamespace(
+                    state=self._iso(self.FIRED),
+                    attributes={"start_time": start_time})))
         return int(rendered)
 
     def _waited_out(self, sensor, moment):
@@ -257,12 +258,12 @@ class ThisEventsOwnClip(unittest.TestCase):
         import types
         env = self._env()
         env.globals["config_entry_id"] = lambda entity: "entry1"
-        env.globals["state_attr"] = lambda entity, name: 0
         rendered = env.from_string(self._variables()["photo_buttons"]).render(
             buttons=[{"action": "TAPO_H500_SNOOZE", "title": "Snooze 1h"}],
             moment=self._moment(self.CLIP), input_photo_only=False,
             trigger=types.SimpleNamespace(
-                entity_id="event.front_doorbell_activity"))
+                entity_id="event.front_doorbell_activity",
+                to_state=types.SimpleNamespace(attributes={"camera_index": 0})))
         save = next(button for button in eval(rendered)  # noqa: S307
                     if button["action"] == "TAPO_H500_SAVE_CLIP")
         self.assertEqual(save["start_time"], self.CLIP)
@@ -304,12 +305,14 @@ class FirstEventAfterRestart(unittest.TestCase):
             inner["value_template"]
             for outer in DOC["conditions"] for inner in
             outer.get("conditions", [{}])[-1].get("conditions", [])
-            if "detection_types" in inner.get("value_template", ""))
+            if "select('in', wanted)" in inner.get("value_template", ""))
         env = jinja2.Environment()  # noqa: S701 - not HTML
         rendered = env.from_string(template).render(
             input_detections=wanted,
-            trigger=types.SimpleNamespace(entity_id="event.front_activity"),
-            state_attr=lambda entity, attribute: seen)
+            trigger=types.SimpleNamespace(
+                entity_id="event.front_activity",
+                to_state=types.SimpleNamespace(
+                    attributes={"detection_types": seen})))
         return rendered.strip() == "True"
 
     @staticmethod
@@ -540,7 +543,7 @@ class ThePictureUrlResolves(unittest.TestCase):
 
     def test_the_preview_is_preferred(self):
         variables = str(DOC["actions"])
-        self.assertIn("state_attr(trigger.entity_id, 'preview')", variables)
+        self.assertIn("trigger.to_state.attributes.get('preview')", variables)
 
     def test_and_the_file_is_the_fallback(self):
         """So the blueprint still works against a version of the integration
@@ -551,7 +554,7 @@ class ThePictureUrlResolves(unittest.TestCase):
     def test_the_preview_comes_first(self):
         variables = str(DOC["actions"])
         self.assertLess(variables.index("'preview'"),
-                        variables.index("state_attr(trigger.entity_id, 'image')"))
+                        variables.index("trigger.to_state.attributes.get('image')"))
 
 
 class CameraIndexAttribute(unittest.TestCase):
@@ -564,12 +567,15 @@ class CameraIndexAttribute(unittest.TestCase):
 
 
 class StartTimeAttribute(unittest.TestCase):
-    """`moment` is `state_attr(trigger.entity_id, 'start_time')`, and every
-    render test stubs state_attr with a lambda that ignores the name. So a
-    rename on either side -- the key event.py writes, or the one the
-    templates read -- leaves the suite green while `moment` renders 0 for
-    every event, the wait passes at once, and the photograph is the previous
-    visitor's again. Both sides are pinned to the literal here.
+    """`moment` is `trigger.to_state.attributes.get('start_time')`, and the
+    render tests build that snapshot as a dict keyed by name, so a rename on
+    the template side renders 0 and fails them. A rename on the writer's side
+    would not: the snapshot is a plain mapping, `moment` would render 0 for
+    every event, the wait would pass at once, and the photograph would be the
+    previous visitor's again. So the key event.py writes is pinned here, and
+    the literal each file reads beside it -- `cast-last-clip.yaml` still reads
+    the entity live, `state_attr(trigger.entity_id, ...)`, and is pinned to
+    that until it moves.
     """
 
     def test_the_event_entity_carries_the_clip_start(self):
@@ -589,10 +595,13 @@ class StartTimeAttribute(unittest.TestCase):
         self.assertIn("start_time", keys)
 
     def test_the_blueprint_and_both_examples_read_that_key(self):
-        for path in (PATH, ROOT / "examples" / "cast-last-clip.yaml",
-                     ROOT / "examples" / "notify-person-pet-doorbell.yaml"):
-            self.assertIn("state_attr(trigger.entity_id, 'start_time')",
-                          path.read_text(), path.name)
+        snapshot = "trigger.to_state.attributes.get('start_time')"
+        live = "state_attr(trigger.entity_id, 'start_time')"
+        for path, read in (
+                (PATH, snapshot),
+                (ROOT / "examples" / "notify-person-pet-doorbell.yaml", snapshot),
+                (ROOT / "examples" / "cast-last-clip.yaml", live)):
+            self.assertIn(read, path.read_text(), path.name)
 
 
 class SnoozeButton(unittest.TestCase):
@@ -647,7 +656,9 @@ class ButtonBudget(unittest.TestCase):
         import jinja2
         env = jinja2.Environment()  # noqa: S701 - not HTML
         env.globals["config_entry_id"] = lambda entity: "entry1"
-        env.globals["state_attr"] = lambda entity, name: 0
+        trigger = types.SimpleNamespace(
+            entity_id="event.front",
+            to_state=types.SimpleNamespace(attributes={"camera_index": 0}))
         variables = {}
         for step in DOC["actions"]:
             if "variables" in step:
@@ -658,13 +669,12 @@ class ButtonBudget(unittest.TestCase):
             input_offer_naming=True,
             unnamed="12345" if unnamed else "",
             link="/x", camera="camera.front", moment=1786600000, dashboard="0",
-            picture_entity="image.front_latest_event",
-            trigger=types.SimpleNamespace(entity_id="event.front"))
+            picture_entity="image.front_latest_event", trigger=trigger)
         buttons = eval(base)  # noqa: S307 - our own template's output
         if which == "photo":
             photo = env.from_string(variables["photo_buttons"]).render(
                 buttons=buttons, moment=1, input_photo_only=False,
-                trigger=types.SimpleNamespace(entity_id="event.front"))
+                trigger=trigger)
             return eval(photo)  # noqa: S307
         return buttons
 
@@ -700,14 +710,15 @@ class ButtonBudget(unittest.TestCase):
         import jinja2
         env = jinja2.Environment()  # noqa: S701 - not HTML
         env.globals["config_entry_id"] = lambda entity: "entry1"
-        env.globals["state_attr"] = lambda entity, name: 0
         variables = next(s["variables"] for s in DOC["actions"] if "variables" in s)
         buttons = [{"action": "URI", "title": "Image", "uri": "entityId:image.x"},
                    {"action": "URI", "title": "Video", "uri": "/lovelace/0?h500_play=1"},
                    {"action": "TAPO_H500_SNOOZE", "title": "Snooze 1h"}]
         photo = env.from_string(variables["photo_buttons"]).render(
             buttons=buttons, moment=1, input_photo_only=True,
-            trigger=types.SimpleNamespace(entity_id="event.front"))
+            trigger=types.SimpleNamespace(
+                entity_id="event.front",
+                to_state=types.SimpleNamespace(attributes={"camera_index": 0})))
         self.assertEqual([b["title"] for b in eval(photo)],  # noqa: S307
                          ["Image", "Video", "Snooze 1h"])
 
@@ -822,10 +833,12 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
             VARIABLES["buttons"]).render(
                 camera=camera, frame=frame, clip=clip, link=link,
                 moment=moment, dashboard=dashboard, picture_entity=picture_entity,
-                state_attr=lambda entity, name: 1,
                 input_offer_naming=False, unnamed="",
                 config_entry_id=lambda entity: "entry1",
-                trigger=types.SimpleNamespace(entity_id=self.EVENT))
+                trigger=types.SimpleNamespace(
+                    entity_id=self.EVENT,
+                    to_state=types.SimpleNamespace(
+                        attributes={"camera_index": 1})))
         return ast.literal_eval(rendered.strip())
 
     def _uris(self, buttons):
@@ -939,3 +952,271 @@ class TheCameraButtonAddressesSomethingReal(unittest.TestCase):
         with its own token. `video` is the same channel."""
         photo = _branch_holding("photo_buttons")
         self.assertIn('"video": "{{ clip }}"', str(photo).replace("'", '"'))
+
+
+SIBLINGS = (PATH,
+            ROOT / "blueprints" / "automation" / "tapo_h500"
+            / "respond_to_activity.yaml",
+            ROOT / "examples" / "notify-person-pet-doorbell.yaml")
+
+
+def _burst(first: dict, later: dict) -> dict:
+    """A run inside a burst: the trigger's snapshot is the FIRST entry and
+    `state_attr` answers with the LATER one, which is what the entity holds
+    by the time the run looks. Both are supplied so a template that still
+    asks the entity fails by the wrong value rather than by a missing name.
+    """
+    import types
+    return {"trigger": types.SimpleNamespace(
+                entity_id="event.front_doorbell_activity",
+                to_state=types.SimpleNamespace(attributes=first)),
+            "state_attr": lambda entity, name: later.get(name)}
+
+
+class TheTriggersOwnSnapshot(unittest.TestCase):
+    """Every fact in a notification belongs to the event that fired it.
+
+    One poll can report two detections. `_fire` dispatches them in one
+    synchronous loop and `_handle` writes the entity for each, so by the time
+    either automation run looks the entity holds the second: a live read in
+    the first run took the later event's codes for the send decision and the
+    words, its picture and clip for the attachment, its camera for the
+    buttons. `trigger.to_state` is the run's own snapshot, and every read is
+    now off that.
+    """
+
+    def _filter(self, first, later, wanted=("17", "6", "9")):
+        import jinja2
+        template = next(
+            inner["value_template"]
+            for outer in DOC["conditions"] for inner in
+            outer.get("conditions", [{}])[-1].get("conditions", [])
+            if "select('in', wanted)" in inner.get("value_template", ""))
+        rendered = jinja2.Environment().from_string(  # noqa: S701 - not HTML
+            template).render(
+                input_detections=list(wanted),
+                **_burst({"detection_types": first},
+                         {"detection_types": later}))
+        return rendered.strip() == "True"
+
+    def _render(self, name, first, later, **extra):
+        import jinja2
+        env = jinja2.Environment()  # noqa: S701 - not HTML
+        env.globals["config_entry_id"] = lambda entity: "entry1"
+        return env.from_string(VARIABLES[name]).render(
+            **_burst(first, later), **extra).strip()
+
+    def test_the_filter_reads_this_runs_snapshot_not_the_entity(self):
+        """A person and then plain motion in one poll: the person's run
+        sends and the motion's does not, each on its own list."""
+        self.assertTrue(self._filter([6], [2]))
+        self.assertFalse(self._filter([2], [6]))
+
+    def test_codes_reads_this_runs_snapshot_not_the_entity(self):
+        self.assertEqual(self._render("codes", {"detection_types": [6]},
+                                      {"detection_types": [2]}), "[6]")
+
+    def test_the_picture_and_clip_are_this_runs_own(self):
+        first = {"preview": "/api/p/1", "image": "/media/1.jpg",
+                 "video": "/media/1.mp4", "image_entity": "image.first"}
+        later = {"preview": "/api/p/2", "image": "/media/2.jpg",
+                 "video": "/media/2.mp4", "image_entity": "image.second"}
+        self.assertEqual(self._render("frame", first, later), "/api/p/1")
+        self.assertEqual(self._render("clip", first, later), "/media/1.mp4")
+        self.assertEqual(self._render("picture_entity", first, later),
+                         "image.first")
+        # An integration without a preview attribute falls back to the file,
+        # and that is still this event's.
+        self.assertEqual(
+            self._render("frame", {**first, "preview": None}, later),
+            "/media/1.jpg")
+
+    def test_who_notable_and_unnamed_are_this_runs_own(self):
+        first = {"faces": ["Alice"], "notable": True}
+        later = {"faces": ["Bob"], "notable": False}
+        self.assertEqual(self._render("who", first, later), "Alice")
+        self.assertEqual(self._render("notable", first, later), "True")
+        self.assertEqual(
+            self._render("unnamed", {"face_ids": [7], "faces": []},
+                         {"face_ids": [9], "faces": []}), "7")
+
+    def test_the_buttons_name_this_runs_camera(self):
+        """The Video button and Save clip both address the clip by camera
+        index; the wrong camera is a button that plays somebody else."""
+        import ast
+        buttons = ast.literal_eval(self._render(
+            "buttons", {"camera_index": 1}, {"camera_index": 0},
+            moment=100, dashboard="0", camera="camera.front",
+            link="/lovelace/0", picture_entity="",
+            input_offer_naming=False, unnamed=""))
+        video = next(b for b in buttons if b["title"] == "Video")
+        query = dict(pair.split("=")
+                     for pair in video["uri"].split("?", 1)[1].split("&"))
+        self.assertEqual(query["h500_camera"], "1")
+        photo = ast.literal_eval(self._render(
+            "photo_buttons", {"camera_index": 1}, {"camera_index": 0},
+            buttons=buttons, moment=100, input_photo_only=False))
+        save = next(b for b in photo if b["action"] == "TAPO_H500_SAVE_CLIP")
+        self.assertEqual(save["camera_index"], 1)
+
+    def test_the_quiet_hours_gate_reads_this_runs_notable(self):
+        """Rendered without `notable` defined, the way the condition runs
+        before the variables exist: 03:00 inside 22:00-07:00, and this
+        event is the notable one."""
+        import datetime
+        import jinja2
+        env = jinja2.Environment()  # noqa: S701 - not HTML
+        env.globals["now"] = lambda: datetime.datetime(2026, 8, 19, 3, 0)
+        template = next(
+            inner["value_template"]
+            for outer in DOC["conditions"] for inner in
+            outer.get("conditions", [{}])[-1].get("conditions", [])
+            if "quiet_start" in inner.get("value_template", ""))
+        rendered = env.from_string(template).render(
+            input_quiet_start="22:00", input_quiet_end="07:00",
+            **_burst({"notable": True}, {"notable": False}))
+        self.assertEqual(rendered.strip(), "True")
+
+    def test_an_event_without_the_attributes_still_renders(self):
+        """An integration too old to publish a key, or a detection the hub
+        reported without a start time: every read degrades to its empty
+        value and nothing raises. Not the proof -- `state_attr` answers None
+        for a missing attribute too, so this passes either way."""
+        expected = {"codes": "[]", "moment": "0", "frame": "None",
+                    "clip": "None", "picture_entity": "None", "who": "",
+                    "notable": "False", "unnamed": ""}
+        for name, value in expected.items():
+            with self.subTest(name):
+                self.assertEqual(self._render(name, {}, {}), value)
+
+
+class ARevisionIsNotARepeat(unittest.TestCase):
+    """Repeat suppression lets a revision of the announced clip through.
+
+    The hub rewrites a detection in place while it unfolds -- motion, then
+    motion and a person -- and `_fresh(revisions=True)` keys on the start
+    time AND the codes, so the rewrite is dispatched again: a second run
+    with the same start time and a better snapshot, sharing the first
+    alert's tag. The gate looked only at `last_triggered`, so inside the
+    window that correction was what it dropped.
+
+    Rendered with now() and last_triggered thirty seconds apart and a
+    five-minute window. The zero branch renders the literal `true` and the
+    other Python's `True`, so the result is read the way HA reads it,
+    case-insensitively.
+    """
+
+    def _passes(self, before, after, minutes=5, ago=30):
+        import datetime
+        import types
+        import jinja2
+        env = jinja2.Environment()  # noqa: S701 - not HTML
+        now = datetime.datetime(2026, 8, 19, 12, 0,
+                                tzinfo=datetime.timezone.utc)
+        env.globals["now"] = lambda: now
+        template = next(
+            inner["value_template"]
+            for outer in DOC["conditions"] for inner in
+            outer.get("conditions", [{}])[-1].get("conditions", [])
+            if "last_triggered" in inner.get("value_template", ""))
+        trigger = types.SimpleNamespace(
+            from_state=(None if before is None
+                        else types.SimpleNamespace(attributes=before)),
+            to_state=types.SimpleNamespace(attributes=after))
+        rendered = env.from_string(template).render(
+            trigger=trigger, input_repeat_minutes=minutes,
+            this={"attributes": {
+                "last_triggered": now - datetime.timedelta(seconds=ago)}})
+        return rendered.strip().lower() == "true"
+
+    def test_an_upgrade_of_the_announced_clip_is_never_suppressed(self):
+        self.assertTrue(self._passes(
+            {"start_time": 100, "detection_types": [2]},
+            {"start_time": 100, "detection_types": [2, 6]}))
+
+    def test_an_unchanged_repeat_is_still_suppressed(self):
+        self.assertFalse(self._passes(
+            {"start_time": 100, "detection_types": [2, 6]},
+            {"start_time": 100, "detection_types": [2, 6]}))
+
+    def test_another_clip_inside_the_window_is_still_suppressed(self):
+        self.assertFalse(self._passes(
+            {"start_time": 100, "detection_types": [6]},
+            {"start_time": 160, "detection_types": [6]}))
+
+    def test_a_first_event_of_a_new_entity_takes_the_ordinary_gate(self):
+        """No from_state at all: nothing to compare with, and nothing to
+        raise on."""
+        self.assertFalse(self._passes(
+            None, {"start_time": 100, "detection_types": [6]}))
+
+    def test_without_a_start_time_the_ordinary_gate_decides(self):
+        """Without a start time nothing says it is the same clip."""
+        self.assertFalse(self._passes(
+            {"detection_types": [2]}, {"detection_types": [2, 6]}))
+
+    def test_zero_minutes_still_sends_everything(self):
+        self.assertTrue(self._passes(
+            {"start_time": 100, "detection_types": [6]},
+            {"start_time": 100, "detection_types": [6]}, minutes=0))
+
+    def test_outside_the_window_still_sends(self):
+        self.assertTrue(self._passes(
+            {"start_time": 100, "detection_types": [6]},
+            {"start_time": 700, "detection_types": [6]}, ago=600))
+
+
+class TheSnapshotKeysArePublished(unittest.TestCase):
+    """Every key the templates read off the snapshot is one the event puts
+    there.
+
+    The snapshot is a plain mapping, so a key renamed on either side renders
+    None rather than raising -- `codes` empty, `moment` 0, no picture -- and
+    the suite stays green. The payload is located by ast, the way
+    StartTimeAttribute does: the bus event at the end of the same handler
+    publishes some of the same names, so a whole-file search would still
+    pass with the payload alone renamed.
+    """
+
+    READ = re.compile(r"trigger\.to_state\.attributes\.get\(\s*'(\w+)'\s*\)")
+
+    def test_every_key_the_blueprints_read_is_one_the_event_publishes(self):
+        import ast
+        tree = ast.parse((ROOT / "custom_components" / "tapo_h500"
+                          / "event.py").read_text())
+        payloads = [call.args[1] for call in ast.walk(tree)
+                    if isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "_trigger_event"]
+        self.assertEqual(len(payloads), 1)
+        published = {key.value for key in payloads[0].keys
+                     if isinstance(key, ast.Constant)}
+        for path in SIBLINGS:
+            with self.subTest(path.name):
+                read = set(self.READ.findall(path.read_text()))
+                # A pattern that matches nothing must not pass.
+                self.assertTrue(read, "no snapshot read found")
+                self.assertEqual(read - published, set())
+
+
+class TheSiblingsReadTheSnapshot(unittest.TestCase):
+    """One idiom, three files; drift between them is how the bug returns."""
+
+    def test_the_other_blueprint_and_the_example_carry_the_same_filter_line(self):
+        line = ("set seen = trigger.to_state.attributes.get('detection_types')"
+                " or []")
+        for path in SIBLINGS:
+            with self.subTest(path.name):
+                self.assertIn(line, " ".join(path.read_text().split()))
+
+    def test_no_live_read_of_the_triggering_entity_remains(self):
+        """The example's `frame` is the one that stays: tests/test_event.py
+        pins that literal, and it moves together with cast-last-clip.yaml
+        and the docs snippets rather than on its own."""
+        live = "state_attr(trigger.entity_id"
+        blueprint, respond, example = (path.read_text() for path in SIBLINGS)
+        self.assertEqual(blueprint.count(live), 0)
+        self.assertEqual(respond.count(live), 0)
+        self.assertEqual(example.count(live), 1)
+        holder = next(l for l in example.splitlines() if live in l)
+        self.assertTrue(holder.strip().startswith("frame:"), holder)
