@@ -33,7 +33,7 @@ from .const import (
     CONF_DOWNLOAD_TYPES, CONF_NIGHT_END, CONF_NIGHT_START,
     DEFAULT_NIGHT_END, DEFAULT_NIGHT_START,
     CONF_SENSITIVITY, DEFAULT_SENSITIVITY, SENSITIVITY_LEVELS,
-    DIRECTION_WINDOW, DOWNLOAD_RETRY_LIMIT, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
+    DIRECTION_WINDOW, DOWNLOAD_RECHECK_SECONDS, DOWNLOAD_RETRY_LIMIT, FACE_TRAIL_MAX, DEFAULT_POLL_INTERVAL, DOMAIN, EVENT_ARRIVAL, EVENT_RING,
     ENCOUNTER_SECONDS, EVENT_VISIT, LOITER_GAP,
     AUTO_RESTART_COOLDOWN, AUTO_RESTART_CURE_WINDOW, AUTO_RESTART_RECHECK,
     CONF_AUTO_RESTART,
@@ -1229,14 +1229,23 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                       clips: list[Clip], window: int) -> None:
         mode = self.entry.options.get(CONF_AUTO_DOWNLOAD, DEFAULT_AUTO_DOWNLOAD)
         wanted = self.download_types
+        # The poll's own clock, recovered from the window it asked for.
+        now = window + LOOKBACK_SECONDS
         for clip in self._fresh(index, clips, self._seen_clips, window):
             if not self._primed or mode not in (AUTO_DOWNLOAD_ALL, AUTO_DOWNLOAD_RINGS):
                 continue
-            if mode == AUTO_DOWNLOAD_RINGS and event_type(clip) != EVENT_RING:
-                continue
             # Nothing chosen means no filter, which is what every installation
             # made before this existed has -- and what it keeps.
-            if wanted and not has_detection(clip, wanted):
+            if ((mode == AUTO_DOWNLOAD_RINGS and event_type(clip) != EVENT_RING)
+                    or (wanted and not has_detection(clip, wanted))):
+                # Turned away on the codes this poll attached to it, and the
+                # hub revises those in place while the event unfolds (see
+                # _fresh). A recent clip is un-marked and judged again on its
+                # next listing -- the move the failed-download retry makes. An
+                # old one is finished and stays consumed.
+                start = start_of(clip)
+                if now - start < DOWNLOAD_RECHECK_SECONDS:
+                    self._seen_clips.get(index, set()).discard((start,))
                 continue
             self.entry.async_create_background_task(
                 self.hass, self._download(index, camera, clip),

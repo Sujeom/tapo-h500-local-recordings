@@ -131,6 +131,51 @@ class Filtering(unittest.TestCase):
         self.assertEqual(started, [])
 
 
+class ALateCodeGetsASecondLook(unittest.TestCase):
+    """A clip carries whatever the detection log said about it at this poll,
+    and the hub revises that log in place while an event unfolds (see
+    `_fresh`): motion on the first listing, the person a poll or two later.
+    Judged once, on that first listing, the recording with the person in it
+    was never downloaded -- and the notification's Video button named a file
+    that would never exist."""
+
+    def test_a_recording_turned_away_on_its_first_listing_is_judged_again(self):
+        coord, client, started = build(download_types=["6"])
+        offered(coord, client, [clip(NOW - 60, mask(2))])
+        self.assertEqual(len(started), 0)
+        offered(coord, client, [clip(NOW - 60, PERSON)])
+        self.assertEqual(len(started), 1)
+
+    def test_presses_only_gives_a_late_press_the_same_second_look(self):
+        """Presses-only turns a clip away on its codes too, and consumed it
+        the same way."""
+        coord, client, started = build(auto_download="rings")
+        offered(coord, client, [clip(NOW - 60, mask(2))])
+        self.assertEqual(len(started), 0)
+        offered(coord, client, [clip(NOW - 60, PRESS)])
+        self.assertEqual(len(started), 1)
+
+    def test_a_recording_it_keeps_is_downloaded_once(self):
+        """The second look is for what was turned away. A clip already
+        downloading must not start again on its next listing."""
+        coord, client, started = build(download_types=["6"])
+        offered(coord, client, [clip(NOW - 60, PERSON)])
+        offered(coord, client, [clip(NOW - 60, PERSON)])
+        self.assertEqual(len(started), 1)
+
+    def test_an_old_recording_stays_turned_away(self):
+        """Bounded, and inside the idle stretch: a clip offered again counts
+        as activity, so an open-ended window would hold the idle backoff off
+        for good on a camera facing a road."""
+        old = NOW - const.DOWNLOAD_RECHECK_SECONDS - 60
+        coord, client, started = build(download_types=["6"])
+        offered(coord, client, [clip(old, mask(2))])
+        offered(coord, client, [clip(old, PERSON)])
+        self.assertEqual(len(started), 0)
+        self.assertLessEqual(const.DOWNLOAD_RECHECK_SECONDS,
+                             const.POLL_IDLE_AFTER)
+
+
 class Parsing(unittest.TestCase):
     def test_codes_arrive_as_strings_from_the_form(self):
         coord, _, _ = build(download_types=["6", "17"])

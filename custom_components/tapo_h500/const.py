@@ -204,6 +204,18 @@ DEFAULT_KEEP_DOWNLOADS = 0
 # without it those sensors would be blank whenever nothing happened recently.
 LOOKBACK_SECONDS = 86400
 
+# How long a recording the download filter turned away stays open to a second
+# look. A clip is judged on the detection the poll attached to it, and the hub
+# revises a detection in place while an event unfolds -- motion on the first
+# listing, the person or the press a poll or two later -- so a clip judged on
+# its first listing can be judged on an unfinished record, and the recording
+# with the person in it is the one that never arrives. Five minutes covers an
+# approach, a press and a recognition (LOITER_SECONDS is 180, DELIVERY_HOLD
+# 300) and is half of POLL_IDLE_AFTER: a clip offered again counts as
+# activity, so an open-ended window would hold the idle backoff off for good
+# on a camera facing a road.
+DOWNLOAD_RECHECK_SECONDS = 300
+
 # How many times one clip may be re-attempted after a failed download.
 # Three, matching the repair notice's own threshold: past that the pipeline is
 # failing for its own reason rather than the hub's, and each further attempt
