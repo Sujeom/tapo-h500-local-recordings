@@ -337,16 +337,24 @@ class FirstEventAfterRestart(unittest.TestCase):
         self.assertEqual(self._message("Alice", "a doorbell press"),
                          "Alice — a doorbell press, 10:11 AM")
 
-    def test_an_unclassified_event_still_notifies(self):
-        """The real failure, from a trace on 2026-08-27: the hub indexes a
-        clip before its detection log catches up, so the event fires with
-        `detection_types: []` -- real timing, real picture, no classification
-        yet. The old filter asked "does this list intersect the wanted one",
-        which an empty list never can, so the visitor was dropped outright and
-        no selection of codes could ever have recovered them.
+    def test_an_unclassified_event_does_not_notify(self):
+        """An event that says nothing about what it was matches no selection.
+
+        The rule that let it through was a workaround for a misread trace:
+        on 2026-08-27 an event fired with `detection_types: []`, and the fix
+        assumed the hub had indexed the clip before its detection log caught
+        up. The detection log always carries a mask (every real detection in
+        test_api.py does); an empty list only ever came from the poll's
+        fallback to the raw clip index after the detection search failed,
+        which at the time latched off for the whole session (fixed properly
+        in ed02f7e). With that latch gone the pass-through was the only thing
+        left doing anything, and what it did was notify for a motion-only
+        clip replayed without its codes -- against a filter that excludes
+        motion. A classified revision follows on the next poll and is judged
+        on its own codes, so a visitor is not lost by dropping this.
         """
-        self.assertTrue(self._detection_filter([], ["17", "6", "9"]))
-        self.assertTrue(self._detection_filter(None, ["17", "6", "9"]))
+        self.assertFalse(self._detection_filter([], ["17", "6", "9"]))
+        self.assertFalse(self._detection_filter(None, ["17", "6", "9"]))
 
     def test_a_classified_event_is_still_filtered(self):
         """The half that must not regress. Passing the unclassified case is
@@ -1237,8 +1245,8 @@ class TheSiblingsReadTheSnapshot(unittest.TestCase):
     is pinned in its own test file."""
 
     def test_the_example_carries_the_same_filter_line(self):
-        line = ("set seen = trigger.to_state.attributes.get('detection_types')"
-                " or []")
+        line = ("(trigger.to_state.attributes.get('detection_types') or [])"
+                " | select('in',")
         for path in SIBLINGS:
             with self.subTest(path.name):
                 self.assertIn(line, " ".join(path.read_text().split()))

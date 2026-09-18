@@ -674,6 +674,17 @@ class H500Client:
                 "formatSdCard", {"harddisk_manage": {"format_hd": "1"}})
 
     @property
+    def detection_supported(self) -> bool:
+        """Whether the hub has searchDetectionList at all.
+
+        detections() and activity() answer None both for a search that
+        failed this once and for a method the firmware lacks. The
+        coordinator reads this to tell them apart: only the second makes
+        the clip index the right source of events.
+        """
+        return self._detection_supported
+
+    @property
     def session_health(self) -> dict:
         """How the recent media sessions went, and how many there have been.
 

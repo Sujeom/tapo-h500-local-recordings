@@ -155,14 +155,21 @@ class _Client:
         self.calls.append("cameras")
         return [{"device_id": "cam0", "alias": "Front"}]
 
+    next_clips: list = []
+
     def recent(self, camera, start, end):
         self.calls.append("recent")
-        return []
+        return list(self.next_clips)
 
-    next_detections: list = []
+    # None is the real client's answer to a search that failed this once;
+    # detection_supported says whether the hub has the search at all.
+    next_detections: list | None = []
+    detection_supported = True
 
     def detections(self, camera, start, end):
         self.calls.append("detections")
+        if self.next_detections is None:
+            return None
         return list(self.next_detections)
 
     def hub_status(self):
@@ -247,6 +254,70 @@ class PollOrdering(unittest.TestCase):
         client.hub_status = boom
         result = asyncio.run(coord._async_update_data())
         self.assertIn("clips", result)
+
+
+class ALogThatDidNotAnswer(unittest.TestCase):
+    """A detection search that fails this once must not make the clip index
+    the poll's event source.
+
+    Since ed02f7e a timeout, a reset or a body that will not parse returns
+    None for the detection list once, and the clips still arrive beside it.
+    Announcing those clips as the poll's events replayed the window: a clip
+    carries no codes without its detection, events are keyed on start time
+    AND codes, so every clip already announced as `(start, (2,))` fired
+    again as a fresh `(start, ())` -- an unclassified event, hours after the
+    fact, that a notification filter excluding motion could not tell from a
+    visitor. One bad poll a day was a day's motion delivered as "Activity".
+    """
+
+    AT = 1_786_600_000 - 10
+
+    @staticmethod
+    def _events(coord, client, polls):
+        """Run one poll per (clips, detections) pair; count events fired."""
+        DISPATCHER.sent.clear()
+        fired = []
+        for clips, detections in polls:
+            # Fresh dicts per poll, as the hub answers: attach_detections
+            # writes the mask onto the clip, and a dict shared across polls
+            # would carry it into the poll that is meant to have none.
+            client.next_clips = [dict(clip) for clip in clips]
+            client.next_detections = (None if detections is None
+                                      else [dict(d) for d in detections])
+            asyncio.run(coord._async_update_data())
+            fired.append(sum(1 for signal, _ in DISPATCHER.sent
+                             if "event" in signal))
+            DISPATCHER.sent.clear()
+        return fired
+
+    def test_one_failed_search_does_not_replay_the_window_as_events(self):
+        coord, client = _build()
+        coord._primed = True
+        clip = {"startTime": self.AT, "endTime": self.AT + 15}
+        motion = {"start_time": self.AT, "events_1": 0b10}
+        self.assertEqual(
+            self._events(coord, client, [([clip], [motion]), ([clip], None)]),
+            [1, 0], "the clip was announced again, without its codes")
+
+    def test_a_clip_seen_only_by_the_failed_poll_waits_for_the_log(self):
+        """Nothing is lost by announcing nothing: the search is asked again
+        on the next poll, and the detection is fresh then."""
+        coord, client = _build()
+        coord._primed = True
+        clip = {"startTime": self.AT, "endTime": self.AT + 15}
+        motion = {"start_time": self.AT, "events_1": 0b10}
+        self.assertEqual(
+            self._events(coord, client, [([clip], None), ([clip], [motion])]),
+            [0, 1])
+
+    def test_clips_are_the_events_only_where_the_hub_has_no_search(self):
+        """The fallback stays for a firmware without searchDetectionList:
+        there the clips are the only events there are."""
+        coord, client = _build()
+        coord._primed = True
+        client.detection_supported = False
+        clip = {"startTime": self.AT, "endTime": self.AT + 15}
+        self.assertEqual(self._events(coord, client, [([clip], None)]), [1])
 
 
 class RevisedDetections(unittest.TestCase):

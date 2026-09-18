@@ -974,7 +974,24 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             # The detection log lands before a clip is indexed, so prefer it as
             # the event source. Downloads always come from the clip index,
             # which is the only place exact clip boundaries exist.
-            announce = detections if detections is not None else clips
+            #
+            # No log this poll is one of two things. A firmware without the
+            # search never has one, and its clips are the only events there
+            # are. A hub that has the search and did not answer this once --
+            # a timeout, a reset -- must not have its clips stand in. They
+            # carry no codes, and events are keyed on start time AND codes,
+            # so every clip in the window already announced with its codes
+            # fired again as a fresh, unclassified event: one bad poll
+            # delivered a day's motion as "Activity at the door", past any
+            # filter that had left motion unticked. Nothing is lost by
+            # announcing nothing: the search is asked again next poll, and a
+            # detection not yet announced is fresh then.
+            if detections is not None:
+                announce = detections
+            elif self.client.detection_supported:
+                announce = []
+            else:
+                announce = clips
             self._fire(index, announce, self._seen_events, window)
             self._download_new(index, camera, clips, window)
 

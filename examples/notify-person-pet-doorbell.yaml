@@ -40,11 +40,11 @@ conditions:
   # at once, so a person who also triggers plain motion still matches.
   - condition: template
     value_template: >-
-      {% set seen = trigger.to_state.attributes.get('detection_types') or [] %}
-      {#- Unclassified passes: the hub indexes the clip before its detection
-          log catches up, so the list is briefly empty and the visitor would
-          otherwise be dropped entirely. -#}
-      {{ not seen or seen | select('in', [6, 9, 17]) | list | count > 0 }}
+      {#- An empty list matches nothing: an event without codes is a clip
+          announced in place of a detection log that did not answer, and
+          the classified version follows as its own event. -#}
+      {{ (trigger.to_state.attributes.get('detection_types') or [])
+         | select('in', [6, 9, 17]) | list | count > 0 }}
 
 actions:
   - variables:

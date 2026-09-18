@@ -1148,6 +1148,8 @@ class ActivityBatchTest(unittest.TestCase):
         _, detections = client.activity(CAMERA, 10, 20)
         self.assertIsNone(detections)
         self.assertFalse(client._detection_supported)
+        # What the coordinator reads to tell this None from a transient one.
+        self.assertFalse(client.detection_supported)
         # ...and once disabled it is not asked for again.
         client.activity(CAMERA, 10, 20)
 
@@ -1163,6 +1165,7 @@ class ActivityBatchTest(unittest.TestCase):
         self.assertEqual((clips, detections),
                          ([{"startTime": 10, "endTime": 25}], None))
         self.assertTrue(client._detection_supported, "one failed search disabled it")
+        self.assertTrue(client.detection_supported)
         client.activity(CAMERA, 10, 20)
         methods = [request["method"]
                    for request in hub.requests[1]["params"]["requests"]]
