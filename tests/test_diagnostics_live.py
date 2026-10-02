@@ -38,7 +38,7 @@ class TheDownload(unittest.TestCase):
         self.coord.cameras = [
             {"device_id": "cam0", "alias": "Front Doorbell", "mac": "AA:BB",
              "device_model": "TD21", "battery_percent": 80,
-             "hub_storage_enabled": True},
+             "hub_storage_enabled": True, "AI_enhance_enabled": True},
             {"device_id": "cam1", "alias": "Back Gate", "mac": "CC:DD",
              "device_model": "TD21"},
         ]
@@ -85,6 +85,15 @@ class TheDownload(unittest.TestCase):
         text = str(cameras)
         for owners_words in ("Front Doorbell", "Back Gate"):
             self.assertNotIn(owners_words, text)
+
+    def test_the_ai_enhance_flag_is_read_as_the_hub_spells_it(self):
+        """`AI_enhance_enabled`, capitals and all. The lowercase guess came
+        out null in every download ever taken, the allow-list's own failure
+        mode, and the first dual-lens report's record_shape showed it."""
+        cameras = self._download()["cameras"]
+        self.assertIs(cameras[0]["AI_enhance_enabled"], True)
+        self.assertNotIn("ai_enhance_enabled", cameras[0])
+        self.assertIn("AI_enhance_enabled", diagnostics.SAFE_CAMERA)
 
     def test_ages_are_relative_never_wall_clock(self):
         """"The newest clip is 300s old" answers the same question as a

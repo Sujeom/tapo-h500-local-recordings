@@ -51,9 +51,14 @@ SAFE_DEVICE = ("device_model", "sw_version", "hw_version")
 
 # Per-camera fields safe to include. Aliases are the owner's own words and can
 # name a room or a person, so they are replaced by their position instead.
+#
+# Spelled as the hub spells them: `AI_enhance_enabled` has capitals, and the
+# lowercase guess came out null in every download ever taken -- the first
+# dual-lens report's record_shape is what showed it. The binary sensor had
+# it right all along.
 SAFE_CAMERA = (
     "device_model", "hub_storage_enabled", "plan_24h_record",
-    "ai_enhance_enabled", "wifi_backup_enabled", "battery_percent",
+    "AI_enhance_enabled", "wifi_backup_enabled", "battery_percent",
 )
 
 
