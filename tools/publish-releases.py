@@ -109,20 +109,30 @@ def existing_releases(repo: str, token: str) -> set[str]:
         page += 1
 
 
-def changelog(tags: list[tuple[str, str, str]]) -> str:
-    """The same annotations as one document, newest first.
-
-    Generated rather than written. A hand-kept changelog drifts within three
-    releases, and the notes already exist -- writing them a second time by
-    hand is how they end up disagreeing with the Releases they describe.
-    """
-    dates = dict(
+def tag_dates() -> dict[str, str]:
+    """When each tag was made, as YYYY-MM-DD, by tag name."""
+    return dict(
         line.split("\x00", 1)
         for line in subprocess.run(
             ["git", "for-each-ref", "refs/tags",
              "--format=%(refname:short)%00%(creatordate:short)"],
             capture_output=True, text=True, check=True).stdout.splitlines()
         if "\x00" in line)
+
+
+def changelog(tags: list[tuple[str, str, str]],
+              dates: dict[str, str] | None = None) -> str:
+    """The same annotations as one document, newest first.
+
+    Generated rather than written. A hand-kept changelog drifts within three
+    releases, and the notes already exist -- writing them a second time by
+    hand is how they end up disagreeing with the Releases they describe.
+
+    `dates` is read from the tags unless given: tools/release.py passes the
+    tag it is about to make with today's date, so the entry it writes before
+    the commit is the one this produces after the tag exists.
+    """
+    dates = tag_dates() if dates is None else dates
     out = ["# Changelog", "",
            "Generated from the tag annotations by "
            "`tools/publish-releases.py --changelog`. Every entry is the note "

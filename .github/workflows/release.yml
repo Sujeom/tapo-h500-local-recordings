@@ -8,6 +8,10 @@
 # Runs on a version tag, and on demand. The tool is idempotent, so the manual
 # run is also the backfill: it needs no personal token, only the one GitHub
 # hands the workflow.
+#
+# Cut the tag with tools/release.py. It writes the changelog entry before the
+# release commit, in the generator's own shape, so the refresh below finds
+# nothing to change and the release commit passes its gate on its own.
 name: release
 
 on:
