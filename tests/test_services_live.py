@@ -232,10 +232,10 @@ class DownloadRecording(_World):
         self.downloads = []
 
         async def download(hass, client, camera, start, end, convert,
-                          detected=None, faces=None):
+                          detected=None, faces=None, channels=None):
             self.downloads.append(
                 {"start": start, "end": end, "convert": convert,
-                 "detected": detected})
+                 "detected": detected, "channels": channels})
             return {"path": "x.mp4", "bytes": 1}
 
         self._patch("async_download_clip", download)
@@ -261,6 +261,17 @@ class DownloadRecording(_World):
         with self.assertRaises(ServiceValidationError):
             self.call("download_recording", camera_index=0,
                       start_time=NOW, end_time=NOW - 5)
+
+    def test_chosen_lenses_ride_through_and_are_absent_by_default(self):
+        """The probe for a dual-lens camera: somebody picks the channels in
+        Developer Tools, the media port is asked for exactly those, and a
+        call that picks none downloads as it always has."""
+        self.call("download_recording", camera_index=0,
+                  start_time=NOW, end_time=NOW + 15, channels=[1, 2])
+        self.call("download_recording", camera_index=0,
+                  start_time=NOW, end_time=NOW + 15)
+        self.assertEqual([d["channels"] for d in self.downloads],
+                         [[1, 2], None])
 
     def test_the_mp4_default_comes_from_the_options(self):
         self.coord.entry.options = {**self.coord.entry.options,

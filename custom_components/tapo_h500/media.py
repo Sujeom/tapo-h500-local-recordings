@@ -279,7 +279,7 @@ async def async_preview_clip(
 async def async_download_clip(
     hass: HomeAssistant, client: H500Client, camera: Camera, start_time: int, end_time: int,
     convert: bool = True, detected: list[int] | None = None,
-    faces: list[int] | None = None,
+    faces: list[int] | None = None, channels: list[int] | None = None,
 ) -> dict:
     """Stream one indexed clip to disk, then remux and thumbnail it.
 
@@ -288,15 +288,27 @@ async def async_download_clip(
     only reaches back a day and download time is the one moment the
     classification exists -- anything that wants "the clips with a person in
     them" a week later reads it from there.
+
+    `channels` is the download service's lens probe for a dual-lens camera.
+    The file is named by the channels it asked for -- HHMMSS_ch1.mp4,
+    HHMMSS_ch1-2.mp4 -- so it sits beside the ordinary download instead of
+    overwriting it, and existing_clip never mistakes it for the clip.
     """
-    target = clip_path(hass, camera, start_time, ".mp4" if convert else ".ts")
+    lens = ("_ch" + "-".join(str(channel) for channel in channels)
+            if channels else "")
+    target = clip_path(hass, camera, start_time,
+                       lens + (".mp4" if convert else ".ts"))
     descriptor, temporary = await hass.async_add_executor_job(
         _make_temp, target.parent, ".ts.part")
     remuxed: Path | None = None
     stream = os.fdopen(descriptor, "wb")
     received = 0
     try:
-        async for chunk in client.iter_recording(camera, start_time, end_time):
+        # The keyword only when a lens was chosen: the probe is the exception,
+        # and every other caller and double speaks the verified signature.
+        async for chunk in client.iter_recording(
+                camera, start_time, end_time,
+                **({"channels": channels} if channels else {})):
             received += len(chunk)
             await hass.async_add_executor_job(stream.write, chunk)
         if received == 0:

@@ -70,6 +70,12 @@ DOWNLOAD_SCHEMA = vol.Schema({
     # nothing else, so a missing end is looked up in the hub's clip index.
     vol.Optional("end_time"): NONNEGATIVE_INT,
     vol.Optional("convert_to_mp4"): cv.boolean,
+    # A lens probe for dual-lens cameras: which channels to ask the media
+    # port for. The hub has only ever been sent [0]; one to a few small
+    # numbers, so a typo cannot ask it for anything stranger than that.
+    vol.Optional("channels"): vol.All(
+        cv.ensure_list, [vol.All(vol.Coerce(int), vol.Range(min=0, max=15))],
+        vol.Length(min=1, max=4)),
 })
 DELETE_SCHEMA = vol.Schema({
     **ENTRY_SCHEMA,
@@ -324,7 +330,7 @@ def async_register(hass: HomeAssistant) -> None:
         )
         result = await async_download_clip(
             hass, coordinator.client, camera, start_time, end_time, convert,
-            detected=detected or None)
+            detected=detected or None, channels=call.data.get("channels"))
         coordinator.async_update_listeners()
         return result
 

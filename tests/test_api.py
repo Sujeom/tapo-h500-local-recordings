@@ -73,6 +73,19 @@ class ApiTest(unittest.TestCase):
             "start_time": "10", "player_id": "player",
         })
 
+    def test_chosen_lenses_replace_the_default_channel(self):
+        """A dual-lens camera (C246D, C645D) indexes one clip per event with
+        two channel times, keyed 1 and 2, and every download so far asked
+        for channel 0. Which number the media port wants for the second
+        lens, and whether it serves both in one session, is what the
+        download service's `channels` field exists to find out."""
+        chosen = build_download_payload(CAMERA, 10, 20, "player", 1,
+                                        channels=[1, 2])
+        self.assertEqual(chosen["params"]["download"]["channels"], [1, 2])
+        default = build_download_payload(CAMERA, 10, 20, "player", 1,
+                                         channels=None)
+        self.assertEqual(default["params"]["download"]["channels"], [0])
+
     def test_initial_post_forces_zero_content_length(self):
         session = object.__new__(H500MediaSession)
         with patch.object(

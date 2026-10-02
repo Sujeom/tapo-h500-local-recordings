@@ -88,6 +88,33 @@ class Downloading(_World):
         self.assertEqual(sidecar, {"detection_types": [2, 6],
                                    "face_ids": [7]})
 
+    def test_chosen_lenses_land_in_their_own_file_beside_the_clip(self):
+        """A probe for a dual-lens camera: the file says which channels it
+        asked for, so it never overwrites the lens already on disk, and
+        `existing_clip` never mistakes it for the ordinary download."""
+        class _Lens(_Client):
+            asked = []
+
+            async def iter_recording(self, camera, start, end,
+                                     kind="download", channels=None):
+                self.asked.append(channels)
+                async for chunk in super().iter_recording(camera, start,
+                                                          end, kind):
+                    yield chunk
+
+        self._download(_Lens(), channels=[1])
+        self._download(_Lens(), channels=[1, 2])
+        self.assertEqual(_Lens.asked, [[1], [1, 2]])
+        day = self._day_dir()
+        self.assertTrue(
+            (day / media.clip_path(self.hass, CAMERA, NOW, "_ch1.ts").name)
+            .is_file())
+        self.assertTrue(
+            (day / media.clip_path(self.hass, CAMERA, NOW, "_ch1-2.ts").name)
+            .is_file())
+        self.assertIsNone(media.existing_clip(self.hass, CAMERA, NOW),
+                          "a lens probe is not the clip")
+
     def test_an_unclassified_download_writes_no_sidecar(self):
         """Absent means absent, never guessed."""
         self._download(_Client())

@@ -97,14 +97,20 @@ class H500MediaSession(HttpMediaSession):
 
 
 def build_download_payload(camera: Camera, start_time: int, end_time: int,
-                           player_id: str, client_id: int) -> dict[str, Any]:
+                           player_id: str, client_id: int,
+                           channels: list[int] | None = None) -> dict[str, Any]:
+    """The verified download request. `channels` is a lens choice for the
+    download service's probe: a dual-lens camera indexes one clip per event
+    with two channel times, keyed 1 and 2, and every download so far asked
+    for 0. Absent, the payload is exactly the one proven on hardware."""
     return {
         "type": "request",
         "seq": 1,
         "params": {"method": "get", "download": {
             "dev_id": camera["device_id"],
             "mac": camera["mac"],
-            "channels": [int(camera.get("channel_id", 0))],
+            "channels": ([int(channel) for channel in channels] if channels
+                         else [int(camera.get("channel_id", 0))]),
             "client_id": client_id,
             "end_time": str(end_time),
             "media_type": 0,
@@ -706,8 +712,9 @@ class H500Client:
         }
 
     async def iter_recording(self, camera: Camera, start_time: int,
-                             end_time: int,
-                             kind: str = "download") -> AsyncIterator[bytes]:
+                             end_time: int, kind: str = "download",
+                             channels: list[int] | None = None,
+                             ) -> AsyncIterator[bytes]:
         """Stream one recording off the hub's media port.
 
         Every call is a whole session of its own: TCP connect, digest
@@ -723,7 +730,7 @@ class H500Client:
             try:
                 payload = build_download_payload(
                     camera, start_time, end_time,
-                    self.player_id, self._client_id)
+                    self.player_id, self._client_id, channels)
                 session = H500MediaSession(
                     ip=self.host, cloud_password=self.cloud_password,
                     super_secret_key=self._super_secret_key,

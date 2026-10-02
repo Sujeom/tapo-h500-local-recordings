@@ -464,6 +464,15 @@ detection log never carries an end. With both times given, copy them exactly
 from `list_recordings`. `convert_to_mp4` optionally overrides the
 integration option for a single download.
 
+`channels` is for dual-lens cameras such as the C246D and C645D, which
+index one recording per event with two channel times and have only ever
+been asked for channel 0. A list such as `[1]`, `[2]` or `[1, 2]` asks the
+hub's media port for those channels instead, and the file is named after
+them (`HHMMSS_ch1.mp4`) beside the ordinary download, so the two can be
+compared. Which number the second lens answers on, and whether both come
+in one session, has not been seen yet; if you find out, say so on the
+issue tracker.
+
 ### `tapo_h500.classify_downloads`
 
 ```yaml

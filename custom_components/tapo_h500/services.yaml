@@ -65,6 +65,16 @@ download_recording:
       description: Overrides the integration option for this download.
       selector:
         boolean:
+    channels:
+      name: Lens channels
+      description: >-
+        Leave empty for the normal download. For a dual-lens camera, a list
+        of the hub's channel numbers to ask for, such as [1], [2] or [1, 2];
+        the file is named after them (HHMMSS_ch1.mp4) and sits beside the
+        ordinary download. This exists to find out how the hub serves a
+        second lens, and the answer is welcome on the issue tracker.
+      selector:
+        object:
 
 classify_downloads:
   name: Classify downloaded recordings
