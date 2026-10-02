@@ -192,6 +192,40 @@ class TheDownload(unittest.TestCase):
                          {"error_code": -40209})
         self.assertNotIn("Our house", str(report))
 
+    def test_no_secret_from_any_source_reaches_the_file(self):
+        """Every object the download reads, loaded with something that must
+        not leave: the entry's credentials, the client's own copies of them
+        and its session material, the hub's session token, a camera record
+        carrying a backup Wi-Fi password, a status reply carrying a token.
+        The whole file is serialised and searched, because an allow-list is
+        only as good as the last field somebody added to it."""
+        import json
+        self.coord.entry.data = {
+            "host": "192.168.11.5", "username": "admin",
+            "password": "camera-secret", "cloud_password": "cloud-secret",
+        }
+        self.client.host = "192.168.11.5"
+        self.client.password = "camera-secret"
+        self.client.cloud_password = "cloud-secret"
+        self.client._super_secret_key = "super-secret-key"
+        self.client.player_id = "player-uuid-1234"
+        self.client._hub = types.SimpleNamespace(
+            stok="session-token", superSecretKey="super-secret-key",
+            password="camera-secret")
+        self.coord.cameras[0]["backup_wifi"] = {
+            "ssid": "Our House Wifi", "password": "wifi-secret"}
+        self.coord.cameras[0]["ip"] = "192.168.11.77"
+        self.coord.raw_status = {"getDeviceInfo": {"basic_info": {
+            "token": "status-token", "ssid": "Our House Wifi",
+            "mac": "EE:FF"}}}
+        text = json.dumps(self._download(), default=str)
+        for secret in ("192.168.11.5", "192.168.11.77", "admin",
+                       "camera-secret", "cloud-secret", "super-secret-key",
+                       "player-uuid-1234", "session-token", "status-token",
+                       "Our House Wifi", "wifi-secret", "AA:BB", "EE:FF",
+                       "Front Doorbell"):
+            self.assertNotIn(secret, text, secret)
+
     def test_the_wedge_log_rides_along_once_there_is_one(self):
         self.coord.media.note_status("wedged")
         self.coord.note_recovery_attempt("hub restart")
