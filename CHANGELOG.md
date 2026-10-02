@@ -2,6 +2,18 @@
 
 Generated from the tag annotations by `tools/publish-releases.py --changelog`. Every entry is the note written when that version was tagged.
 
+## v0.124.0 &mdash; 2026-10-02
+
+Diagnostics ask about a camera's second lens
+
+The download now describes every field on each paired camera's record
+and asks the hub what it holds for lens 1, so a dual-lens camera (C246D,
+C645D) can say how it presents its second lens without anyone running a
+probe script. Also: a poll whose detection search failed no longer
+replays the day's clips as unclassified "Activity" events, and the
+notification blueprints no longer let an event without codes past the
+detection filter.
+
 ## v0.123.0 &mdash; 2026-08-19
 
 Two worked examples
