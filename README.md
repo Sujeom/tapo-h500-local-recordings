@@ -132,8 +132,9 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
 - **Captions:** `tapo_h500.describe_recording` asks a vision model what is in a
   clip. Nothing is sent anywhere unless you name an agent.
 - **Bug reports:** the integration's three-dot menu offers **Download
-  diagnostics** — firmware version, hub state and detection counts, with no
-  credentials, camera names or timestamps in it.
+  diagnostics** — firmware version, hub state, detection counts and what the
+  hub says about each camera's second lens, with no credentials, camera names
+  or timestamps in it.
 - **Hub settings it reads:** firmware and hardware version on the device page,
   the hour the hub installs updates, and whether it reboots itself on a
   schedule — which is what a gap in recordings usually turns out to be.

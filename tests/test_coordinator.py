@@ -157,7 +157,7 @@ class _Client:
 
     next_clips: list = []
 
-    def recent(self, camera, start, end):
+    def recent(self, camera, start, end, channel=0):
         self.calls.append("recent")
         return list(self.next_clips)
 

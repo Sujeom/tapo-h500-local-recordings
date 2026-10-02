@@ -143,6 +143,55 @@ class TheDownload(unittest.TestCase):
         self.assertIn("clock_offset", report["hub"])
         self.assertIsNone(report["hub"]["clock_offset"])
 
+    def test_the_camera_record_is_described_never_quoted(self):
+        """Names and types of every field the hub put on the paired record,
+        the way the hub status is already described. A dual-lens camera may
+        carry a field no TD21 has, and the allow-list cannot name what
+        nobody has seen."""
+        cameras = self._download()["cameras"]
+        self.assertEqual(cameras[0]["record_shape"]["alias"], "str")
+        self.assertEqual(cameras[0]["record_shape"]["battery_percent"], "int")
+        self.assertNotIn("record_shape", str(cameras[0]["record_shape"]))
+        self.assertNotIn("Front Doorbell", str(cameras))
+
+    def test_the_second_lens_is_asked_about(self):
+        """Every search the integration makes asks for lens 0, which is every
+        lens a TD21 has. A dual-lens camera records two, and nobody has seen
+        which channel the second one answers on: the file asks the hub for
+        channel 1 over the same window the poll uses and reports what came
+        back -- a count and the shape of one clip, never the clips."""
+        asked = []
+
+        def recent(camera, start, end, channel=0):
+            asked.append((camera["device_id"], channel, end - start))
+            return [clip(NOW - 100)] if camera["device_id"] == "cam0" else []
+
+        self.client.recent = recent
+        cameras = self._download()["cameras"]
+        self.assertEqual(asked, [("cam0", 1, diagnostics.LOOKBACK_SECONDS + 60),
+                                 ("cam1", 1, diagnostics.LOOKBACK_SECONDS + 60)])
+        self.assertEqual(cameras[0]["second_lens"], {
+            "recordings": 1,
+            "shape": {"startTime": "int", "endTime": "int", "events_1": "int"}})
+        self.assertEqual(cameras[1]["second_lens"],
+                         {"recordings": 0, "shape": {}})
+        self.assertNotIn(str(NOW - 100), str(cameras))
+
+    def test_a_refused_second_lens_reports_the_code_never_the_body(self):
+        """A hub that has no lens 1 says so with a code, and the code is the
+        answer. The body pytapo quotes is the hub's own reply and stays out,
+        like every other hub value; and a probe never fails the download."""
+        def recent(camera, start, end, channel=0):
+            raise RuntimeError(
+                'Error: refused, Response: {"error_code": -40209, '
+                '"note": "Our house"}')
+
+        self.client.recent = recent
+        report = self._download()
+        self.assertEqual(report["cameras"][0]["second_lens"],
+                         {"error_code": -40209})
+        self.assertNotIn("Our house", str(report))
+
     def test_the_wedge_log_rides_along_once_there_is_one(self):
         self.coord.media.note_status("wedged")
         self.coord.note_recovery_attempt("hub restart")

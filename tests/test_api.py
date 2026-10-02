@@ -1659,6 +1659,23 @@ class WhatConnectDoesWithAFailure(unittest.TestCase):
         self.assertIn("1000", window)
         self.assertIn("1100", window)
 
+    def test_recent_asks_for_lens_0_unless_told_otherwise(self):
+        """Lens 0 is every lens a TD21 has, and every poll keeps asking for
+        it. Diagnostics asks for lens 1 once, so a dual-lens camera can say
+        which channel its second lens answers on."""
+        client = H500Client("host", "admin", "local", "cloud")
+        asked = []
+
+        class Hub:
+            def executeFunction(self, name, params):
+                asked.append(params["playback"]["search_video_with_utc"]["channel"])
+                return {"playback": {"search_video_results": []}}
+
+        client._hub = Hub()
+        client.recent(CAMERA, 1000, 1100)
+        client.recent(CAMERA, 1000, 1100, channel=1)
+        self.assertEqual(asked, [0, 1])
+
 
 if __name__ == "__main__":
     unittest.main()

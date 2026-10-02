@@ -16,6 +16,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from .api import _refused_code
 from .clips import detection_types, hourly_baseline, start_of
 from .const import (
     CONF_AUTO_DOWNLOAD, CONF_CONVERT_MP4, CONF_FACE_NAMES, CONF_KEEP_DOWNLOADS,
@@ -111,9 +112,30 @@ async def async_get_config_entry_diagnostics(
                 label = DETECTION_NAMES.get(code, f"type {code}")
                 counts[label] = counts.get(label, 0) + 1
         newest = max((start_of(clip) or 0) for clip in clips) if clips else None
+        # One question the poll never asks: what the hub holds for this
+        # camera's lens 1. Every search asks for lens 0, which is every lens
+        # a TD21 has; a dual-lens camera records two, and which channel the
+        # second one answers on has never been seen. A count and the shape of
+        # one clip say whether there is anything there, and a refusal's code
+        # says how the hub spells "no such lens". The body pytapo quotes is
+        # the hub's own reply and stays out like every other hub value, and a
+        # probe never fails the download it rides in.
+        try:
+            lens = await hass.async_add_executor_job(
+                coordinator.client.recent, camera, now - LOOKBACK_SECONDS,
+                now + 60, 1)
+            second = {"recordings": len(lens),
+                      "shape": _shape(lens[0]) if lens else {}}
+        except Exception as err:  # noqa: BLE001 - a probe reports, never raises
+            second = {"error_code": _refused_code(err)}
         cameras.append({
             "index": index,
             **{key: camera.get(key) for key in SAFE_CAMERA},
+            # Every field the hub put on the paired record, as names and
+            # types: the allow-list above cannot name a field nobody has
+            # seen, and a camera the TD21s are not may carry one.
+            "record_shape": _shape(camera),
+            "second_lens": second,
             "recordings_in_window": len(clips),
             "detections_by_type": counts,
             # Relative, not absolute: "the newest clip is 300s old" answers the

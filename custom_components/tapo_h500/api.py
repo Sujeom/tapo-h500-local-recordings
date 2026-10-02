@@ -395,13 +395,19 @@ class H500Client:
         return cameras[index]
 
     def _search_videos(self, camera: Camera, start_time: int,
-                       end_time: int) -> list[Clip]:
-        """One indexed-clip lookup over an exact UTC window."""
+                       end_time: int, channel: int = 0) -> list[Clip]:
+        """One indexed-clip lookup over an exact UTC window.
+
+        Lens 0 is every lens a TD21 has, so nothing but diagnostics asks for
+        another: a dual-lens camera (C246D, C645D) records two, and which
+        channel its second lens answers on has never been seen.
+        """
         with self._hub_lock:
             clips = self._hub.executeFunction(
                 "searchVideoWithUTC",
                 {"playback": {"search_video_with_utc": {
-                    "channel": 0, "child_device_id": camera["device_id"],
+                    "channel": int(channel),
+                    "child_device_id": camera["device_id"],
                     "child_device_mac": camera["mac"],
                     "start_time": int(start_time),
                     "end_time": int(end_time),
@@ -458,9 +464,9 @@ class H500Client:
         return camera, found
 
     def recent(self, camera: Camera, start_time: int,
-               end_time: int) -> list[Clip]:
+               end_time: int, channel: int = 0) -> list[Clip]:
         """Clips indexed in a short window, used by the event poller."""
-        return self._search_videos(camera, start_time, end_time)
+        return self._search_videos(camera, start_time, end_time, channel)
 
     def detections(self, camera: Camera, start_time: int,
                    end_time: int) -> list[Detection] | None:
