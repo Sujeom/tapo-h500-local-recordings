@@ -32,6 +32,28 @@ def repo_from_remote(url: str) -> str | None:
     return match.group(1) if match else None
 
 
+def remote_url(name: str) -> str:
+    """The URL of one git remote, or "" where there is no such remote."""
+    return subprocess.run(["git", "remote", "get-url", name],
+                          capture_output=True, text=True).stdout
+
+
+def repository() -> str | None:
+    """"owner/name" of the repository the Releases belong to.
+
+    Actions says so outright in GITHUB_REPOSITORY, on every run and whatever
+    the checkout calls its remote -- and a fork's workflow should publish to
+    the fork. Outside Actions, the remote named `github`, which is what a
+    clone that also pushes elsewhere calls it; failing that, `origin`, which
+    is the only remote actions/checkout makes. Asking for `github` alone is
+    what stopped the release workflow's first run at its dry run, with
+    nothing published and the changelog never refreshed.
+    """
+    return (os.environ.get("GITHUB_REPOSITORY")
+            or repo_from_remote(remote_url("github"))
+            or repo_from_remote(remote_url("origin")))
+
+
 # Releases are versions. Not every tag is one: this repository also carries
 # backup/ refs pointing at branch tips, and publishing those as Releases would
 # offer HACS a "version" called backup/origin-main to install.
@@ -123,11 +145,10 @@ def main() -> int:
         # No remote needed: this reads tags and writes a file.
         sys.stdout.write(changelog(tags))
         return 0
-    url = subprocess.run(["git", "remote", "get-url", "github"],
-                         capture_output=True, text=True).stdout
-    repo = repo_from_remote(url)
+    repo = repository()
     if repo is None:
-        print("No GitHub remote named 'github' to publish to")
+        print("No GitHub repository to publish to: set GITHUB_REPOSITORY, "
+              "or have a remote named 'github' or 'origin' point at GitHub")
         return 2
     if dry:
         for name, title, _ in tags:

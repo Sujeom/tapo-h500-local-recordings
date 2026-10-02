@@ -23,6 +23,51 @@ class RemoteParsing(unittest.TestCase):
             "ssh://git@192.168.4.60:2424/repos/misc/thing.git"))
 
 
+class WhichRepository(unittest.TestCase):
+    """Where the Releases go, answered the same way on a laptop and in CI.
+
+    The tool asked git for a remote named `github`, which is what the
+    owner's clone calls it. actions/checkout names its one remote `origin`,
+    so the release workflow's very first run -- the v0.124.0 tag -- stopped
+    at the dry run with "No GitHub remote named 'github'", published
+    nothing and never refreshed the changelog, which is what left the
+    release commit red in the verify workflow.
+    """
+
+    def _resolve(self, env=None, remotes=None):
+        from unittest import mock
+        remotes = remotes or {}
+        with mock.patch.dict(tool.os.environ, env or {}, clear=True), \
+                mock.patch.object(tool, "remote_url",
+                                  lambda name: remotes.get(name, "")):
+            return tool.repository()
+
+    def test_actions_says_which_repository_it_is_running_in(self):
+        """GITHUB_REPOSITORY is set on every run, whatever the remote is
+        called, and a fork's checkout should publish to the fork."""
+        self.assertEqual(
+            self._resolve(env={"GITHUB_REPOSITORY": "Someone/fork"},
+                          remotes={"origin": "https://github.com/Else/x.git"}),
+            "Someone/fork")
+
+    def test_a_clone_with_a_github_remote_still_works(self):
+        self.assertEqual(
+            self._resolve(remotes={
+                "origin": "ssh://git@192.168.4.60:2424/repos/misc/thing.git",
+                "github": "git@github.com:Someone/some-repo.git"}),
+            "Someone/some-repo")
+
+    def test_a_plain_checkout_whose_origin_is_github_works_too(self):
+        self.assertEqual(
+            self._resolve(remotes={
+                "origin": "https://github.com/Someone/some-repo"}),
+            "Someone/some-repo")
+
+    def test_no_github_remote_anywhere_is_still_a_refusal(self):
+        self.assertIsNone(self._resolve(remotes={
+            "origin": "ssh://git@192.168.4.60:2424/repos/misc/thing.git"}))
+
+
 class WhichTagsAreVersions(unittest.TestCase):
     """Not every tag is a release.
 
