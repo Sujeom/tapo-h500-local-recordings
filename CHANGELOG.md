@@ -2,6 +2,16 @@
 
 Generated from the tag annotations by `tools/publish-releases.py --changelog`. Every entry is the note written when that version was tagged.
 
+## v0.125.0 &mdash; 2026-10-02
+
+Pick the lens a download asks for
+
+For dual-lens cameras such as the C246D and C645D, which the integration
+has so far recorded one lens of: the download service takes a `channels`
+list and names the file after it, so the second lens can be fetched and
+compared. Diagnostics also read the AI-enhance flag as the hub spells it,
+which had been null in every download.
+
 ## v0.124.0 &mdash; 2026-10-02
 
 Diagnostics ask about a camera's second lens
