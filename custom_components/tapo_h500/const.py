@@ -641,8 +641,14 @@ CONVERT_ARGS = ["-c:v", "copy", "-c:a", "aac", "-movflags", "+faststart",
 # a full 15-second clip is ~3.4 MB. Bounded twice — a short window at the hub
 # and a byte cap here — because the window alone is the hub's estimate, not a
 # promise.
+#
+# The cap has to hold a whole keyframe. A C575D downloads two 4K lenses, and
+# its first keyframe -- at byte 1,128 of the download -- was 500,949 bytes, the
+# next 512,853. The old 256 KB cap cut it in half, and the thumbnail came out
+# with the top half of the picture and smeared colour below. What is written
+# is a temporary file, deleted once the thumbnail exists.
 PREVIEW_SECONDS = 2
-PREVIEW_MAX_BYTES = 262_144
+PREVIEW_MAX_BYTES = 2_097_152
 
 # How many preview frames per camera to keep once their clip is gone.
 #

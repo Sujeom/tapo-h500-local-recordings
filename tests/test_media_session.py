@@ -160,6 +160,12 @@ class PreviewSession(unittest.TestCase):
         self.assertLess(written[0], client.delivered,
                         "the discarded tail was written to disk")
 
+    def test_the_cap_holds_a_whole_4k_keyframe(self):
+        """Measured on a C575D download: the first keyframe started at byte
+        1,128 and was 500,949 bytes, the next 512,853. A cap short of one
+        writes a thumbnail that is half picture and half smear."""
+        self.assertGreater(const.PREVIEW_MAX_BYTES, 1_128 + 512_853)
+
     def test_a_short_stream_is_unaffected(self):
         """Most previews never reach the cap at all."""
         client, written, _ = self._preview(chunks=2)
