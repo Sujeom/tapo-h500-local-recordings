@@ -2,6 +2,15 @@
 
 Generated from the tag annotations by `tools/publish-releases.py --changelog`. Every entry is the note written when that version was tagged.
 
+## v0.126.0 &mdash; 2026-10-05
+
+Both lenses of a dual-lens camera
+
+A dual-lens camera such as the C575D now keeps both lenses: each clip's
+second lens is saved beside it as HHMMSS.lens2.mp4 and listed in the media
+browser as "lens 2". Previews of 4K clips hold a whole keyframe instead of
+half of one.
+
 ## v0.125.0 &mdash; 2026-10-02
 
 Pick the lens a download asks for
