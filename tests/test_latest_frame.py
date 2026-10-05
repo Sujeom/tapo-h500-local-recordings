@@ -123,6 +123,18 @@ class LatestFrame(unittest.TestCase):
         asyncio.run(both())
         self.assertEqual(waited, [NOW - 30])
 
+    def test_a_clip_being_downloaded_is_not_fetched_again(self):
+        """The download writes the very frame a preview would fetch. While
+        it runs, the entity serves what is on disk rather than opening a
+        second session for the same bytes."""
+        self.clips = [clip(NOW - 30)]
+        self.coord._downloading = {0: {NOW - 30}}
+        self.assertEqual(self._frame(), b"newest-on-disk")
+        self.assertEqual(self.fetched, [])
+        self.coord._downloading = {}
+        self._frame()
+        self.assertEqual(self.fetched, [NOW - 30], "fetched once it is free")
+
     def test_still_recording_means_nothing_to_fetch(self):
         """No indexed clip: the hub is still recording the event, and no
         frame of it exists anywhere. Serve what there is, ask for nothing."""

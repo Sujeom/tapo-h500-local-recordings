@@ -45,8 +45,9 @@ class _Entries:
 
 
 class _Hass:
-    def __init__(self, client, loaded=True):
-        hub = types.SimpleNamespace(client=client)
+    def __init__(self, client, loaded=True, downloading=False):
+        hub = types.SimpleNamespace(
+            client=client, downloading=lambda index, start: downloading)
         entry = types.SimpleNamespace(
             entry_id=ENTRY, runtime_data=hub if loaded else None)
         self.config_entries = _Entries({ENTRY: entry} if loaded else {})
@@ -80,6 +81,41 @@ class BadInputIsRefusedPolitely(unittest.TestCase):
 
     def test_an_unknown_camera_is_a_404(self):
         self.assertEqual(get(_Hass(_Client(explode=True))).status, 404)
+
+
+class AClipOnItsWayIsNotPreviewed(unittest.TestCase):
+    """A dual-lens 4K camera's clip takes minutes to download and its
+    preview a minute more, over one hub session at a time. Previewing a
+    clip that is already queued fetched the same bytes twice and held every
+    other tile behind it. The view answers at once; the download writes
+    the thumbnail, and the card's next refresh shows it."""
+
+    def test_it_answers_404_without_opening_a_session(self):
+        asked = []
+
+        async def never(hass, client, camera, start):
+            asked.append(start)
+            return None
+
+        original = preview.async_preview_clip
+        preview.async_preview_clip = never
+        self.addCleanup(setattr, preview, "async_preview_clip", original)
+        response = get(_Hass(_Client(), downloading=True))
+        self.assertEqual(response.status, 404)
+        self.assertEqual(asked, [], "no hub session for a clip on its way")
+
+    def test_a_clip_not_being_downloaded_is_still_previewed(self):
+        asked = []
+
+        async def counts(hass, client, camera, start):
+            asked.append(start)
+            return None
+
+        original = preview.async_preview_clip
+        preview.async_preview_clip = counts
+        self.addCleanup(setattr, preview, "async_preview_clip", original)
+        get(_Hass(_Client(), downloading=False))
+        self.assertEqual(asked, [100])
 
 
 class AFailedPreviewIsNotAServerError(unittest.TestCase):

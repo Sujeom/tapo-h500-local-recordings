@@ -63,6 +63,13 @@ class H500PreviewView(HomeAssistantView):
         except Exception:
             return web.Response(status=404, text="Unknown camera")
 
+        if coordinator.downloading(index, start):
+            # Already queued or on its way. Its download writes the thumbnail
+            # a preview would fetch; a second session for the same bytes
+            # held the hub for a minute and every other tile behind it. A
+            # 404 renders as a blank tile, which the card's next refresh
+            # fills from the download.
+            return web.Response(status=404, text="Clip is being downloaded")
         try:
             path = await async_preview_clip(
                 hass, coordinator.client, camera, start)

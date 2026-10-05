@@ -430,6 +430,19 @@ anything you never looked at. Each one is cached on disk at the same path the
 downloaded clip's thumbnail would use, so it is generated once, and downloading
 that clip later finds it already there.
 
+The hub serves one media session at a time, and a clip download holds that
+session for its whole length — a dual-lens 4K camera's for several minutes.
+Two things keep the dashboard responsive in spite of that. A download gives
+way: it does not start while a tile's preview or the camera picture is
+waiting, so those wait only for the session already running, never for the
+queue of downloads behind it. And a clip that is already queued for download
+is not previewed at all, because the download writes the same frame; its tile
+stays blank until the download lands and the card's next refresh shows it.
+On a camera whose clips take minutes to fetch, a preview can still wait for
+the one download in progress. The download-type filter under **Configure**
+is the lever for that: downloading only the clips worth keeping shortens
+the queue for everything.
+
 ## Actions
 
 All four actions return a response and appear under **Developer tools → Actions**.

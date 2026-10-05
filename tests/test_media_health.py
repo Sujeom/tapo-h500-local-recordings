@@ -442,7 +442,9 @@ class ServingEmpty(unittest.TestCase):
 
     def test_the_coordinator_counts_it_from_downloads(self):
         coordinator_src = (COMPONENT / "coordinator.py").read_text()
-        body = coordinator_src.split("async def _download", 1)[1].split(
+        # _download is a thin wrapper that marks the clip as downloading;
+        # the session, and the accounting of how it went, is in _download_clip.
+        body = coordinator_src.split("async def _download_clip", 1)[1].split(
             "\n    async def ", 1)[0]
         self.assertIn("EmptyRecordingError", body)
         self.assertIn("note_empty_download", body)

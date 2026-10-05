@@ -118,6 +118,28 @@ class Counting(unittest.TestCase):
         self._run()
         self.assertEqual(self.coord.download_failures, {"Front": 1})
 
+    def test_a_clip_is_marked_downloading_only_while_its_download_runs(self):
+        """What the preview path reads to stay out of the download's way: a
+        tile's preview of a clip already on its way would fetch the same
+        bytes twice and hold the hub for a minute doing it."""
+        seen = []
+
+        async def download(hass, client, camera, start, end, convert,
+                           detected=None, faces=None, channels=None):
+            seen.append(self.coord.downloading(0, start))
+            return {"path": "x.mp4", "bytes": 1}
+
+        self._patch("async_download_clip", download)
+        self.assertFalse(self.coord.downloading(0, NOW))
+        self._run()
+        self.assertEqual(seen, [True], "marked for the whole download")
+        self.assertFalse(self.coord.downloading(0, NOW), "and cleared after")
+
+    def test_a_failed_download_is_unmarked_so_a_preview_can_step_in(self):
+        self.outcomes = [self._fail()]
+        self._run()
+        self.assertFalse(self.coord.downloading(0, NOW))
+
     def test_a_clip_that_does_not_decode_takes_its_second_lens_with_it(self):
         """Removed to be fetched again; the second lens of a dual-lens camera
         is written from the same download and has no one else to clean it."""

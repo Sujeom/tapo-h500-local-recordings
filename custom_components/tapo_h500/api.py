@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import threading
@@ -83,6 +84,63 @@ media_session.AESHelper = H500AESHelper
 
 class IncompleteRecordingError(Exception):
     """The hub did not confirm that the recording stream completed."""
+
+
+class MediaTurnstile:
+    """One media session at a time, with the dashboard ahead of the downloads.
+
+    The hub serves one media session at a time and wedges under more, so
+    every session -- a clip download, a card tile's preview, the camera
+    entity's picture -- passes through here. In arrival order a tile's
+    preview queued behind a dual-lens 4K camera's downloads waited for every
+    one of them, four to eleven minutes each; that is what "the cards take
+    longer to load" was. So a download gives way: it does not start while an
+    interactive request is waiting, and if one arrives while a download is
+    first in line, the download steps back. An interactive request waits only
+    for the session already running, which nothing can shorten -- a session
+    is one stream off the hub and cannot be paused.
+
+    Downloads cannot starve: a tile's preview is cached on disk after its
+    first fetch, so a dashboard can only ask for as many as it has uncached
+    clips, and then the downloads resume in their original order.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._interactive_waiting = 0
+        # Set while no interactive request is waiting; a download parks on it.
+        self._clear = asyncio.Event()
+        self._clear.set()
+
+    def locked(self) -> bool:
+        """Whether a session is running -- the health probe stays away then."""
+        return self._lock.locked()
+
+    @contextlib.asynccontextmanager
+    async def hold(self, interactive: bool) -> AsyncIterator[None]:
+        if interactive:
+            self._interactive_waiting += 1
+            self._clear.clear()
+            try:
+                await self._lock.acquire()
+            finally:
+                self._interactive_waiting -= 1
+                if not self._interactive_waiting:
+                    self._clear.set()
+        else:
+            while True:
+                await self._clear.wait()
+                await self._lock.acquire()
+                if not self._interactive_waiting:
+                    break
+                # One arrived while this download was first in line: step
+                # back and let the lock wake it.
+                self._lock.release()
+                await asyncio.sleep(0)
+        try:
+            yield
+        finally:
+            self._lock.release()
 
 
 class H500MediaSession(HttpMediaSession):
@@ -273,7 +331,7 @@ class H500Client:
         self._client_id = 1
         self._super_secret_key = ""
         self._encryption_method = None
-        self._lock = asyncio.Lock()
+        self._lock = MediaTurnstile()
         # How many media sessions this process has opened. The hub serves them
         # for hours after a reboot and then starts closing port 8800 before
         # sending a byte, which is before authentication and so identifies
@@ -723,7 +781,9 @@ class H500Client:
         that record, so previews and downloads can be told apart in a log.
         """
         queued = time.monotonic()
-        async with self._lock:
+        # Downloads give way; previews, camera frames and the health check
+        # go first. See MediaTurnstile.
+        async with self._lock.hold(interactive=kind != "download"):
             self._sessions += 1
             sequence, opened = self._sessions, time.monotonic()
             received, finished, ended = 0, False, "closed"

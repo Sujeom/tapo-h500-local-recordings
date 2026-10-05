@@ -117,6 +117,10 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self.readings: dict = {}
         self._seen_events: dict[int, set[int]] = {}
         self._seen_clips: dict[int, set[int]] = {}
+        # Clips queued for download or being downloaded, by camera index.
+        # Read by the preview path: a clip already on its way gets its frame
+        # from the download, not from a second session for the same bytes.
+        self._downloading: dict[int, set[int]] = {}
         # Per camera, the newest clip start a frame fetch was begun for and
         # the task doing it; see async_latest_frame.
         self._frame_attempts: dict[tuple[int, int], asyncio.Task] = {}
@@ -704,6 +708,11 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
 
     async def _ensure_frame(self, index: int, camera: dict, start_time: int) -> None:
         """One fetch per clip, shared by everyone who asks while it runs."""
+        if self.downloading(index, start_time):
+            # The download writes the very frame a preview would fetch.
+            # Serve what is on disk until it lands rather than open a second
+            # session for the same bytes -- and hold every other tile up.
+            return
         key = (index, start_time)
         fetch = self._frame_attempts.get(key)
         if fetch is None:
@@ -1264,6 +1273,9 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 if now - start < DOWNLOAD_RECHECK_SECONDS:
                     self._seen_clips.get(index, set()).discard((start,))
                 continue
+            # Marked before the task exists, so a preview asked for in the
+            # same loop turn already sees the clip as spoken for.
+            self._downloading.setdefault(index, set()).add(start_of(clip))
             self.entry.async_create_background_task(
                 self.hass, self._download(index, camera, clip),
                 f"{DOMAIN} download {start_of(clip)}",
@@ -1434,8 +1446,26 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             options.get(CONF_KEEP_PERSON, DEFAULT_KEEP_PERSON),
         )
 
+    def downloading(self, index: int, start_time: int) -> bool:
+        """Whether this clip is queued for download or being downloaded."""
+        return start_time in self._downloading.get(index, ())
+
     async def _download(self, index: int, camera: Camera,
                         clip: Clip) -> None:
+        start_time = start_of(clip)
+        # Marked here as well as where the task is spawned -- idempotent,
+        # and it covers a direct call. Unmarked however it ends: a failed
+        # download is unmarked too, so a preview can step in for the frame
+        # the download never wrote.
+        if start_time is not None:
+            self._downloading.setdefault(index, set()).add(start_time)
+        try:
+            await self._download_clip(index, camera, clip)
+        finally:
+            self._downloading.get(index, set()).discard(start_time)
+
+    async def _download_clip(self, index: int, camera: Camera,
+                             clip: Clip) -> None:
         start_time = start_of(clip)
         end_time = end_of(clip)
         if start_time is None or end_time is None or end_time <= start_time:
