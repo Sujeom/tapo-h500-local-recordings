@@ -2,6 +2,16 @@
 
 Generated from the tag annotations by `tools/publish-releases.py --changelog`. Every entry is the note written when that version was tagged.
 
+## v0.128.0 &mdash; 2026-10-05
+
+Cards list recordings without asking the hub
+
+A card's recordings list now comes from what the integration already polls:
+the last day of every camera's clips, detections included, held in memory.
+Only days older than that are asked of the hub, once a quarter hour rather
+than three times a minute, and the newest clips are always fresh. Dashboards
+beside a busy camera load the way they did before it was added.
+
 ## v0.127.0 &mdash; 2026-10-05
 
 Dashboard cards stay quick beside a slow camera
