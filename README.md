@@ -213,7 +213,8 @@ Downloads use TCP port `8800`. Don't expose it to the internet.
   and carries the day's shape hour by hour as an attribute.
 - **Clips:** **Media → Tapo H500**, by camera and date — and by what is in
   them: Doorbell presses, People, Vehicles and Pets folders over the whole
-  downloaded archive.
+  downloaded archive. A dual-lens camera such as the C575D keeps both lenses:
+  each clip has a second file beside it, listed as "lens 2".
 - **Keep that one:** the photo notification carries a **Save clip** button —
   one press downloads that exact recording, and manual downloads are never
   pruned.

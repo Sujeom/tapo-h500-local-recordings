@@ -605,12 +605,14 @@ class AClipThatDoesNotDecode(unittest.TestCase):
         module = sys.modules["tapo_h500.coordinator"]
         removed = []
 
-        class Stored:
-            name = "224640.ts"
+        from pathlib import PurePosixPath
 
-            @staticmethod
-            def unlink(missing_ok=False):
-                removed.append(True)
+        class Stored(PurePosixPath):
+            """A real path, so the second lens can be found from it, whose
+            removal is recorded rather than performed."""
+
+            def unlink(self, missing_ok=False):
+                removed.append(self.name)
 
         async def download(*args, **kwargs):
             return {"path": "/x.ts", "bytes": 4096}
@@ -628,7 +630,7 @@ class AClipThatDoesNotDecode(unittest.TestCase):
 
         async def once(hass, camera, start):
             calls["n"] += 1
-            return None if calls["n"] == 1 else Stored()
+            return None if calls["n"] == 1 else Stored("/media/224640.ts")
 
         for name, value in (("async_existing_clip", once),
                             ("async_download_clip", download),
@@ -643,7 +645,7 @@ class AClipThatDoesNotDecode(unittest.TestCase):
 
     def test_a_file_that_does_not_decode_is_removed_so_it_can_be_refetched(self):
         coord, removed = self._download(decodes=False)
-        self.assertEqual(removed, [True])
+        self.assertIn("224640.ts", removed)
         self.assertNotIn((NOW,), coord._seen_clips.get(0, set()),
                          "forgotten, so the next poll fetches it again")
 

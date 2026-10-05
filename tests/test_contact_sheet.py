@@ -120,6 +120,16 @@ class Thumbnails(unittest.TestCase):
             self.assertEqual([path.name for path in sheet._thumbnails(folder)],
                              ["080000.jpg", "121500.jpg", "174100.jpg"])
 
+    def test_a_second_lens_is_not_a_second_event(self):
+        """One tile per recording: the telephoto frame of a clip is the same
+        moment again."""
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            for name in ("080000.jpg", "080000.lens2.jpg"):
+                (folder / name).write_bytes(b"")
+            self.assertEqual([path.name for path in sheet._thumbnails(folder)],
+                             ["080000.jpg"])
+
     def test_videos_are_not_included(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)

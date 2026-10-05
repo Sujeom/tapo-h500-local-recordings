@@ -50,7 +50,7 @@ from .media_health import MediaHealth
 from .media import (
     EmptyRecordingError, async_download_clip, async_latest_image, clip_path,
     async_preview_clip, async_prune, async_prune_previews, async_verify,
-    async_existing_clip,
+    async_existing_clip, second_lens,
 )
 from .status import hub_readings, hours_until_full, trend_samples
 
@@ -1474,6 +1474,10 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
                 "Downloaded clip %s does not decode; removing it so it can be "
                 "fetched again while the hub still has it", stored.name)
             await self.hass.async_add_executor_job(stored.unlink, True)
+            # And its second lens, if it has one: written from the same
+            # download, it would otherwise outlive the clip it belongs to.
+            await self.hass.async_add_executor_job(
+                second_lens(stored).unlink, True)
             self._seen_clips.get(index, set()).discard((start_time,))
             # Bytes arrived and did not decode: still a pipeline failing.
             self._download_failures[index] = (

@@ -137,6 +137,14 @@ class Poster(unittest.TestCase):
         with Tree([]) as root:
             self.assertIsNone(poster(root / "Nothing"))
 
+    def test_a_second_lens_is_not_the_cover(self):
+        """The main lens is the camera's face; a cover that switched to the
+        telephoto whenever one was kept would read as a different camera."""
+        with Tree(["Front/2026-08-13/174100.jpg",
+                   "Front/2026-08-13/174100.lens2.jpg"]) as root:
+            self.assertEqual(media_source._poster(root / "Front").name,
+                             "174100.jpg")
+
     def test_videos_are_not_offered_as_thumbnails(self):
         with Tree(["Front/2026-08-13/080000.mp4"]) as root:
             self.assertIsNone(poster(root / "Front" / "2026-08-13"))
@@ -217,6 +225,19 @@ class Child(unittest.TestCase):
         child = self.source._child("Front/2026-08-13", "174100.mp4", 2, clip)
         self.assertEqual(child.thumbnail,
                          "/signed/media/Front/2026-08-13/174100.jpg")
+
+    def test_a_second_lens_says_so(self):
+        clip = Path("/media/Front/2026-08-13/174100.lens2.mp4")
+        child = self.source._child("Front/2026-08-13", clip.name, 2, clip)
+        self.assertEqual(child.title, "17:41:00 · lens 2")
+        self.assertEqual(child.thumbnail,
+                         "/signed/media/Front/2026-08-13/174100.lens2.jpg")
+
+    def test_a_second_lens_in_a_flat_list_says_so(self):
+        root = Path("/media")
+        child = self.source._typed_child(
+            root, root / "front" / "2026-08-13" / "174100.lens2.mp4")
+        self.assertEqual(child.title, "front · 2026-08-13 17:41 · lens 2")
 
     def test_a_camera_folder_reads_its_underscores_as_spaces(self):
         child = self.source._child("", "front_doorbell", 0,

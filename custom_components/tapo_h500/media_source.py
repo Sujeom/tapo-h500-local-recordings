@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 import json
 
 from .const import DOMAIN, MEDIA_DIR
-from .media import media_root, signed_url
+from .media import SECOND_LENS, is_second_lens, media_root, signed_url
 
 MIME_TYPES = {".mp4": "video/mp4", ".ts": "video/mp2t"}
 
@@ -107,6 +107,16 @@ def _listing(directory: Path, suffixes: tuple[str, ...] | None) -> list[str]:
     return sorted(names)
 
 
+def _clock(stem: str, seconds: bool) -> str:
+    """HH:MM, or HH:MM:SS, from a clip's name -- and which lens it is."""
+    lens2 = stem.endswith(SECOND_LENS)
+    if lens2:
+        stem = stem[:-len(SECOND_LENS)]
+    if len(stem) == 6 and stem.isdigit():
+        stem = f"{stem[:2]}:{stem[2:4]}" + (f":{stem[4:6]}" if seconds else "")
+    return stem + (" · lens 2" if lens2 else "")
+
+
 def _poster(directory: Path) -> Path | None:
     """The newest thumbnail under here, for a folder to show as its cover.
 
@@ -133,7 +143,8 @@ def _poster(directory: Path) -> Path | None:
         if found is not None:
             return found
     thumbs = sorted(item for item in directory.iterdir()
-                    if item.is_file() and item.suffix == ".jpg")
+                    if item.is_file() and item.suffix == ".jpg"
+                    and not is_second_lens(item))
     return thumbs[-1] if thumbs else None
 
 
@@ -260,9 +271,7 @@ class H500MediaSource(MediaSource):
 
     def _typed_child(self, root: Path, video: Path) -> BrowseMediaSource:
         camera, day, name = video.relative_to(root).parts
-        clock = video.stem
-        when = (f"{clock[:2]}:{clock[2:4]}"
-                if len(clock) == 6 and clock.isdigit() else clock)
+        when = _clock(video.stem, seconds=False)
         return BrowseMediaSource(
             domain=DOMAIN, identifier=f"{camera}/{day}/{name}",
             media_class=MediaClass.VIDEO, media_content_type=MediaType.VIDEO,
@@ -287,12 +296,10 @@ class H500MediaSource(MediaSource):
                 thumbnail=(signed_url(self.hass, poster)
                            if poster is not None else None),
             )
-        clock = path.stem
         return BrowseMediaSource(
             domain=DOMAIN, identifier=identifier,
             media_class=MediaClass.VIDEO, media_content_type=MediaType.VIDEO,
-            title=f"{clock[:2]}:{clock[2:4]}:{clock[4:6]}"
-            if len(clock) == 6 and clock.isdigit() else clock,
+            title=_clock(path.stem, seconds=True),
             can_play=True, can_expand=False,
             thumbnail=signed_url(self.hass, path.with_suffix(".jpg")),
         )

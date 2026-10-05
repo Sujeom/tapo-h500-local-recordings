@@ -883,6 +883,69 @@ raises `GeneratorExit` at the `yield`, which unwinds the `async with` for both
 the media session and the client lock. The `IncompleteRecordingError` at the end
 is never reached, so an abandoned preview does not surface as a failed download.
 
+## Wired and dual-lens cameras
+
+Measured 2026-10-05 on firmware 1.3.20, with a wired (PoE) dual-lens C575D
+paired beside the two TD21s.
+
+- **The verified download works for it.** A whole 18-second clip arrived
+  through `type=download` with the hub's `finished` notification: 12,965,984
+  bytes, a 17.925s PTS span.
+- **Every download carries both lenses**, even with `channels: [0]`. The fixed
+  wide lens is on PID `0x44`, the pan/tilt telephoto on `0x64`, both 3840x2160
+  HEVC at 15 fps. The clip index marks such clips with `chn_times` keyed `1`
+  and `2`. ffmpeg's default stream selection keeps one video stream, so the
+  conversion maps the second one to its own `HHMMSS.lens2.mp4`.
+- **The audio stream is one ffmpeg does not recognise**, as on the doorbells,
+  so it is never selected and the MP4 is video-only.
+- **A keyframe is about half a megabyte.** The first was 500,949 bytes, the
+  next 512,853, which is why `PREVIEW_MAX_BYTES` is 2 MiB: the old 256 KB cut
+  the keyframe in half and the preview came out half smeared.
+
+Earlier the same night, `type=download` for this camera was answered with HTTP
+503 after authentication, five times across two logins, while a TD21 download
+in the same login worked. The likeliest reading is contention rather than
+refusal: Home Assistant was working through the new camera's backlog, and the
+hub appears to serve one download per camera at a time. That is inferred, not
+proven.
+
+During those 503s, pytapo's hub-child request did work: query
+`type=sdvod` with a `playback` block (`client_id`, `channels`,
+`scale: "1/1"`, `start_time`, `end_time`, `event_type: [1, 2]`). It behaves
+differently enough to note:
+
+- it ignores `channels` -- `[0]` and `[1]` returned byte-identical files;
+- it never sends `finished`, so a client has to stop on the stream's own PTS,
+  which is what pytapo's Downloader does;
+- it opens mid-GOP, ~554 KB before the first keyframe;
+- video can arrive before the acknowledgement, which pytapo then drops;
+- its audio reads as MP3 and fails to decode, which stops a remux with audio.
+
+None of this is wired in. About an hour after four sdvod sessions that were
+ended client-side mid-stream, the hub dropped off the network for roughly an
+hour. The cause is unknown, so sdvod is best left alone until that is ruled
+out.
+
+The hub serves media slowly, for every camera:
+
+| | |
+| --- | --- |
+| Throughput, healthy hub | 46 to 55 KB/s |
+| Throughput after the outage, lossy link | 19 KB/s |
+| Full TD21 clip, healthy hub | 0.34x real time |
+| 18-second C575D clip, both lenses, after the outage | 11 minutes |
+
+Round-trip time to the healthy hub was 1.25 ms and a 200-packet ack window was
+no faster than 25, so the ceiling is the hub's, not the network's.
+
+**Live view through the hub sends no video for this camera either:** the
+session opens with `error_code 0` and the `channel_lens_mask_info`
+notification, then nothing -- channels 0, 1 and both, `HD` and `VGA`,
+pytapo's query and go2rtc's, up to 40 seconds. A wired, always-on camera rules
+out waking as the explanation for the TD21 result in *Live view: the session
+opens*. At this throughput, 4K live through the hub could not keep up anyway;
+for a wired camera, the camera itself is the live source.
+
 ## Operational limits
 
 The hub is easy to wedge and recovers on its own timescale, not on demand.

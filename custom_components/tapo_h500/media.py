@@ -94,6 +94,21 @@ def clip_path(hass: HomeAssistant, camera: Camera, start_time: int, suffix: str)
     return path
 
 
+# A dual-lens camera's second lens, kept beside its clip: HHMMSS.lens2.mp4,
+# with its own HHMMSS.lens2.jpg. The tag sits before the extension, so every
+# with_suffix() that finds a clip's thumbnail finds the companion's too.
+SECOND_LENS = ".lens2"
+
+
+def second_lens(path: Path) -> Path:
+    """Where the second lens of this clip file lives, whatever the file."""
+    return path.with_name(path.stem + SECOND_LENS + path.suffix)
+
+
+def is_second_lens(path: Path) -> bool:
+    return path.stem.endswith(SECOND_LENS)
+
+
 def relative(hass: HomeAssistant, path: Path) -> str:
     return path.relative_to(media_root(hass)).as_posix()
 
@@ -301,6 +316,7 @@ async def async_download_clip(
     descriptor, temporary = await hass.async_add_executor_job(
         _make_temp, target.parent, ".ts.part")
     remuxed: Path | None = None
+    lens2: Path | None = None
     stream = os.fdopen(descriptor, "wb")
     received = 0
     try:
@@ -328,6 +344,23 @@ async def async_download_clip(
                     translation_key="convert_failed")
             await hass.async_add_executor_job(os.replace, remuxed, target)
             remuxed = None
+            # A dual-lens camera sends both lenses in every download, and the
+            # remux above keeps one: ffmpeg selects a single video stream. The
+            # second goes beside it. A one-lens camera has no second video
+            # stream, the map matches nothing, and ffmpeg's refusal is the
+            # answer.
+            # ponytail: one extra ffmpeg run per single-lens download; read
+            # the stream table first if that cost ever shows.
+            descriptor, lens2 = await hass.async_add_executor_job(
+                _make_temp, target.parent, ".mp4.part")
+            os.close(descriptor)
+            if await _run_ffmpeg(hass, [
+                "-y", "-f", "mpegts", "-i", str(temporary),
+                "-map", "0:v:1", *CONVERT_ARGS, str(lens2),
+            ]):
+                await hass.async_add_executor_job(
+                    os.replace, lens2, second_lens(target))
+                lens2 = None
         else:
             await hass.async_add_executor_job(os.replace, temporary, target)
         if detected:
@@ -348,10 +381,15 @@ async def async_download_clip(
         if stream is not None:
             await hass.async_add_executor_job(stream.close)
         await hass.async_add_executor_job(temporary.unlink, True)
-        if remuxed is not None:
-            await hass.async_add_executor_job(remuxed.unlink, True)
+        for part in (remuxed, lens2):
+            if part is not None:
+                await hass.async_add_executor_job(part.unlink, True)
     await async_thumbnail(hass, target)
-    return {**describe(hass, target), "bytes": received}
+    result = {**describe(hass, target), "bytes": received}
+    if await hass.async_add_executor_job(second_lens(target).is_file):
+        await async_thumbnail(hass, second_lens(target))
+        result["second_lens"] = describe(hass, second_lens(target))
+    return result
 
 
 def _delete(paths: list[Path]) -> list[Path]:
@@ -374,7 +412,8 @@ async def async_delete_clip(hass: HomeAssistant, camera: Camera, start_time: int
     """Remove the downloaded copy of a clip. The hub keeps its own."""
     candidates = [
         clip_path(hass, camera, start_time, suffix)
-        for suffix in (".mp4", ".ts", ".jpg", ".json")
+        for suffix in (".mp4", ".ts", ".jpg", ".json",
+                       SECOND_LENS + ".mp4", SECOND_LENS + ".jpg")
     ]
     removed = await hass.async_add_executor_job(_delete, candidates)
     return [relative(hass, path) for path in removed]
@@ -383,7 +422,8 @@ async def async_delete_clip(hass: HomeAssistant, camera: Camera, start_time: int
 def _videos(directory: Path) -> list[Path]:
     # Names sort chronologically: <date>/<HHMMSS>.<ext>.
     return sorted(path for path in directory.glob("*/*")
-                  if path.suffix in (".mp4", ".ts"))
+                  if path.suffix in (".mp4", ".ts")
+                  and not is_second_lens(path))
 
 
 def _strays(directory: Path) -> list[Path]:
@@ -449,8 +489,8 @@ async def async_export(hass: HomeAssistant, camera: Camera, start_time: int,
         target = Path(destination) / camera_slug(camera) / source.parent.name
         target.mkdir(parents=True, exist_ok=True)
         written = []
-        for suffix in (source.suffix, ".jpg"):
-            origin = source.with_suffix(suffix)
+        frame = source.with_suffix(".jpg")
+        for origin in (source, frame, second_lens(source), second_lens(frame)):
             if origin.is_file():
                 shutil.copy2(origin, target / origin.name)
                 written.append(str(target / origin.name))
@@ -496,7 +536,9 @@ async def async_prune(hass: HomeAssistant, camera: Camera, keep: int,
         return []
     paths = [path for video in doomed
              for path in (video, video.with_suffix(".jpg"),
-                          video.with_suffix(".json"))]
+                          video.with_suffix(".json"),
+                          second_lens(video.with_suffix(".mp4")),
+                          second_lens(video.with_suffix(".jpg")))]
     removed = await hass.async_add_executor_job(_delete, paths)
     return [relative(hass, path) for path in removed]
 
@@ -659,7 +701,8 @@ def _newest_thumbnail(directory: Path) -> bytes | None:
     # itself, and a check that cannot change an answer is a line to read
     # rather than a guard.
     for day in sorted(directory.glob("*"), reverse=True):
-        newest = max(day.glob("*.jpg"), default=None)
+        newest = max((frame for frame in day.glob("*.jpg")
+                      if not is_second_lens(frame)), default=None)
         if newest is not None:
             return newest.read_bytes()
     return None

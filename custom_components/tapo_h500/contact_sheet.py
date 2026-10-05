@@ -22,7 +22,7 @@ from pathlib import Path
 from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.core import HomeAssistant
 
-from .media import camera_dir
+from .media import camera_dir, is_second_lens
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,7 +65,8 @@ def _thumbnails(directory: Path) -> list[Path]:
     if not directory.is_dir():
         return []
     return sorted(item for item in directory.iterdir()
-                  if item.is_file() and item.suffix == ".jpg")
+                  if item.is_file() and item.suffix == ".jpg"
+                  and not is_second_lens(item))
 
 
 def _stage(pictures: list[Path], into: Path) -> int:

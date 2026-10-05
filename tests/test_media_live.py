@@ -34,6 +34,24 @@ def _valid_ts(path: Path) -> None:
                     "-f", "mpegts", str(path)], check=True)
 
 
+def _dual_lens_ts(path: Path) -> None:
+    """Two video streams in one download, the way a dual-lens camera sends
+    them. Different sizes, so which lens landed where can be told apart."""
+    subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+                    "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.5",
+                    "-f", "lavfi", "-i", "color=c=white:s=32x32:d=0.5",
+                    "-map", "0:v", "-map", "1:v", "-f", "mpegts", str(path)],
+                   check=True)
+
+
+def _video_sizes(path: Path) -> list[str]:
+    """Each video stream's size, as ffmpeg describes the file."""
+    import re
+    described = subprocess.run([FFMPEG, "-hide_banner", "-i", str(path)],
+                               capture_output=True, text=True).stderr
+    return re.findall(r"Video: .*?, (\d+x\d+)", described)
+
+
 class _Hass(harness._Hass):
     def __init__(self, root: Path, allowed=()):
         super().__init__()
@@ -235,6 +253,99 @@ class Pruning(_World):
         self._seed(NOW)
         self.assertEqual(
             asyncio.run(media.async_prune(self.hass, CAMERA, 0)), [])
+
+
+@unittest.skipIf(FFMPEG is None, "ffmpeg is not installed")
+class SecondLens(_World):
+    """A dual-lens camera sends both lenses in every download, and the remux
+    kept one: ffmpeg selects a single video stream. Measured on a C575D --
+    the wide lens first, the telephoto second, both 4K HEVC."""
+
+    def _fetch(self, make):
+        source = self.root / "src.ts"
+        make(source)
+        return self._download(_Client(chunks=[source.read_bytes()]),
+                              convert=True)
+
+    def test_both_lenses_are_kept_side_by_side(self):
+        result = self._fetch(_dual_lens_ts)
+        clip = media.clip_path(self.hass, CAMERA, NOW, ".mp4")
+        lens2 = media.second_lens(clip)
+        self.assertEqual(lens2.name, clip.stem + ".lens2.mp4")
+        self.assertEqual(_video_sizes(clip), ["64x64"])
+        self.assertEqual(_video_sizes(lens2), ["32x32"])
+        self.assertTrue(clip.with_suffix(".jpg").is_file())
+        self.assertTrue(media.second_lens(clip.with_suffix(".jpg")).is_file())
+        self.assertEqual(result["second_lens"]["path"],
+                         media.relative(self.hass, lens2))
+
+    def test_a_one_lens_camera_writes_nothing_more(self):
+        result = self._fetch(_valid_ts)
+        clip = media.clip_path(self.hass, CAMERA, NOW, ".mp4")
+        self.assertTrue(clip.is_file())
+        self.assertFalse(media.second_lens(clip).exists())
+        self.assertNotIn("second_lens", result)
+        self.assertEqual(list(self.root.rglob("*.part")), [])
+
+    def test_the_second_lens_is_not_a_clip_of_its_own(self):
+        """Retention counts clips; the second lens rides with one."""
+        self._fetch(_dual_lens_ts)
+        clip = media.clip_path(self.hass, CAMERA, NOW, ".mp4")
+        self.assertEqual(media.existing_clip(self.hass, CAMERA, NOW), clip)
+        self.assertEqual(media._videos(media.camera_dir(self.hass, CAMERA)),
+                         [clip])
+
+    def _seed(self, start, lens2=True):
+        clip = media.clip_path(self.hass, CAMERA, start, ".mp4")
+        clip.parent.mkdir(parents=True, exist_ok=True)
+        for path, body in ((clip, b"wide"), (clip.with_suffix(".jpg"), b"w"),
+                           (clip.with_suffix(".json"), b"{}")):
+            path.write_bytes(body)
+        if lens2:
+            media.second_lens(clip).write_bytes(b"tele")
+            media.second_lens(clip.with_suffix(".jpg")).write_bytes(b"t")
+        return clip
+
+    def test_deleting_a_clip_deletes_its_second_lens(self):
+        clip = self._seed(NOW)
+        asyncio.run(media.async_delete_clip(self.hass, CAMERA, NOW))
+        self.assertEqual([p for p in clip.parent.parent.rglob("*")
+                          if p.is_file()], [])
+
+    def test_pruning_takes_the_second_lens_with_its_clip(self):
+        oldest = self._seed(NOW - 3000)
+        for offset in (2000, 1000, 0):
+            self._seed(NOW - offset)
+        asyncio.run(media.async_prune(self.hass, CAMERA, 3))
+        self.assertFalse(media.second_lens(oldest).exists())
+        self.assertFalse(
+            media.second_lens(oldest.with_suffix(".jpg")).exists())
+        kept = media.clip_path(self.hass, CAMERA, NOW - 2000, ".mp4")
+        self.assertTrue(media.second_lens(kept).exists(),
+                        "three clips kept means three, not one and a half")
+
+    def test_a_protected_clip_keeps_its_second_lens(self):
+        press = self._seed(NOW - 3000)
+        for offset in (2000, 1000, 0):
+            self._seed(NOW - offset)
+        asyncio.run(media.async_prune(
+            self.hass, CAMERA, 3, protected={NOW - 3000}))
+        self.assertTrue(media.second_lens(press).exists())
+
+    def test_an_export_carries_both_lenses(self):
+        self._seed(NOW)
+        result = asyncio.run(media.async_export(
+            self.hass, CAMERA, NOW, str(self.keep)))
+        names = sorted(p.name for p in self.keep.rglob("*") if p.is_file())
+        self.assertEqual(result["count"], 4)
+        self.assertTrue(any(name.endswith(".lens2.mp4") for name in names))
+
+    def test_the_camera_picture_stays_on_the_main_lens(self):
+        """The second lens's frame sorts after its clip's; the camera
+        entity's picture must not switch lenses because of it."""
+        self._seed(NOW)
+        self.assertEqual(asyncio.run(media.async_latest_image(
+            self.hass, CAMERA)), b"w")
 
 
 class TheSidecarBackfill(_World):

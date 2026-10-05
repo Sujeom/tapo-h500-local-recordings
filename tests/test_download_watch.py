@@ -118,6 +118,31 @@ class Counting(unittest.TestCase):
         self._run()
         self.assertEqual(self.coord.download_failures, {"Front": 1})
 
+    def test_a_clip_that_does_not_decode_takes_its_second_lens_with_it(self):
+        """Removed to be fetched again; the second lens of a dual-lens camera
+        is written from the same download and has no one else to clean it."""
+        async def bad_verify(hass, path):
+            return False
+
+        removed = []
+
+        async def record(fn, *args):
+            if getattr(fn, "__name__", "") == "unlink":
+                removed.append(fn.__self__.name)
+
+        calls = {"n": 0}
+
+        async def once(hass, camera, start):
+            calls["n"] += 1
+            return None if calls["n"] == 1 else Path("/media/x.mp4")
+
+        self._patch("async_verify", bad_verify)
+        self._patch("async_existing_clip", once)
+        self.coord.hass.async_add_executor_job = record
+        self.outcomes = [{}]
+        self._run()
+        self.assertEqual(sorted(removed), ["x.lens2.mp4", "x.mp4"])
+
 
 class Issue(unittest.TestCase):
     def test_it_is_checked_with_the_others(self):

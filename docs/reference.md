@@ -469,9 +469,10 @@ index one recording per event with two channel times and have only ever
 been asked for channel 0. A list such as `[1]`, `[2]` or `[1, 2]` asks the
 hub's media port for those channels instead, and the file is named after
 them (`HHMMSS_ch1.mp4`) beside the ordinary download, so the two can be
-compared. Which number the second lens answers on, and whether both come
-in one session, has not been seen yet; if you find out, say so on the
-issue tracker.
+compared. A C575D's download carries both lenses even when only channel 0
+is asked for, and every download of it already keeps both (see *Media
+layout*). What a C246D or C645D does with the list has not been seen; if you
+find out, say so on the issue tracker.
 
 ### `tapo_h500.classify_downloads`
 
@@ -997,11 +998,21 @@ they slug to the same directory.
 <media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.mp4
 <media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.jpg
 <media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.json
+<media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.lens2.mp4
+<media>/tapo_h500/<camera>/<YYYY-MM-DD>/<HHMMSS>.lens2.jpg
 ```
 
 The `.json` is a small sidecar recording what triggered the clip, written at
 download time because the hub's own index only reaches back a day. It powers
 the type folders below and is deleted whenever the clip is.
+
+The `.lens2` files exist only for a dual-lens camera. Its downloads carry
+both lenses, and the conversion to MP4 keeps them as two files: the main clip
+with the first lens, a C575D's fixed wide one, and `.lens2` with the second,
+its pan/tilt telephoto. They belong to that one clip -- deleted, pruned and
+exported with it, never counted as a recording of their own -- and appear in
+the media browser beside it as "14:30:22 · lens 2". With MP4 conversion off,
+the original MPEG-TS keeps both lenses in one file.
 
 Under **Media → Tapo H500** each camera and each date shows the newest frame
 beneath it as its cover, rather than a blank tile, so a month of days is
