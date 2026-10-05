@@ -909,6 +909,60 @@ def _local(moment: int) -> datetime:
     return _DT.as_local(_DT.utc_from_timestamp(moment))
 
 
+TS_PACKET = 188
+PTS_HZ = 90_000
+PTS_WRAP = 1 << 33
+
+
+class VideoSpan:
+    """Seconds of video an MPEG-TS stream has carried, off its own clock.
+
+    The hub never says how big a clip is, so bytes cannot become a
+    percentage. The stream's presentation timestamps, against the clip's
+    indexed length, can. Every video PES on every PID counts, because a
+    dual-lens camera sends both lenses over the same interval.
+    """
+
+    def __init__(self) -> None:
+        self._tail = b""
+        self._first: int | None = None
+        self._low = self._high = 0
+
+    @property
+    def seconds(self) -> float:
+        return (self._high - self._low) / PTS_HZ
+
+    def feed(self, data: bytes) -> float:
+        data = self._tail + data
+        index = 0
+        while index + TS_PACKET <= len(data):
+            if data[index] != 0x47:
+                index += 1          # not on a packet boundary; resynchronise
+                continue
+            self._packet(data[index:index + TS_PACKET])
+            index += TS_PACKET
+        self._tail = data[index:]
+        return self.seconds
+
+    def _packet(self, packet: bytes) -> None:
+        control = packet[3] >> 4 & 3
+        if not packet[1] & 0x40 or not control & 1:
+            return                  # no PES starts here
+        offset = 5 + packet[4] if control & 2 else 4
+        pes = packet[offset:]
+        if (len(pes) < 14 or pes[:3] != b"\x00\x00\x01"
+                or pes[3] & 0xF0 != 0xE0 or not pes[7] & 0x80):
+            return                  # not video, or no PTS
+        pts = ((pes[9] >> 1 & 7) << 30 | pes[10] << 22 | (pes[11] >> 1) << 15
+               | pes[12] << 7 | pes[13] >> 1)
+        if self._first is None:
+            self._first = pts
+        delta = (pts - self._first) % PTS_WRAP
+        if delta > PTS_WRAP // 2:
+            delta -= PTS_WRAP
+        self._low, self._high = min(self._low, delta), max(self._high, delta)
+
+
 def date_window(start_date: str, end_date: str) -> tuple[int, int]:
     """The epoch window [first, last) that YYYYMMDD dates span, inclusive.
 

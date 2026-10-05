@@ -285,6 +285,8 @@ def async_register(hass: HomeAssistant) -> None:
                     "detection_types": detection_types(clip),
                     "face_ids": face_ids(clip),
                     "downloaded": start in on_disk,
+                    "downloading": coordinator.downloading(
+                        call.data["camera_index"], start),
                     # A clip still only on the hub gets a preview URL rather
                     # than nothing. It is generated when something actually
                     # asks for the image, not here, so listing stays one call.
@@ -327,9 +329,17 @@ def async_register(hass: HomeAssistant) -> None:
             "convert_to_mp4",
             coordinator.entry.options.get(CONF_CONVERT_MP4, DEFAULT_CONVERT_MP4),
         )
-        result = await async_download_clip(
-            hass, coordinator.client, camera, start_time, end_time, convert,
-            detected=detected or None, channels=call.data.get("channels"))
+        report = coordinator.download_progress(
+            call.data["camera_index"], start_time, end_time)
+        try:
+            result = await async_download_clip(
+                hass, coordinator.client, camera, start_time, end_time,
+                convert, detected=detected or None,
+                channels=call.data.get("channels"), progress=report)
+        except Exception:
+            report("failed", 0, 0.0)
+            raise
+        report("done", result["bytes"], float(end_time - start_time))
         coordinator.async_update_listeners()
         return result
 

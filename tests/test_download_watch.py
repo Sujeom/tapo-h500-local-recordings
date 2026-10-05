@@ -37,7 +37,7 @@ class Counting(unittest.TestCase):
         self.outcomes: list = []
 
         async def fake_download(hass, client, camera, start, end, convert,
-                                detected=None, faces=None):
+                                detected=None, faces=None, progress=None):
             outcome = self.outcomes.pop(0)
             if isinstance(outcome, Exception):
                 raise outcome
@@ -118,6 +118,22 @@ class Counting(unittest.TestCase):
         self._run()
         self.assertEqual(self.coord.download_failures, {"Front": 1})
 
+    def test_an_automatic_download_publishes_its_progress_too(self):
+        """The same bar for a clip the integration fetched on its own."""
+        async def download(hass, client, camera, start, end, convert,
+                           detected=None, faces=None, channels=None,
+                           progress=None):
+            progress("downloading", 500, 7.5)
+            return {"path": "x.mp4", "bytes": 500}
+
+        self._patch("async_download_clip", download)
+        self._run()
+        events = [data for name, data in self.coord.hass.bus.fired
+                  if name == "tapo_h500_download_progress"]
+        self.assertEqual([e["stage"] for e in events], ["downloading", "done"])
+        self.assertEqual(events[0]["percent"], 50)
+        self.assertEqual(events[0]["camera_index"], 0)
+
     def test_a_clip_is_marked_downloading_only_while_its_download_runs(self):
         """What the preview path reads to stay out of the download's way: a
         tile's preview of a clip already on its way would fetch the same
@@ -125,7 +141,8 @@ class Counting(unittest.TestCase):
         seen = []
 
         async def download(hass, client, camera, start, end, convert,
-                           detected=None, faces=None, channels=None):
+                           detected=None, faces=None, channels=None,
+                           progress=None):
             seen.append(self.coord.downloading(0, start))
             return {"path": "x.mp4", "bytes": 1}
 

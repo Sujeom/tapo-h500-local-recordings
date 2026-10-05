@@ -377,6 +377,9 @@ const BASE_STYLE = `
   button:hover { background: var(--secondary-background-color); }
   button[disabled] { color: var(--disabled-text-color); cursor: default; }
   button.danger { color: var(--error-color, #db4437); }
+  .progress { display: inline-flex; align-items: center; gap: 0.4rem;
+              font-size: 0.85rem; color: var(--secondary-text-color); }
+  .progress progress { width: 6rem; height: 0.5rem; }
   .badge {
     display: inline-block; padding: 0 6px; border-radius: 8px;
     font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em;
@@ -437,6 +440,11 @@ class H500Base extends HTMLElement {
     this._recordings = null;
     this._busy = false;
     this._queued = false;
+    // Downloads in flight, by clip start: what the bar in that row shows.
+    // Filled by the listing (clips already on their way) and by the
+    // integration's progress events, which the first load subscribes to.
+    this._progress = new Map();
+    this._unsubscribe = null;
     // What was last written into the card, so an unchanged render can be
     // skipped. Cleared here because a reconfigure changes the styles and the
     // shape, and the old markup is no longer what is on screen.
@@ -547,12 +555,46 @@ class H500Base extends HTMLElement {
 
   disconnectedCallback() {
     clearInterval(this._timer);
+    if (this._unsubscribe) {
+      // subscribeEvents resolves to the unsubscribe function.
+      Promise.resolve(this._unsubscribe).then((stop) => stop && stop());
+      this._unsubscribe = null;
+    }
     if (this._visibility) {
       document.removeEventListener("visibilitychange", this._visibility);
       this._visibility = null;
     }
     clearTimeout(this._pulseTimer);
     this._pulseTimer = null;
+  }
+
+  /** Once per card: the integration's download progress, for the bars.
+   *
+   * A download runs for minutes on a slow camera, and the service call for
+   * a manual one does not return until it is over. The integration fires
+   * an event about once a second while it goes, for every download, manual
+   * or automatic, so one subscription draws every bar on the card.
+   */
+  _subscribe() {
+    if (this._unsubscribe || !this._hass?.connection?.subscribeEvents) return;
+    this._unsubscribe = this._hass.connection.subscribeEvents(
+      (event) => this._onProgress(event.data || {}),
+      "tapo_h500_download_progress");
+  }
+
+  async _onProgress(data) {
+    const entry = this._config.entry_id || this._resolvedEntry;
+    if (data.entry_id !== entry || Number(data.camera_index) !== this._index) return;
+    const key = String(Number(data.start_time));
+    if (data.stage === "done") {
+      // The row is a recording now: its thumbnail and file arrive with a
+      // fresh listing, which also drops the bar.
+      this._progress.delete(key);
+      await this._load();
+      return;
+    }
+    this._progress.set(key, { stage: data.stage, percent: data.percent });
+    this._render();
   }
 
   async _call(service, data) {
@@ -588,6 +630,7 @@ class H500Base extends HTMLElement {
 
   async _load() {
     if (!this._hass) return;
+    this._subscribe();
     // One request at a time, and none dropped.
     //
     // A busy flag that simply returned looked like it was protecting the hub
@@ -671,12 +714,23 @@ class H500Base extends HTMLElement {
         this._playing = this._playing === start ? null : start;
         this._render();
       } else if (action === "download") {
-        await this._call("download_recording", {
-          config_entry_id: await this._entryId(),
-          camera_index: this._index,
-          start_time: Number(start),
-          end_time: Number(end),
-        });
+        // The bar appears now, before the hub has sent a byte: the call
+        // below does not return until the whole clip is on disk, minutes
+        // for a 4K camera, and a disabled button is not an answer.
+        this._progress.set(String(Number(start)), { stage: "queued", percent: null });
+        this._render();
+        try {
+          await this._call("download_recording", {
+            config_entry_id: await this._entryId(),
+            camera_index: this._index,
+            start_time: Number(start),
+            end_time: Number(end),
+          });
+        } catch (err) {
+          this._progress.set(String(Number(start)), { stage: "failed", percent: null });
+          throw err;
+        }
+        this._progress.delete(String(Number(start)));
         await this._load();
       } else if (action === "name") {
         // Naming happens here rather than only in the options screen because
@@ -797,9 +851,30 @@ class H500Base extends HTMLElement {
            aria-label="Delete recording from ${spoken}">
            Delete
          </button>`
-      : `<button data-action="download" data-start="${Number(item.start_time)}"
+      : this._downloadControl(item, spoken);
+  }
+
+  /** The Download button, or the bar standing in for it while one runs. */
+  _downloadControl(item, spoken) {
+    const key = String(Number(item.start_time));
+    const progress = this._progress.get(key)
+      || (item.downloading ? { stage: "downloading", percent: null } : null);
+    const button = `<button data-action="download" data-start="${Number(item.start_time)}"
            data-end="${Number(item.end_time)}"
            aria-label="Download recording from ${spoken}">Download</button>`;
+    if (!progress) return button;
+    if (progress.stage === "failed") {
+      return `${button} <span class="progress">Download failed</span>`;
+    }
+    const known = Number.isFinite(progress.percent);
+    const percent = Number(Math.round(progress.percent));
+    const label = progress.stage === "converting" ? "Converting…"
+      : progress.stage === "queued" ? "Queued…"
+      : known ? `Downloading… ${Number(percent)}%` : "Downloading…";
+    // Indeterminate -- no value -- until the integration has said how far.
+    return `<span class="progress" role="status" aria-live="polite">
+        <progress ${known ? `value="${Number(percent)}" max="100"` : ""}
+          aria-label="${esc(label)} recording from ${spoken}"></progress>${esc(label)}</span>`;
   }
 
   _maxHeight() {

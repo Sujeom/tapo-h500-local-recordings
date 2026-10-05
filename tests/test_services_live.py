@@ -19,6 +19,7 @@ from homeassistant.exceptions import (  # noqa: E402
 )
 
 services = ha_stubs.real_module("services")
+coordinator_mod = harness.coordinator_mod
 dt_util = sys.modules["homeassistant.util.dt"]
 NOW = int(dt_util.utcnow().timestamp())
 
@@ -232,7 +233,8 @@ class DownloadRecording(_World):
         self.downloads = []
 
         async def download(hass, client, camera, start, end, convert,
-                          detected=None, faces=None, channels=None):
+                          detected=None, faces=None, channels=None,
+                           progress=None):
             self.downloads.append(
                 {"start": start, "end": end, "convert": convert,
                  "detected": detected, "channels": channels})
@@ -272,6 +274,45 @@ class DownloadRecording(_World):
                   start_time=NOW, end_time=NOW + 15)
         self.assertEqual([d["channels"] for d in self.downloads],
                          [[1, 2], None])
+
+    def test_a_manual_download_publishes_its_progress_and_its_end(self):
+        """The card draws its bar from these. Identified by entry, camera
+        and clip start so a card can match its own row; nothing in the
+        payload names the hub, the camera or a file."""
+        async def download(hass, client, camera, start, end, convert,
+                           detected=None, faces=None, channels=None,
+                           progress=None):
+            progress("downloading", 1000, 5.0)
+            progress("converting", 3000, 15.0)
+            return {"path": "x.mp4", "bytes": 3000}
+
+        self._patch("async_download_clip", download)
+        self.call("download_recording", camera_index=0,
+                  start_time=NOW, end_time=NOW + 15)
+        events = [data for name, data in self.hass.bus.fired
+                  if name == "tapo_h500_download_progress"]
+        self.assertEqual([e["stage"] for e in events],
+                         ["downloading", "converting", "done"])
+        self.assertEqual(events[0]["percent"], 33)
+        self.assertEqual(events[1]["percent"], 100)
+        self.assertEqual(events[2]["percent"], 100)
+        for event in events:
+            self.assertEqual((event["camera_index"], event["start_time"],
+                              event["duration"]), (0, NOW, 15))
+            self.assertEqual(event["entry_id"], self.coord.entry.entry_id)
+            self.assertNotIn("host", str(event))
+
+    def test_a_failed_manual_download_says_so(self):
+        async def download(*args, **kwargs):
+            raise coordinator_mod.HomeAssistantError("stalled")
+
+        self._patch("async_download_clip", download)
+        with self.assertRaises(services.HomeAssistantError):
+            self.call("download_recording", camera_index=0,
+                      start_time=NOW, end_time=NOW + 15)
+        stages = [data["stage"] for name, data in self.hass.bus.fired
+                  if name == "tapo_h500_download_progress"]
+        self.assertEqual(stages, ["failed"])
 
     def test_the_mp4_default_comes_from_the_options(self):
         self.coord.entry.options = {**self.coord.entry.options,
@@ -434,6 +475,15 @@ class ListRecordings(_World):
         answer = self.call("list_recordings", camera_index=0)
         self.assertEqual(answer["days"], 3)
         self.assertEqual(len(self.windows), 1)
+
+    def test_a_listing_says_which_clips_are_on_their_way(self):
+        """So a card can draw the bar on first paint for downloads already
+        in flight, before any progress event reaches it."""
+        self.coord._downloading = {0: {NOW - 60}}
+        by_start = {r["start_time"]: r for r in
+                    self.call("list_recordings", camera_index=0)["recordings"]}
+        self.assertTrue(by_start[NOW - 60]["downloading"])
+        self.assertFalse(by_start[NOW - 3600]["downloading"])
 
     def test_the_last_day_is_the_polls_and_the_hub_is_asked_once(self):
         """The common case, and the one every card ticks every minute. A

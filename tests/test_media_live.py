@@ -348,6 +348,53 @@ class SecondLens(_World):
             self.hass, CAMERA)), b"w")
 
 
+class Progress(_World):
+    """What a progress bar is drawn from. The hub never says how big a clip
+    is, so the report is video seconds off the stream's own clock, which
+    against the clip's indexed length is a percentage -- plus the bytes so
+    far, and the stage, because conversion comes after the last byte."""
+
+    def _reports(self, client, convert=False, **kwargs):
+        seen = []
+        self._download(client, convert=convert,
+                       progress=lambda stage, received, seconds:
+                       seen.append((stage, received, round(seconds, 2))),
+                       **kwargs)
+        return seen
+
+    def test_bytes_and_seconds_rise_as_the_stream_arrives(self):
+        import test_video_span as ts
+        chunks = [ts.frame(0), ts.frame(1), ts.frame(2)]
+        seen = self._reports(_Client(chunks=chunks))
+        stages = [stage for stage, _, _ in seen]
+        self.assertEqual(stages[0], "downloading")
+        self.assertEqual(seen[-1][1], 3 * 188, "every byte counted")
+        self.assertEqual(seen[-1][2], 2.0, "the stream's clock, not a guess")
+
+    def test_conversion_is_its_own_stage_after_the_last_byte(self):
+        source = self.root / "src.ts"
+        _valid_ts(source)
+        seen = self._reports(_Client(chunks=[source.read_bytes()]), convert=True)
+        self.assertEqual(seen[-1][0], "converting")
+        self.assertIn("downloading", [stage for stage, _, _ in seen])
+
+    def test_reports_are_throttled_but_the_first_chunk_is_immediate(self):
+        """A dual-lens 4K clip is a few hundred chunks over minutes; one
+        event per chunk would flood the bus for no visible gain. One a
+        second is plenty, and the first says the download has begun."""
+        import test_video_span as ts
+        chunks = [ts.frame(n * 0.01) for n in range(50)]
+        seen = self._reports(_Client(chunks=chunks))
+        downloading = [s for s in seen if s[0] == "downloading"]
+        self.assertGreaterEqual(len(downloading), 1)
+        self.assertLess(len(downloading), 50, "not one per chunk")
+
+    def test_no_callback_means_no_reports_and_no_error(self):
+        self._download(_Client())
+        self.assertTrue(
+            media.clip_path(self.hass, CAMERA, NOW, ".ts").is_file())
+
+
 class TheSidecarBackfill(_World):
     def _video(self, day_offset, second, sidecar=None):
         start = NOW - day_offset * 86400 - second

@@ -812,6 +812,9 @@ const SAFE_NAMES = new Set([
   // Markup built by another function in this file, already escaped there.
   "bars", "body", "grid", "picker", "rows", "strip", "tiles", "ticks",
   "frame", "mark", "hit", "live", "row", "tooltip",
+  // The Download button, built beside the bar that stands in for it from
+  // Number() and `spoken`, then used twice.
+  "button",
   // Escaped where it is built, so it is markup by the time it is used. Named
   // apart from the `when` Date objects beside it, so that stays checkable.
   "spoken",
@@ -1597,6 +1600,103 @@ test("a hostile face name cannot break out of the name button", () => {
 
 // Drives _onClick directly with a fake button, so the naming branch is
 // exercised rather than only its markup.
+// --- download progress -------------------------------------------------------
+
+/** A list card with one undownloaded clip, its hass subscribed to progress. */
+const withProgress = async (listing = {}) => {
+  const bus = { handler: null, unsubscribed: 0 };
+  const card = new TapoH500Card();
+  card.setConfig({ entry_id: "e" });
+  const calls = [];
+  const clip = { ...CLIPS[1], ...listing };
+  card._hass = {
+    states: {},
+    callWS: async () => [{ entry_id: "e" }],
+    connection: {
+      sendMessagePromise: async (message) => {
+        calls.push(message.service);
+        return { response: { recordings: [clip], camera: { alias: "Front" },
+                             days: 1, cameras: [] } };
+      },
+      subscribeEvents: async (handler, type) => {
+        bus.handler = handler; bus.type = type;
+        return () => { bus.unsubscribed += 1; };
+      },
+    },
+  };
+  await card._load();
+  return { card, bus, calls, clip };
+};
+const html = (card) => card._card.innerHTML;
+const progressEvent = (clip, data) => ({ data: {
+  entry_id: "e", camera_index: 0, start_time: clip.start_time,
+  duration: 15, stage: "downloading", bytes: 1, seconds: 0, percent: null,
+  ...data } });
+
+test("a clip the integration is already downloading shows a bar on first paint", async () => {
+  const { card, bus } = await withProgress({ downloading: true });
+  assert.ok(html(card).includes("<progress"), "a bar, not a Download button");
+  assert.ok(!html(card).includes('data-action="download"'));
+  assert.ok(!html(card).includes('value="'), "indeterminate until a report");
+  assert.equal(bus.type, "tapo_h500_download_progress", "subscribed once loaded");
+});
+
+test("a progress report fills the bar and says how far", async () => {
+  const { card, bus, clip } = await withProgress({ downloading: true });
+  bus.handler(progressEvent(clip, { percent: 42, seconds: 6.3 }));
+  assert.ok(html(card).includes('value="42"'), html(card));
+  assert.ok(html(card).includes("42%"));
+  bus.handler(progressEvent(clip, { stage: "converting", percent: 100 }));
+  assert.ok(html(card).includes("Converting"));
+});
+
+test("a report for another camera or clip is not this row's", async () => {
+  const { card, bus, clip } = await withProgress({ downloading: true });
+  bus.handler(progressEvent(clip, { camera_index: 1, percent: 42 }));
+  bus.handler(progressEvent(clip, { start_time: clip.start_time + 5, percent: 42 }));
+  bus.handler(progressEvent(clip, { entry_id: "other", percent: 42 }));
+  assert.ok(!html(card).includes('value="42"'));
+});
+
+test("done reloads the listing so the row turns into a recording", async () => {
+  const { card, bus, calls, clip } = await withProgress({ downloading: true });
+  const before = calls.length;
+  bus.handler(progressEvent(clip, { stage: "done", percent: 100 }));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(calls.length, before + 1, "one fresh listing");
+});
+
+test("clicking Download shows the bar before the hub has answered", async () => {
+  const { card, clip } = await withProgress();
+  assert.ok(html(card).includes('data-action="download"'));
+  let finish;
+  card._call = (service) => new Promise((resolve) => { finish = resolve; });
+  card._entryId = async () => "e";
+  card._load = async () => {};
+  const button = { dataset: { action: "download", start: String(clip.start_time),
+                              end: String(clip.start_time + 15) }, disabled: false };
+  const pressed = card._onClick({ target: { closest: () => button } });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(html(card).includes("<progress"), "a bar the moment it is pressed");
+  assert.ok(!html(card).includes('data-action="download"'), "button gone");
+  finish({});
+  await pressed;
+});
+
+test("a failed download gives the button back and says so", async () => {
+  const { card, bus, clip } = await withProgress({ downloading: true });
+  bus.handler(progressEvent(clip, { stage: "failed", percent: null }));
+  assert.ok(html(card).includes('data-action="download"'), "try again");
+  assert.ok(html(card).includes("failed"));
+});
+
+test("leaving the dashboard unsubscribes", async () => {
+  const { card, bus } = await withProgress();
+  card.disconnectedCallback();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(bus.unsubscribed, 1);
+});
+
 const clickName = async (card, answer, face = "7", current = "") => {
   const calls = [];
   card._error = null;

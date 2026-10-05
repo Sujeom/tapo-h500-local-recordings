@@ -458,8 +458,9 @@ end_date: "20260812"
 
 Dates use `YYYYMMDD` in UTC and default to today. Each returned recording
 carries exact `start_time`/`end_time` boundaries, a `duration`, the classified
-`event_type`, the hub's raw `video_type`, and `downloaded`. Already-downloaded
-recordings also carry `url`, `thumbnail`, `path` and `media_content_id`.
+`event_type`, the hub's raw `video_type`, `downloaded`, and `downloading` for a
+clip the integration is fetching right now. Already-downloaded recordings also
+carry `url`, `thumbnail`, `path` and `media_content_id`.
 
 The last day is answered from the integration's own poll, which already holds
 every camera's recent clips with their detections, so a card's listing costs
@@ -959,6 +960,24 @@ nothing downstream re-implements a window that wraps midnight — and
 The **Tapo H500 announce a visit** blueprint is built on it: one message per
 visitor, with an optional strangers-only filter, an after-dark gate, and the
 snooze switch.
+
+### Download progress
+
+`tapo_h500_download_progress` fires while a recording is being fetched,
+whether you pressed **Download** on a card or the integration fetched it on
+its own: about once a second while the bytes come in, once as conversion
+starts, and once at the end with `done` or `failed`. The cards draw their
+progress bars from it, and the bar appears the moment **Download** is pressed
+rather than when the clip lands minutes later; a clip the integration is
+already fetching shows its bar on first paint, because `list_recordings` marks
+such clips `downloading`.
+
+The payload carries `entry_id`, `camera_index` and `start_time`, which is how
+a card matches its own row, plus `stage`, `bytes` so far, `seconds` of video
+received, `duration` of the clip, and `percent`. The percentage is honest: the
+hub never says how big a clip is, so it is read off the stream's own
+timestamps against the clip's indexed length, not guessed from bytes. Nothing
+in it names the hub, a camera or a file.
 
 **Two cameras watching one path still fire once.** Visits at different cameras
 within 30 seconds are one arrival, and so are visits up to three minutes apart

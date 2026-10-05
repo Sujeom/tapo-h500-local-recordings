@@ -1,7 +1,7 @@
 """Polls the hub, turns new activity into events, and downloads rings."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from .api import H500Client
@@ -39,6 +39,7 @@ from .const import (
     CONF_AUTO_RESTART,
     DEFAULT_AUTO_RESTART,
     EVENT_AUTO_RESTART,
+    EVENT_DOWNLOAD_PROGRESS,
     FIRMWARE_CHECK_SECONDS, LISTING_MEMO_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
     MEDIA_EVIDENCE_MAX_AGE,
     POLL_BACKOFF_MAX, POLL_IDLE_AFTER, POLL_IDLE_INTERVAL, PROWL_WINDOW,
@@ -1509,6 +1510,39 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         """Whether this clip is queued for download or being downloaded."""
         return start_time in self._downloading.get(index, ())
 
+    def download_progress(self, index: int, start_time: int,
+                          end_time: int) -> Callable[[str, int, float], None]:
+        """A reporter that publishes one download's progress on the bus.
+
+        One shape for a manual download and an automatic one, so a card
+        draws the same bar for both: the entry, camera index and clip start
+        it already has, to match its own row; the stage; bytes so far;
+        seconds of video received; and a percentage of the clip's indexed
+        length -- the hub never says how big a clip is, so bytes cannot be
+        turned into one, but the stream's own clock can. Nothing in it
+        names the hub, the camera or a file.
+        """
+        duration = max(0, end_time - start_time)
+
+        def report(stage: str, received: int, seconds: float) -> None:
+            if stage in ("converting", "done"):
+                percent: int | None = 100
+            elif stage == "failed" or not duration:
+                percent = None
+            else:
+                percent = min(100, int(round(100 * seconds / duration)))
+            self.hass.bus.async_fire(EVENT_DOWNLOAD_PROGRESS, {
+                "entry_id": self.entry.entry_id,
+                "camera_index": index,
+                "start_time": start_time,
+                "duration": duration,
+                "stage": stage,
+                "bytes": received,
+                "seconds": round(seconds, 1),
+                "percent": percent,
+            })
+        return report
+
     async def _download(self, index: int, camera: Camera,
                         clip: Clip) -> None:
         start_time = start_of(clip)
@@ -1531,16 +1565,19 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
             return
         if await async_existing_clip(self.hass, camera, start_time) is not None:
             return
+        report = self.download_progress(index, start_time, end_time)
         try:
             result = await async_download_clip(
                 self.hass, self.client, camera, start_time, end_time,
                 convert=self.entry.options.get(
                     CONF_CONVERT_MP4, DEFAULT_CONVERT_MP4),
                 detected=detection_types(clip), faces=face_ids(clip),
+                progress=report,
             )
         except EmptyRecordingError as err:
             _LOGGER.warning("Automatic download of clip %s failed: %s",
                             start_time, err)
+            report("failed", 0, 0.0)
             self._download_failures[index] = (
                 self._download_failures.get(index, 0) + 1)
             self._remember_failed_clip(index, start_time)
@@ -1549,10 +1586,12 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         except HomeAssistantError as err:
             _LOGGER.warning("Automatic download of clip %s failed: %s",
                             start_time, err)
+            report("failed", 0, 0.0)
             self._download_failures[index] = (
                 self._download_failures.get(index, 0) + 1)
             self._remember_failed_clip(index, start_time)
             return
+        report("done", result["bytes"], float(end_time - start_time))
         _LOGGER.debug("Downloaded %s (%s bytes)", result["path"], result["bytes"])
         # Verified now, while the hub still holds the original. A truncated
         # file looks identical to a good one on disk, and the only moment it

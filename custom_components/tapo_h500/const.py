@@ -507,6 +507,12 @@ SIGNAL_FACES_CHANGED = f"{DOMAIN}_faces_changed"
 # Only for faces that have been named. An unnamed id arriving is a stranger
 # appearing, which is what the detection event already says.
 EVENT_ARRIVAL = f"{DOMAIN}_arrival"
+# A download's progress, for the cards' bars: entry, camera index, clip start,
+# stage, bytes, seconds of video received, and a percentage of the clip's
+# indexed length. Fired at most once a second per download, then once at the
+# end with "done" or "failed".
+EVENT_DOWNLOAD_PROGRESS = f"{DOMAIN}_download_progress"
+DOWNLOAD_PROGRESS_INTERVAL = 1.0
 
 # How close together two CAMERAS' visits have to be to be one arrival.
 #

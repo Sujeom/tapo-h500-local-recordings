@@ -6,7 +6,7 @@ so "is this already downloaded?" is a path check rather than a stored index.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 if TYPE_CHECKING:
     from .api import H500Client
@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import tempfile
 import shutil
 from datetime import datetime, timedelta
@@ -28,10 +29,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
-from .clips import camera_slug, surplus
+from .clips import VideoSpan, camera_slug, surplus
 from .const import (
     DOMAIN,
-    CONVERT_ARGS, MEDIA_DIR, PREVIEW_KEEP, PREVIEW_MAX_BYTES, PREVIEW_SECONDS,
+    CONVERT_ARGS, DOWNLOAD_PROGRESS_INTERVAL, MEDIA_DIR, PREVIEW_KEEP,
+    PREVIEW_MAX_BYTES, PREVIEW_SECONDS,
     THUMBNAIL_ARGS,
 )
 
@@ -295,8 +297,15 @@ async def async_download_clip(
     hass: HomeAssistant, client: H500Client, camera: Camera, start_time: int, end_time: int,
     convert: bool = True, detected: list[int] | None = None,
     faces: list[int] | None = None, channels: list[int] | None = None,
+    progress: Callable[[str, int, float], None] | None = None,
 ) -> dict:
     """Stream one indexed clip to disk, then remux and thumbnail it.
+
+    `progress`, when given, is told how it is going: the stage, bytes so
+    far, and seconds of video off the stream's own clock -- at most once a
+    second while downloading, since a dual-lens 4K clip is a few hundred
+    chunks over minutes, then once more as conversion starts. The caller
+    knows how it ends, so "done" and "failed" are its to report.
 
     `detected` is what triggered the recording, when the caller knows. It is
     written to a JSON sidecar beside the clip, because the hub's own index
@@ -319,6 +328,8 @@ async def async_download_clip(
     lens2: Path | None = None
     stream = os.fdopen(descriptor, "wb")
     received = 0
+    span = VideoSpan() if progress else None
+    reported, told = -DOWNLOAD_PROGRESS_INTERVAL, 0
     try:
         # The keyword only when a lens was chosen: the probe is the exception,
         # and every other caller and double speaks the verified signature.
@@ -327,10 +338,22 @@ async def async_download_clip(
                 **({"channels": channels} if channels else {})):
             received += len(chunk)
             await hass.async_add_executor_job(stream.write, chunk)
+            if span is not None:
+                seconds = span.feed(chunk)
+                if time.monotonic() - reported >= DOWNLOAD_PROGRESS_INTERVAL:
+                    reported, told = time.monotonic(), received
+                    progress("downloading", received, seconds)
         if received == 0:
             raise EmptyRecordingError("H500 returned no video data")
+        # The end state is always told, throttle or not: the last chunks of
+        # a clip land inside one second, and a bar that stopped short of
+        # them would sit at 94% until "done" arrived.
+        if span is not None and told != received:
+            progress("downloading", received, span.seconds)
         await hass.async_add_executor_job(stream.close)
         stream = None
+        if span is not None and convert:
+            progress("converting", received, span.seconds)
         if convert:
             descriptor, remuxed = await hass.async_add_executor_job(
                 _make_temp, target.parent, ".mp4.part")
