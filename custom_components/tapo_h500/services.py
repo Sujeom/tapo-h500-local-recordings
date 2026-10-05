@@ -239,9 +239,8 @@ def async_register(hass: HomeAssistant) -> None:
             start_date, end_date = window_dates(
                 days, int(dt_util.utcnow().timestamp()))
         try:
-            camera, recordings = await hass.async_add_executor_job(
-                coordinator.client.recordings, call.data["camera_index"],
-                start_date, end_date)
+            camera, recordings = await coordinator.async_recordings(
+                call.data["camera_index"], start_date, end_date)
         except ValueError as err:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,

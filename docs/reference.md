@@ -461,6 +461,13 @@ carries exact `start_time`/`end_time` boundaries, a `duration`, the classified
 `event_type`, the hub's raw `video_type`, and `downloaded`. Already-downloaded
 recordings also carry `url`, `thumbnail`, `path` and `media_content_id`.
 
+The last day is answered from the integration's own poll, which already holds
+every camera's recent clips with their detections, so a card's listing costs
+the hub nothing for it. Only the part of a window before that is asked of the
+hub, and that answer is kept for fifteen minutes: past days never gain a clip.
+A seven-day card ticking every minute therefore asks the hub once a quarter
+hour rather than three times a minute, and the newest clips are always fresh.
+
 ### `tapo_h500.download_recording`
 
 ```yaml

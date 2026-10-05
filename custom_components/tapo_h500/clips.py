@@ -7,7 +7,7 @@ without a hub or an installed Home Assistant.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import re
@@ -907,6 +907,26 @@ def _local(moment: int) -> datetime:
         from homeassistant.util import dt as dt_util
         _DT = dt_util
     return _DT.as_local(_DT.utc_from_timestamp(moment))
+
+
+def date_window(start_date: str, end_date: str) -> tuple[int, int]:
+    """The epoch window [first, last) that YYYYMMDD dates span, inclusive.
+
+    The dates are UTC, as the hub's searches and the cards' windows are.
+    Raises ValueError with the wording the service turns into a validation
+    error against the field.
+    """
+    for label, value in (("start_date", start_date), ("end_date", end_date)):
+        try:
+            datetime.strptime(value, "%Y%m%d")
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"{label} must use YYYYMMDD") from err
+    if start_date > end_date:
+        raise ValueError("start_date must not be after end_date")
+    first = datetime.strptime(start_date, "%Y%m%d").replace(tzinfo=timezone.utc)
+    last = datetime.strptime(end_date, "%Y%m%d").replace(
+        tzinfo=timezone.utc) + timedelta(days=1)
+    return int(first.timestamp()), int(last.timestamp())
 
 
 def window_dates(days: int, now: int) -> tuple[str, str]:

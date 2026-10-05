@@ -404,13 +404,24 @@ class ListRecordings(_World):
     def setUp(self):
         super().setUp()
         self.windows = []
+        # What the poll already holds: the last day of clips, detections
+        # attached. A one-day listing is answered from here and nowhere else.
+        self.coord.data = {"clips": {0: [clip(NOW - 60), clip(NOW - 3600)],
+                                     1: []}}
+        self.hub_clips = [clip(NOW - 60), clip(NOW - 3600)]
 
-        def recordings(index, start_date, end_date):
+        def search_recordings(camera, start_date, end_date):
             self.windows.append((start_date, end_date))
-            return self.coord.cameras[index], [clip(NOW - 60),
-                                               clip(NOW - 3600)]
+            return list(self.hub_clips)
 
-        self.client.recordings = recordings
+        self.client.search_recordings = search_recordings
+
+        def never(*args):
+            raise AssertionError("the camera is the coordinator's to resolve, "
+                                 "not a hub round trip")
+
+        self.client.camera_at = never
+        self.client.recordings = never
         self._patch("scan_downloaded",
                     lambda hass, camera, starts: {NOW - 3600: Path("x.mp4")})
         self._patch("describe", lambda hass, path: {"thumbnail": "/local/x.jpg"})
@@ -424,11 +435,71 @@ class ListRecordings(_World):
         self.assertEqual(answer["days"], 3)
         self.assertEqual(len(self.windows), 1)
 
+    def test_the_last_day_is_the_polls_and_the_hub_is_asked_once(self):
+        """The common case, and the one every card ticks every minute. A
+        one-local-day window asks for the UTC dates that span it, which
+        reaches back past the poll's day, so the hub is asked for that
+        sliver -- once, then kept -- and never for the day the poll holds,
+        which arrives fresh on every call. Three hub round trips a minute
+        were what a card's load time was made of once a slow camera kept
+        the hub busy."""
+        self.hub_clips = [clip(NOW - 60)]      # the hub's copy of a recent clip
+        for _ in range(3):
+            answer = self.call("list_recordings", camera_index=0)
+        self.assertEqual(self.windows, [("20260812", "20260812")],
+                         "asked once, and only up to where the poll takes over")
+        self.assertEqual(sorted(r["start_time"] for r in answer["recordings"]),
+                         [NOW - 3600, NOW - 60])
+
+    def test_a_wider_window_asks_the_hub_once_then_reuses_the_answer(self):
+        """A seven-day grid ticks every minute; past days do not change."""
+        self.hub_clips = [clip(NOW - 3 * 86400)]
+        for _ in range(3):
+            answer = self.call("list_recordings", camera_index=0,
+                               start_date="20260801", end_date="20260813")
+        self.assertEqual(self.windows, [("20260801", "20260812")],
+                         "once, and never for the day the poll holds")
+        self.assertIn(NOW - 3 * 86400,
+                      [r["start_time"] for r in answer["recordings"]])
+
+    def test_the_recent_part_of_a_wide_window_comes_from_the_poll(self):
+        """A clip the poll noticed after the hub was asked still appears:
+        the memo supplies only what the poll window cannot, and the poll
+        supplies the last day, fresh."""
+        self.hub_clips = [clip(NOW - 3 * 86400), clip(NOW - 60)]
+        self.call("list_recordings", camera_index=0,
+                  start_date="20260801", end_date="20260813")
+        self.coord.data = {"clips": {0: [clip(NOW - 60), clip(NOW - 30)],
+                                     1: []}}
+        answer = self.call("list_recordings", camera_index=0,
+                           start_date="20260801", end_date="20260813")
+        starts = sorted(r["start_time"] for r in answer["recordings"])
+        self.assertEqual(starts, [NOW - 3 * 86400, NOW - 60, NOW - 30])
+        self.assertEqual(len(self.windows), 1, "still one hub call")
+
+    def test_a_stale_memo_is_asked_again(self):
+        self.call("list_recordings", camera_index=0,
+                  start_date="20260801", end_date="20260813")
+        key = next(iter(self.coord._listings))
+        fetched_at, clips = self.coord._listings[key]
+        self.coord._listings[key] = (
+            fetched_at - harness.const.LISTING_MEMO_SECONDS - 1, clips)
+        self.call("list_recordings", camera_index=0,
+                  start_date="20260801", end_date="20260813")
+        self.assertEqual(len(self.windows), 2)
+
+    def test_cameras_keep_their_own_memo(self):
+        self.call("list_recordings", camera_index=0,
+                  start_date="20260801", end_date="20260813")
+        self.call("list_recordings", camera_index=1,
+                  start_date="20260801", end_date="20260813")
+        self.assertEqual(len(self.windows), 2)
+
     def test_an_explicit_window_is_respected_and_uncaptioned(self):
         answer = self.call("list_recordings", camera_index=0,
-                           start_date="20260828", end_date="20260830")
+                           start_date="20260801", end_date="20260803")
         self.assertIsNone(answer["days"])
-        self.assertEqual(self.windows, [("20260828", "20260830")])
+        self.assertEqual(self.windows, [("20260801", "20260803")])
 
     def test_downloaded_clips_carry_their_file_and_the_rest_a_preview(self):
         answer = self.call("list_recordings", camera_index=0)
@@ -482,22 +553,20 @@ class WhenTheHubSaysNo(_World):
         self.assertEqual(caught.exception.translation_key,
                          "cannot_list_cameras")
 
-    def test_a_bad_date_reaching_the_hub_is_the_callers_mistake(self):
-        def refuse(index, start_date, end_date):
-            raise ValueError("start_date must use YYYYMMDD")
-
-        self.client.recordings = refuse
+    def test_a_bad_date_is_the_callers_mistake(self):
         with self.assertRaises(services.ServiceValidationError):
             self.call("list_recordings", camera_index=0,
                       start_date="not-a-date", end_date="20260830")
 
     def test_a_search_the_hub_fails_is_reported_as_a_failure(self):
-        def wedged(index, start_date, end_date):
+        """Only a window the poll cannot cover reaches the hub at all."""
+        def wedged(camera, start_date, end_date):
             raise RuntimeError("hub busy")
 
-        self.client.recordings = wedged
+        self.client.search_recordings = wedged
         with self.assertRaises(services.HomeAssistantError) as caught:
-            self.call("list_recordings", camera_index=0)
+            self.call("list_recordings", camera_index=0,
+                      start_date="20260801", end_date="20260813")
         self.assertNotIsInstance(caught.exception,
                                  services.ServiceValidationError)
         self.assertEqual(caught.exception.translation_key,

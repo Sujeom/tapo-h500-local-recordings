@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 from collections import deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 
@@ -18,7 +18,7 @@ from pytapo.media_stream import session as media_session
 from pytapo.media_stream.crypto import AESHelper
 from pytapo.media_stream.session import HttpMediaSession
 
-from .clips import attach_detections, flatten_clips, start_of
+from .clips import attach_detections, date_window, flatten_clips, start_of
 from .models import Camera, Clip, Detection, HubStatus
 from .const import SESSION_HISTORY
 from .status import (
@@ -486,16 +486,18 @@ class H500Client:
                    end_date: str | None = None
                    ) -> tuple[Camera, list[Clip]]:
         camera = self.camera_at(camera_index)
+        return camera, self.search_recordings(camera, start_date, end_date)
+
+    def search_recordings(self, camera: Camera, start_date: str | None = None,
+                          end_date: str | None = None) -> list[Clip]:
+        """The hub's own listing for a camera over a date range: one clip
+        search and one detection search. The camera record comes from the
+        caller -- the coordinator already holds it -- so this costs the hub
+        nothing to find out which camera is meant."""
         today = datetime.now(timezone.utc).strftime("%Y%m%d")
         start_date = start_date or today
         end_date = end_date or today
-        for label, value in (("start_date", start_date), ("end_date", end_date)):
-            try:
-                datetime.strptime(value, "%Y%m%d")
-            except (TypeError, ValueError) as err:
-                raise ValueError(f"{label} must use YYYYMMDD") from err
-        if start_date > end_date:
-            raise ValueError("start_date must not be after end_date")
+        first_epoch, last_epoch = date_window(start_date, end_date)
         # Search the range that was asked for, as one epoch window.
         #
         # This used to ask searchDateWithVideo which dates held video and then
@@ -506,12 +508,7 @@ class H500Client:
         # midnight local, because those sit on the next UTC date, which the hub
         # never names. searchVideoWithUTC takes plain epoch seconds and spans
         # days happily, so the date lookup bought a round trip and a bug.
-        first = datetime.strptime(start_date, "%Y%m%d").replace(
-            tzinfo=timezone.utc)
-        last = datetime.strptime(end_date, "%Y%m%d").replace(
-            tzinfo=timezone.utc) + timedelta(days=1)
-        found = self._search_videos(
-            camera, first.timestamp(), last.timestamp() - 1)
+        found = self._search_videos(camera, first_epoch, last_epoch - 1)
         for clip in found:
             moment = start_of(clip)
             if moment is not None:
@@ -525,7 +522,7 @@ class H500Client:
             if moments:
                 attach_detections(found, self.detections(
                     camera, min(moments) - 60, max(moments) + 60))
-        return camera, found
+        return found
 
     def recent(self, camera: Camera, start_time: int,
                end_time: int, channel: int = 0) -> list[Clip]:

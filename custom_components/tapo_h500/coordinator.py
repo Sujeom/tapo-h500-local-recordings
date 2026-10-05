@@ -19,7 +19,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .clips import (
-    attach_detections, combine_visits, describe_codes, detection_types,
+    attach_detections, combine_visits, date_window, describe_codes, detection_types,
     direction, end_of, event_type, face_ids, has_detection, in_night,
     local_date, local_hour, merge_visits, newest_matching, prowling,
     same_encounter, sessions, start_of, suggest_ranks,
@@ -39,7 +39,7 @@ from .const import (
     CONF_AUTO_RESTART,
     DEFAULT_AUTO_RESTART,
     EVENT_AUTO_RESTART,
-    FIRMWARE_CHECK_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
+    FIRMWARE_CHECK_SECONDS, LISTING_MEMO_SECONDS, LOOKBACK_SECONDS, MEDIA_CHECK_SECONDS,
     MEDIA_EVIDENCE_MAX_AGE,
     POLL_BACKOFF_MAX, POLL_IDLE_AFTER, POLL_IDLE_INTERVAL, PROWL_WINDOW,
     SIGNAL_NEW_CLIP,
@@ -117,6 +117,11 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
         self.readings: dict = {}
         self._seen_events: dict[int, set[int]] = {}
         self._seen_clips: dict[int, set[int]] = {}
+        # Listings the hub was asked for over a window the poll cannot
+        # cover: (camera index, start_date, end_date) -> (fetched_at, clips).
+        # Past days do not change, so an answer is kept LISTING_MEMO_SECONDS;
+        # the last day comes from the poll on every call, fresh.
+        self._listings: dict[tuple[int, str, str], tuple[float, list]] = {}
         # Clips queued for download or being downloaded, by camera index.
         # Read by the preview path: a clip already on its way gets its frame
         # from the download, not from a second session for the same bytes.
@@ -643,6 +648,60 @@ class H500Coordinator(DataUpdateCoordinator[dict[int, list[dict]]]):
 
     def clips_for(self, index: int) -> list[dict]:
         return (self.data or {}).get("clips", {}).get(index, [])
+
+    async def async_recordings(self, index: int, start_date: str,
+                               end_date: str) -> tuple[Camera, list[dict]]:
+        """A camera's recordings over a date range, from what is already
+        known before anything is asked of the hub.
+
+        A card lists on first paint and every minute after, and every card
+        type does. That listing cost three hub round trips -- one to learn
+        which camera was meant, one for the clips, one for the detections
+        -- while the poll was already holding the last day of all of it,
+        detections attached, and the hub was busy for minutes at a time
+        serving a dual-lens 4K camera's downloads. The cards were waiting
+        in that queue.
+
+        The camera is the coordinator's own record. The split is by clip,
+        not by window: a card covering one local day asks for the UTC dates
+        that span it, which west of UTC reaches back past the poll's
+        lookback, so "does the window fit the poll" would send the common
+        case to the hub. Every clip from the last day is the poll's, fresh,
+        on every call. Only the part of the window before that is asked of
+        the hub -- scoped to those dates, not the whole window -- and the
+        answer is kept a while: past days do not gain clips, they only lose
+        them to the hub's loop recording, which a bounded memo tolerates.
+        """
+        if index < 0 or index >= len(self.cameras):
+            raise ValueError(
+                f"Camera index must be between 0 and {len(self.cameras) - 1}")
+        camera = self.cameras[index]
+        first, last = date_window(start_date, end_date)
+        now = dt_util.utcnow().timestamp()
+        fresh_from = now - LOOKBACK_SECONDS
+        recent = [clip for clip in self.clips_for(index)
+                  if first <= (start_of(clip) or -1) < last]
+        if first >= fresh_from:
+            return camera, sorted(recent, key=lambda c: start_of(c) or 0)
+        # The hub is asked only up to the day the poll takes over. That date
+        # moves once a day, so a card's key is stable between midnights.
+        until = min(end_date, dt_util.utc_from_timestamp(fresh_from)
+                    .strftime("%Y%m%d"))
+        key = (index, start_date, until)
+        kept = self._listings.get(key)
+        if kept is None or now - kept[0] > LISTING_MEMO_SECONDS:
+            listed = await self.hass.async_add_executor_job(
+                self.client.search_recordings, camera, start_date, until)
+            self._listings[key] = (now, listed)
+            for stale in [k for k, (at, _) in self._listings.items()
+                          if now - at > LISTING_MEMO_SECONDS]:
+                del self._listings[stale]
+            kept = self._listings[key]
+        older = [clip for clip in kept[1]
+                 if (start_of(clip) or -1) < fresh_from]
+        seen = {start_of(clip) for clip in recent}
+        merged = recent + [c for c in older if start_of(c) not in seen]
+        return camera, sorted(merged, key=lambda c: start_of(c) or 0)
 
     async def async_latest_frame(self, index: int, camera: dict) -> bytes | None:
         """The newest indexed clip's frame, fetched from the hub if need be.

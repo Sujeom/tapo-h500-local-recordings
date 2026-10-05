@@ -204,6 +204,13 @@ DEFAULT_KEEP_DOWNLOADS = 0
 # without it those sensors would be blank whenever nothing happened recently.
 LOOKBACK_SECONDS = 86400
 
+# How long a listing the hub was asked for over a window wider than the poll's
+# lookback is kept. The cards tick every minute; past days never gain a clip,
+# they only lose one to the hub's loop recording, which a listing this stale
+# can still name for a few minutes before the thumbnail 404s. The last day is
+# never served from this -- it is the poll's, fresh, on every call.
+LISTING_MEMO_SECONDS = 900
+
 # How long a recording the download filter turned away stays open to a second
 # look. A clip is judged on the detection the poll attached to it, and the hub
 # revises a detection in place while an event unfolds -- motion on the first
