@@ -2,6 +2,16 @@
 
 Generated from the tag annotations by `tools/publish-releases.py --changelog`. Every entry is the note written when that version was tagged.
 
+## v0.129.0 &mdash; 2026-10-05
+
+A progress bar for downloads
+
+Press Download on a card and a bar appears at once, climbing as the clip
+comes in and turning into the recording when it lands. A clip the
+integration is already fetching shows its bar too. The percentage is read
+off the stream itself, so it is real. The same progress is a
+tapo_h500_download_progress event, for automations that want it.
+
 ## v0.128.0 &mdash; 2026-10-05
 
 Cards list recordings without asking the hub
