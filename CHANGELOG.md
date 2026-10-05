@@ -2,6 +2,16 @@
 
 Generated from the tag annotations by `tools/publish-releases.py --changelog`. Every entry is the note written when that version was tagged.
 
+## v0.127.0 &mdash; 2026-10-05
+
+Dashboard cards stay quick beside a slow camera
+
+The hub serves one media session at a time, and a dual-lens 4K camera's
+clip download holds it for minutes. Card thumbnails and the camera picture
+now go ahead of queued downloads instead of waiting behind them, and a
+clip already on its way is not previewed twice. Cards that had slowed down
+after adding such a camera load quickly again.
+
 ## v0.126.0 &mdash; 2026-10-05
 
 Both lenses of a dual-lens camera
